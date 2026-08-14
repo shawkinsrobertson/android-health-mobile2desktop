@@ -1,0 +1,31 @@
+### Secrets — never commit real credentials ###
+**/local.properties
+**/.env
+**/.env.local
+**/.env.*.local
+supabase/.env
+
+### Android / Gradle ###
+android/.gradle/
+android/build/
+android/app/build/
+android/*/build/
+android/.idea/
+android/*.iml
+android/captures/
+android/.cxx/
+android/local.properties
+
+### Next.js / Node ###
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+dashboard/build/
+dashboard/.vercel/
+dashboard/*.tsbuildinfo
+dashboard/npm-debug.log*
+
+### OS / editor ###
+.DS_Store
+*.swp
+.vscode/
