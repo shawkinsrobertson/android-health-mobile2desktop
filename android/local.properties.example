@@ -1,0 +1,12 @@
+# Copy this file to `local.properties` (same directory) and fill in real
+# values. `local.properties` is gitignored — never commit real credentials.
+#
+# Android Studio will also write `sdk.dir` into this file automatically the
+# first time you open the project; leave that line alone if it appears.
+
+# Your Supabase project URL, e.g. https://xxxxxxxxxxxx.supabase.co
+SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+
+# Project Settings -> API -> "anon" "public" key. Do NOT use the
+# service_role key here — this ships inside the app.
+SUPABASE_ANON_KEY=your-anon-key-here

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple heart-pulse mark, centered in the 72x72 safe zone. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,74 L38,60 C29,52 29,39 38,32 C45,26 53,28 54,35 C55,28 63,26 70,32 C79,39 79,52 70,60 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:pathData="M24,54 L40,54 L46,42 L54,64 L60,50 L64,54 L84,54" />
+</vector>
