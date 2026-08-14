@@ -123,11 +123,11 @@ querying directly or building dashboard features around them:
   (`TotalCaloriesBurnedRecord`, `DistanceRecord`) that aren't correlated to
   a specific session yet.
 - **The AI coach** is a UI shell only — see `dashboard/app/api/chat/route.ts`.
-- The Health Connect changes-API surface (`getChanges` returning
-  `Flow<ChangesMessage>`, expiry as a thrown exception) reflects the SDK
-  version pinned in `android/app/build.gradle.kts`. If you bump that
-  dependency and Android Studio flags a mismatch, check
-  `androidx.health.connect.client.response.ChangesMessage` in the new
-  version's docs — it's the one part of the Health Connect API that has
-  moved across alpha releases, and this project was written without a
-  local Android toolchain to compile-check against.
+- Pinned to the **stable** `androidx.health.connect:connect-client:1.1.0`
+  release (not a pre-release alpha). `HealthConnectClient.getChanges()` is
+  a plain suspend function returning a single `ChangesResponse` page —
+  `SyncRepository.drainChanges()` loops on `hasMore`/`nextChangesToken`
+  itself and treats `changesTokenExpired` as the signal to fall back to a
+  fresh backfill. (There's no `ChangesMessage`/`Flow` wrapper in the
+  library itself — that pattern shows up in Google's sample app, but it's
+  app-level code the sample defines for itself, not part of the SDK.)

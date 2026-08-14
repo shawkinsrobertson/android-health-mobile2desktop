@@ -68,7 +68,7 @@ android {
 
 dependencies {
     // Health Connect
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+    implementation("androidx.health.connect:connect-client:1.1.0")
 
     // Core / lifecycle
     implementation("androidx.core:core-ktx:1.13.1")
