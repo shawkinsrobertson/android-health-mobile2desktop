@@ -21,9 +21,17 @@ class HealthConnectManager(context: Context) {
 
     val client: HealthConnectClient by lazy { HealthConnectClient.getOrCreate(appContext) }
 
-    /** Read permission strings for every record type we sync. */
+    /**
+     * Read permission strings for every record type we sync, plus the
+     * special background-read permission. Without that last one, any
+     * Health Connect read attempted while this app isn't the foreground
+     * app (i.e. every WorkManager-triggered background sync, and even a
+     * foreground manual sync if the app loses foreground mid-run) throws
+     * a SecurityException instead of returning data.
+     */
     val requiredPermissions: Set<String> by lazy {
-        allSyncSpecs.map { spec -> HealthPermission.getReadPermission(spec.recordType) }.toSet()
+        allSyncSpecs.map { spec -> HealthPermission.getReadPermission(spec.recordType) }.toSet() +
+            HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
     }
 
     fun permissionRequestContract() = PermissionController.createRequestPermissionResultContract()
