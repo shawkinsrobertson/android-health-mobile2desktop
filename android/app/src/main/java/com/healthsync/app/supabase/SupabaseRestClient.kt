@@ -1,6 +1,8 @@
 package com.healthsync.app.supabase
 
 import com.healthsync.app.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -53,7 +55,7 @@ class SupabaseRestClient(
      * repeatedly with the same rows — that's what makes retryable/periodic
      * sync safe.
      */
-    fun upsert(table: String, rows: List<Map<String, Any?>>, onConflict: String) {
+    suspend fun upsert(table: String, rows: List<Map<String, Any?>>, onConflict: String) {
         if (rows.isEmpty()) return
         val body = JSONArray().apply { rows.forEach { row -> put(JSONObject(row)) } }
         val url = restUrl(table).addQueryParameter("on_conflict", onConflict).build()
@@ -77,7 +79,7 @@ class SupabaseRestClient(
      * Health Connect ids are fixed-length UUIDs no id is ever a prefix of
      * a *different* record's id).
      */
-    fun deleteByHealthConnectIdPrefix(table: String, prefix: String) {
+    suspend fun deleteByHealthConnectIdPrefix(table: String, prefix: String) {
         val url = restUrl(table).addQueryParameter("health_connect_id", "like.$prefix*").build()
         val request = Request.Builder()
             .url(url)
@@ -89,11 +91,18 @@ class SupabaseRestClient(
         execute(request)
     }
 
-    private fun execute(request: Request) {
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val bodyText = response.body?.string().orEmpty()
-                throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
+    // OkHttp's call.execute() is blocking I/O; run it on Dispatchers.IO so
+    // callers never have to know or care what thread/dispatcher they were
+    // invoked from. Without this, a caller on the main thread (e.g. the
+    // Compose "Sync now" button, whose rememberCoroutineScope() runs on the
+    // UI dispatcher) crashes with NetworkOnMainThreadException.
+    private suspend fun execute(request: Request) {
+        withContext(Dispatchers.IO) {
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val bodyText = response.body?.string().orEmpty()
+                    throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
+                }
             }
         }
     }
