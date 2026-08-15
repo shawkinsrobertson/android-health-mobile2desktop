@@ -3,17 +3,14 @@ package com.healthsync.app.sync
 import android.util.Log
 import androidx.health.connect.client.changes.DeletionChange
 import androidx.health.connect.client.changes.UpsertionChange
-import androidx.health.connect.client.exceptions.HealthConnectException
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.request.ChangesTokenRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
-import androidx.health.connect.client.response.ChangesMessage
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.healthsync.app.healthconnect.HealthConnectManager
 import com.healthsync.app.healthconnect.SyncSpec
 import com.healthsync.app.healthconnect.allSyncSpecs
 import com.healthsync.app.supabase.SupabaseRestClient
-import kotlinx.coroutines.flow.collect
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -106,53 +103,46 @@ class SyncRepository(
 
     /**
      * Pull everything since [startToken] via the Health Connect changes
-     * API. Note: exact changes-API shape (`getChanges` returning
-     * `Flow<ChangesMessage>`, token-expiry surfacing as a thrown
-     * [HealthConnectException]) reflects the SDK version pinned in
-     * app/build.gradle.kts. If Android Studio flags a mismatch after a
-     * Health Connect library bump, check
-     * androidx.health.connect.client.response.ChangesMessage in that
-     * version's docs — this is the one area of the API that has moved
-     * across alpha releases.
+     * API. `getChanges` is a plain suspend function returning a
+     * [androidx.health.connect.client.response.ChangesResponse] page (not
+     * a Flow) — loop on `hasMore`/`nextChangesToken` ourselves, and treat
+     * `changesTokenExpired` as the signal to fall back to a fresh backfill
+     * (changes tokens are only valid ~30 days).
      */
     private suspend fun <T : Record> drainChanges(spec: SyncSpec<T>, startToken: String): Pair<Int, Int> {
         val client = healthConnectManager.client
         var upserted = 0
         var deleted = 0
-        var latestToken = startToken
+        var token = startToken
 
-        try {
-            client.getChanges(startToken).collect { message ->
-                when (message) {
-                    is ChangesMessage.ChangeList -> {
-                        for (change in message.changes) {
-                            when (change) {
-                                is UpsertionChange -> {
-                                    @Suppress("UNCHECKED_CAST")
-                                    upserted += pushRecord(spec, change.record as T)
-                                }
-                                is DeletionChange -> {
-                                    deleteRecord(spec, change.recordId)
-                                    deleted += 1
-                                }
-                            }
-                        }
+        while (true) {
+            val response = client.getChanges(token)
+
+            if (response.changesTokenExpired) {
+                Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill")
+                syncState.clearChangesToken(spec.key)
+                val (u, d) = backfill(spec)
+                return (upserted + u) to (deleted + d)
+            }
+
+            for (change in response.changes) {
+                when (change) {
+                    is UpsertionChange -> {
+                        @Suppress("UNCHECKED_CAST")
+                        upserted += pushRecord(spec, change.record as T)
                     }
-                    is ChangesMessage.NoMoreChanges -> {
-                        latestToken = message.nextChangesToken
+                    is DeletionChange -> {
+                        deleteRecord(spec, change.recordId)
+                        deleted += 1
                     }
                 }
             }
-        } catch (e: HealthConnectException) {
-            // Most commonly a stale/expired changes token. Start over with a
-            // fresh time-range backfill, which also mints a new token.
-            Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill", e)
-            syncState.clearChangesToken(spec.key)
-            val (u, d) = backfill(spec)
-            return (upserted + u) to (deleted + d)
+
+            token = response.nextChangesToken
+            if (!response.hasMore) break
         }
 
-        syncState.saveChangesToken(spec.key, latestToken)
+        syncState.saveChangesToken(spec.key, token)
         if (upserted > 0 || deleted > 0) {
             Log.i(TAG, "Synced ${spec.key}: +$upserted / -$deleted row(s)")
         }
