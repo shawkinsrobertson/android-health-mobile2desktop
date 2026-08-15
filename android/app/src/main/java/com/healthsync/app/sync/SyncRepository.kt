@@ -149,7 +149,7 @@ class SyncRepository(
         return upserted to deleted
     }
 
-    private fun <T : Record> pushRecord(spec: SyncSpec<T>, record: T): Int {
+    private suspend fun <T : Record> pushRecord(spec: SyncSpec<T>, record: T): Int {
         val tableRows = spec.toTableRows(record)
         var count = 0
         for ((table, rows) in tableRows) {
@@ -160,7 +160,7 @@ class SyncRepository(
         return count
     }
 
-    private fun deleteRecord(spec: SyncSpec<*>, recordId: String) {
+    private suspend fun deleteRecord(spec: SyncSpec<*>, recordId: String) {
         for (table in spec.tables) {
             supabase.deleteByHealthConnectIdPrefix(table = table, prefix = recordId)
         }
