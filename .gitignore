@@ -29,3 +29,13 @@ dashboard/npm-debug.log*
 .DS_Store
 *.swp
 .vscode/
+android/gradlew
+.gitignore
+android/gradle/wrapper/gradle-wrapper.jar
+.gitignore
+android/gradlew.bat
+android/gradle/wrapper/gradle-wrapper.properties
+android/app/release/baselineProfiles/1/app-release.dm
+android/app/release/baselineProfiles/0/app-release.dm
+android/app/release/output-metadata.json
+android/app/release/ahsync-release.apk
