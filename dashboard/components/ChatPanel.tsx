@@ -10,9 +10,9 @@ interface ChatMessage {
 const INTRO: ChatMessage = {
   role: "assistant",
   content:
-    "Hey — I'm your training coach, grounded in your synced Health Connect data " +
+    "Hey — I'm your assistant coach, grounded in your client's synced Health Connect data " +
     "(steps, heart rate, sleep, exercise). Ask me about trends, recovery, or how " +
-    "your training's going.",
+    "training's going.",
 };
 
 export function ChatPanel() {
