@@ -16,12 +16,7 @@
 
     <!--
       Needed for the background WorkManager sync (~every 15 min) to be
-      allowed to call Health Connect's changes API at all -- without it,
-      any Health Connect read attempted while this app isn't the
-      foreground app throws a SecurityException. Without this permission
-      declared, Health Connect's permission screen won't even offer the
-      "Access data in the background" toggle to the user.
-    -->
+      allowed to call Health Connect's changes API at all  -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
     <application

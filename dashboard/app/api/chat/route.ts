@@ -5,8 +5,8 @@ import { NextResponse } from "next/server";
  * just echoes back a static reply so the chat UI has something to talk to.
  *
  * To wire in a real LLM:
- *   1. `npm install @anthropic-ai/sdk`
- *   2. Add ANTHROPIC_API_KEY to .env.local
+ *   1. `npm install @anthropic-ai/sdk`[x]
+ *   2. Add ANTHROPIC_API_KEY to .env.local[x]
  *   3. Pull recent data via lib/queries.ts (steps, heart rate, sleep,
  *      exercise) and fold it into the system prompt/context so the model
  *      can reason about actual training history rather than guessing.
