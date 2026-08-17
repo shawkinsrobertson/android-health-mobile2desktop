@@ -10,9 +10,9 @@ interface ChatMessage {
 const INTRO: ChatMessage = {
   role: "assistant",
   content:
-    "I'm not wired up to an LLM yet — see app/api/chat/route.ts to plug one in. Once " +
-    "connected, I'll be able to read your synced Health Connect data and talk through " +
-    "training, recovery, and trends with you.",
+    "Hey — I'm your training coach, grounded in your synced Health Connect data " +
+    "(steps, heart rate, sleep, exercise). Ask me about trends, recovery, or how " +
+    "your training's going.",
 };
 
 export function ChatPanel() {
@@ -20,12 +20,20 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
+  function replaceLastAssistant(content: string) {
+    setMessages((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = { role: "assistant", content };
+      return updated;
+    });
+  }
+
   async function sendMessage() {
     const text = input.trim();
     if (!text || sending) return;
 
     const next: ChatMessage[] = [...messages, { role: "user", content: text }];
-    setMessages(next);
+    setMessages([...next, { role: "assistant", content: "" }]);
     setInput("");
     setSending(true);
 
@@ -35,13 +43,29 @@ export function ChatPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next }),
       });
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Something went wrong reaching the coach endpoint." },
-      ]);
+
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(errText || `Request failed (${res.status})`);
+      }
+
+      // The API route streams plain text chunks as Claude generates them —
+      // append each chunk to the in-progress assistant message as it arrives.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        assistantText += decoder.decode(value, { stream: true });
+        replaceLastAssistant(assistantText);
+      }
+    } catch (err) {
+      replaceLastAssistant(
+        "Something went wrong reaching the coach" +
+          (err instanceof Error ? `: ${err.message}` : "."),
+      );
     } finally {
       setSending(false);
     }
