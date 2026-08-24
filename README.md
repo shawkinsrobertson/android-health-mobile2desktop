@@ -156,12 +156,12 @@ querying directly or building dashboard features around them:
   client's `/client` dashboard can't show their real numbers yet — that
   needs the Android app to authenticate as a specific client. See
   `supabase/migrations/0002_accounts.sql`'s header comment.
-- **One coach per client** is the current relationship model (a column, not
-  a join table) — deliberate for now, see the planning notes in this
-  repo's history if multi-coach support becomes a real need.
 - **Library/assignment content** (exercises, workouts, programs, documents)
   and **persisted coach↔client chat** don't exist yet — `/dashboard` today
-  is just accounts + invites.
+  is just accounts + invites. See [`PLANNING.md`](PLANNING.md) for the full
+  phase plan and the product decisions behind it (one coach per client,
+  snapshot-vs-live library templates, chat threading model, consent
+  semantics, etc.).
 - Pinned to the **stable** `androidx.health.connect:connect-client:1.1.0`
   release (not a pre-release alpha). `HealthConnectClient.getChanges()` is
   a plain suspend function returning a single `ChangesResponse` page —
