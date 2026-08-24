@@ -16,6 +16,16 @@ import java.time.temporal.ChronoUnit
 
 private const val TAG = "SyncRepository"
 
+/**
+ * Max rows per Supabase upsert request. Records are batched into
+ * requests of this size rather than one request per Health Connect
+ * record -- with high-frequency data (continuous heart rate, steps
+ * logged every few minutes) a per-record request count can run into
+ * the thousands and make a sync look hung when it's really just very
+ * slow.
+ */
+private const val UPSERT_BATCH_SIZE = 500
+
 data class SyncResult(
     val upsertedRows: Int,
     val deletedRows: Int,
@@ -72,10 +82,7 @@ class SyncRepository(
         val start = Instant.now().minus(spec.initialBackfillDays, ChronoUnit.DAYS)
         val records = readAllPages(spec, TimeRangeFilter.after(start))
 
-        var upserted = 0
-        for (record in records) {
-            upserted += pushRecord(spec, record)
-        }
+        val upserted = pushRecords(spec, records)
 
         val token = client.getChangesToken(ChangesTokenRequest(recordTypes = setOf(spec.recordType)))
         syncState.saveChangesToken(spec.key, token)
@@ -125,11 +132,12 @@ class SyncRepository(
                 return (upserted + u) to (deleted + d)
             }
 
+            val upsertedRecords = mutableListOf<T>()
             for (change in response.changes) {
                 when (change) {
                     is UpsertionChange -> {
                         @Suppress("UNCHECKED_CAST")
-                        upserted += pushRecord(spec, change.record as T)
+                        upsertedRecords += change.record as T
                     }
                     is DeletionChange -> {
                         deleteRecord(spec, change.recordId)
@@ -137,6 +145,7 @@ class SyncRepository(
                     }
                 }
             }
+            upserted += pushRecords(spec, upsertedRecords)
 
             token = response.nextChangesToken
             if (!response.hasMore) break
@@ -149,18 +158,35 @@ class SyncRepository(
         return upserted to deleted
     }
 
-    private fun <T : Record> pushRecord(spec: SyncSpec<T>, record: T): Int {
-        val tableRows = spec.toTableRows(record)
+    /**
+     * Push [records] to Supabase, flattening every record's per-table rows
+     * into one row list per table first, then upserting each table in
+     * batches of [UPSERT_BATCH_SIZE] rows instead of one request per
+     * record. A single request per (table, batch) pair rather than per
+     * record is what keeps a large backfill from taking forever.
+     */
+    private suspend fun <T : Record> pushRecords(spec: SyncSpec<T>, records: List<T>): Int {
+        if (records.isEmpty()) return 0
+
+        val rowsByTable = mutableMapOf<String, MutableList<Map<String, Any?>>>()
+        for (record in records) {
+            for ((table, rows) in spec.toTableRows(record)) {
+                if (rows.isEmpty()) continue
+                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(rows)
+            }
+        }
+
         var count = 0
-        for ((table, rows) in tableRows) {
-            if (rows.isEmpty()) continue
-            supabase.upsert(table = table, rows = rows, onConflict = "health_connect_id")
-            count += rows.size
+        for ((table, rows) in rowsByTable) {
+            for (batch in rows.chunked(UPSERT_BATCH_SIZE)) {
+                supabase.upsert(table = table, rows = batch, onConflict = "health_connect_id")
+                count += batch.size
+            }
         }
         return count
     }
 
-    private fun deleteRecord(spec: SyncSpec<*>, recordId: String) {
+    private suspend fun deleteRecord(spec: SyncSpec<*>, recordId: String) {
         for (table in spec.tables) {
             supabase.deleteByHealthConnectIdPrefix(table = table, prefix = recordId)
         }

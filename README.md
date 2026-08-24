@@ -91,11 +91,40 @@ npm run dev                        # http://localhost:3000
 
 - **Overview** (`/`) — stat tiles plus steps/sleep charts, reading straight
   from Supabase via server components (`lib/queries.ts`).
-- **Coach** (`/coach`) — a chat UI shell. `app/api/chat/route.ts` currently
-  just echoes back a placeholder reply; the comment at the top of that file
-  walks through wiring in a real model (pull recent data via
-  `lib/queries.ts`, fold it into the prompt, call the LLM). That's the
-  natural next step once you're ready for the "assistant coach" piece.
+- **Coach** (`/coach`) — an AI assistant coach chat (`claude-opus-5` via
+  the Claude API), grounded in the synced data from `lib/queries.ts` and
+  rendering markdown replies. This is the original single-user surface and
+  is untouched by the accounts work below.
+
+## 4. Coach + client accounts
+
+This is new, additive structure for turning the dashboard into a real
+multi-tenant coach/client tool, layered on top of everything above without
+touching the existing single-user health-data tables or the Android app —
+see the header comment in
+[`supabase/migrations/0002_accounts.sql`](supabase/migrations/0002_accounts.sql)
+for the full reasoning and the current scope boundary (a client's synced
+Health Connect data isn't attributed to their account yet — that requires
+the Android app to authenticate per-client instead of one shared anon key,
+which is a later phase).
+
+1. Run `supabase/migrations/0002_accounts.sql` the same way you ran
+   `0001_init.sql`. This adds `profiles`, `client_profiles`, `invite_links`,
+   and the `handle_new_user()` trigger that links a new auth user to the
+   right role/coach on signup.
+2. In the Supabase dashboard: **Authentication → Providers**, confirm
+   **Email** is enabled with **magic link** (OTP) — this project doesn't
+   use passwords. Under **Authentication → URL Configuration**, add your
+   dashboard's `/auth/callback` URL (e.g. `http://localhost:3000/auth/callback`
+   for local dev) to the redirect allowlist, or magic link clicks will be
+   rejected.
+3. Set `SITE_URL` in `dashboard/.env.local` (see `.env.local.example`).
+4. Flow: a coach signs in at `/login` (magic link creates the account on
+   first use), generates an invite link from `/dashboard`, and sends it to
+   a prospective client. The client opens `/join/[token]`, enters their
+   email, gets their own magic link, and lands on a short intake form
+   (`/onboarding`) before reaching their own dashboard (`/client`), where
+   they can pick up to three data points to feature.
 
 ## Health Connect code reference
 
@@ -122,7 +151,17 @@ querying directly or building dashboard features around them:
   and distance live in separate Health Connect record types
   (`TotalCaloriesBurnedRecord`, `DistanceRecord`) that aren't correlated to
   a specific session yet.
-- **The AI coach** is a UI shell only — see `dashboard/app/api/chat/route.ts`.
+- **Client health data isn't attributed to individual accounts yet.** The
+  Android app still syncs everything under one shared anon key, so a
+  client's `/client` dashboard can't show their real numbers yet — that
+  needs the Android app to authenticate as a specific client. See
+  `supabase/migrations/0002_accounts.sql`'s header comment.
+- **Library/assignment content** (exercises, workouts, programs, documents)
+  and **persisted coach↔client chat** don't exist yet — `/dashboard` today
+  is just accounts + invites. See [`PLANNING.md`](PLANNING.md) for the full
+  phase plan and the product decisions behind it (one coach per client,
+  snapshot-vs-live library templates, chat threading model, consent
+  semantics, etc.).
 - Pinned to the **stable** `androidx.health.connect:connect-client:1.1.0`
   release (not a pre-release alpha). `HealthConnectClient.getChanges()` is
   a plain suspend function returning a single `ChangesResponse` page —

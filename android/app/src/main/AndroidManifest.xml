@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
     <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
 
+    <!--
+      Needed for the background WorkManager sync (~every 15 min) to be
+      allowed to call Health Connect's changes API at all  -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
     <application
         android:name=".HealthSyncApp"
         android:allowBackup="false"
