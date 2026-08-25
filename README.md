@@ -114,12 +114,22 @@ which is a later phase).
    right role/coach on signup.
 2. In the Supabase dashboard: **Authentication → Providers**, confirm
    **Email** is enabled with **magic link** (OTP) — this project doesn't
-   use passwords. Under **Authentication → URL Configuration**, add your
-   dashboard's `/auth/callback` URL (e.g. `http://localhost:3000/auth/callback`
-   for local dev) to the redirect allowlist, or magic link clicks will be
-   rejected.
-3. Set `SITE_URL` in `dashboard/.env.local` (see `.env.local.example`).
-4. Flow: a coach signs in at `/login` (magic link creates the account on
+   use passwords. Under **Authentication → URL Configuration**, set **Site
+   URL** to your dashboard's origin (e.g. `http://localhost:3000` for local
+   dev) and add `/auth/callback` under it to the redirect allowlist.
+3. **Authentication → Email Templates → Magic Link**: replace the body's
+   default `{{ .ConfirmationURL }}` link with one pointing at
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`.
+   This is required, not optional -- the default link uses Supabase's PKCE
+   `code` flow, which needs a secret stored on the browser that *requested*
+   the link. Email links routinely get opened somewhere else (a mail app's
+   in-app browser, a different device), which fails with "PKCE code
+   verifier not found in storage." The `token_hash` link verifies the token
+   itself server-side instead, so it works regardless of what opens it —
+   see `app/auth/confirm/route.ts`.
+4. Set `SITE_URL` in `dashboard/.env.local` (see `.env.local.example`) to
+   match the Site URL from step 2.
+5. Flow: a coach signs in at `/login` (magic link creates the account on
    first use), generates an invite link from `/dashboard`, and sends it to
    a prospective client. The client opens `/join/[token]`, enters their
    email, gets their own magic link, and lands on a short intake form

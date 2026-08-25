@@ -8,7 +8,7 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 // below requires one -- role-specific authorization (coach vs client, and
 // whether a client has finished onboarding) is each page's own job, since
 // that needs a profile lookup middleware shouldn't be doing on every request.
-const PUBLIC_PATHS = ["/login", "/join", "/auth/callback"];
+const PUBLIC_PATHS = ["/login", "/join", "/auth/callback", "/auth/confirm"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
