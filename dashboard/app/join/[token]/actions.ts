@@ -17,7 +17,8 @@ export async function requestClientMagicLink(formData: FormData) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${siteUrl}/auth/confirm`,
+      // Bare origin -- see the matching comment in app/login/actions.ts.
+      emailRedirectTo: siteUrl,
       // Consumed by handle_new_user() to link this account to the inviting
       // coach -- see the accounts migration.
       data: { role: "client", invite_token: token },

@@ -22,7 +22,12 @@ export async function sendCoachMagicLink(formData: FormData) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${siteUrl}/auth/confirm`,
+      // Bare origin, not /auth/confirm -- the "Confirm signup"/"Magic Link"
+      // email templates already append /auth/confirm themselves via
+      // {{ .RedirectTo }}/auth/confirm?... (see README). Passing the full
+      // path here would make {{ .RedirectTo }} resolve to it already,
+      // doubling the path when the template appends it again.
+      emailRedirectTo: siteUrl,
       // Only applied if this creates a brand-new auth user; ignored for an
       // existing account. See handle_new_user() in the accounts migration.
       data: { role: "coach" },
