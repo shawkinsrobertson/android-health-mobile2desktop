@@ -114,35 +114,48 @@ which is a later phase).
    right role/coach on signup.
 2. In the Supabase dashboard: **Authentication → Providers**, confirm
    **Email** is enabled with **magic link** (OTP) — this project doesn't
-   use passwords. Under **Authentication → URL Configuration**, add
-   `<origin>/auth/confirm` to the redirect allowlist for **every**
-   environment that will sign in against this project — e.g. both
-   `http://localhost:3000/auth/confirm` for local dev and
-   `https://your-site.netlify.app/auth/confirm` if you're also running a
-   deployed copy against the same project. The allowlist supports multiple
-   entries; **Site URL** itself doesn't need to change from whatever it's
-   currently set to (see the `{{ .RedirectTo }}` template below — it's what
-   makes multiple environments work off one Supabase project without
-   fighting over a single Site URL).
-3. **Authentication → Email Templates → Magic Link**: replace the body's
-   default `{{ .ConfirmationURL }}` link with one pointing at
-   `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`.
-   This is required, not optional -- the default link uses Supabase's PKCE
-   `code` flow, which needs a secret stored on the browser that *requested*
-   the link. Email links routinely get opened somewhere else (a mail app's
-   in-app browser, a different device), which fails with "PKCE code
-   verifier not found in storage." The `token_hash` link verifies the token
-   itself server-side instead, so it works regardless of what opens it —
-   see `app/auth/confirm/route.ts`. Using `{{ .RedirectTo }}` (which
-   reflects whatever `SITE_URL` the *requesting* environment sent, as long
-   as it's in the allowlist from step 2) instead of `{{ .SiteURL }}` (a
-   single project-wide setting) is what lets local dev and a deployed demo
-   share one Supabase project without their magic links stepping on each
-   other.
-4. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
+   use passwords. Under **Authentication → URL Configuration**:
+   - **Site URL** should be a bare origin, no path (e.g.
+     `http://localhost:3000`) -- it's a fallback used whenever a
+     `redirect_to` doesn't match the allowlist below, not a specific route.
+   - **Redirect URLs**: add a wildcard per environment that will sign in
+     against this project, e.g. `http://localhost:3000/**` for local dev
+     and `https://your-site.netlify.app/**` for a deployed copy. A
+     `redirect_to` that doesn't match anything here silently falls back to
+     Site URL instead of erroring, which is a confusing failure mode if
+     you forget this step -- everything just quietly routes to whatever
+     Site URL happens to be.
+3. **Authentication → Emails**: template bodies can't be edited at all on
+   Supabase's default/shared SMTP -- there's a "set up custom SMTP to edit
+   templates" gate. Connect a free-tier provider (e.g.
+   [Resend](https://resend.com), no domain verification needed to start --
+   their `onboarding@resend.dev` sender works for testing) under
+   **Authentication → Emails → SMTP Settings** first. This also fixes the
+   very low email rate limit on the default sender, which you will hit
+   fast once more than one person is testing sign-in.
+4. Once SMTP is connected, edit **both** of these templates -- Supabase
+   sends **"Confirm signup"** for a brand-new account's first-ever sign-in,
+   and **"Magic Link"** for every sign-in after that, so both need the same
+   treatment or only returning users get the fix:
+   - **Confirm signup**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup`
+   - **Magic Link**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`
+
+   This is required, not optional -- the default `{{ .ConfirmationURL }}`
+   link uses Supabase's PKCE `code` flow, which needs a secret stored on
+   the browser that *requested* the link. Email links routinely get opened
+   somewhere else (a mail app's in-app browser, a different device), which
+   fails with "PKCE code verifier not found in storage." The `token_hash`
+   link verifies the token itself server-side instead, so it works
+   regardless of what opens it -- see `app/auth/confirm/route.ts`. Using
+   `{{ .RedirectTo }}` (which reflects whatever `SITE_URL` the *requesting*
+   environment sent, as long as it matched the allowlist in step 2) instead
+   of `{{ .SiteURL }}` (a single project-wide setting) is what lets local
+   dev and a deployed demo share one Supabase project without their magic
+   links stepping on each other.
+5. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
    environment variables, if you're running a deployed copy too) to that
    environment's own origin.
-5. Flow: a coach signs in at `/login` (magic link creates the account on
+6. Flow: a coach signs in at `/login` (magic link creates the account on
    first use), generates an invite link from `/dashboard`, and sends it to
    a prospective client. The client opens `/join/[token]`, enters their
    email, gets their own magic link, and lands on a short intake form
