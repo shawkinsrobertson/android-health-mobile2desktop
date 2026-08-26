@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     return toLogin(origin, error.message);
   }
 
-  const destination = await postAuthDestination();
+  const destination = await postAuthDestination(supabase);
   if (destination) return NextResponse.redirect(`${origin}${destination}`);
 
   return toLogin(
