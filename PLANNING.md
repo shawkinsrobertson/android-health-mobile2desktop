@@ -14,6 +14,19 @@ picker. See `supabase/migrations/0002_accounts.sql`'s header comment for the
 full design and its explicit scope boundary: existing single-user
 health-data tables and the Android app are untouched by this phase.
 
+## Phase 0.5 -- sync-code bridge (shipped)
+
+Not a real phase, just a stopgap: a short code per client
+(`client_profiles.sync_code`, shown on `/client`), entered once in the
+Android app's Settings and stored on-device, tags that device's pushed
+rows with the code as `user_id` instead of the health-data tables'
+plain default. Makes multi-person testing possible (and finally puts
+real numbers on `/client`, previously always a placeholder) without
+waiting on the full Phase 6 mobile rearchitecture below. Explicitly not
+real per-user isolation -- see `supabase/migrations/0003_sync_code.sql`'s
+header comment. Phase 6 replaces this outright rather than building on
+top of it.
+
 ## Phase 1 -- basic library + chat structure (not started)
 
 Empty-but-real CRUD for `libraryExercise` / `libraryWorkout` /

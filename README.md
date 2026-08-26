@@ -100,13 +100,23 @@ npm run dev                        # http://localhost:3000
 
 This is new, additive structure for turning the dashboard into a real
 multi-tenant coach/client tool, layered on top of everything above without
-touching the existing single-user health-data tables or the Android app —
-see the header comment in
+touching the existing single-user health-data tables' schema or RLS — see
+the header comment in
 [`supabase/migrations/0002_accounts.sql`](supabase/migrations/0002_accounts.sql)
-for the full reasoning and the current scope boundary (a client's synced
-Health Connect data isn't attributed to their account yet — that requires
-the Android app to authenticate per-client instead of one shared anon key,
-which is a later phase).
+for the full reasoning.
+
+Attributing a client's synced data to their account still doesn't go
+through real per-client auth on the Android side (that's a bigger, later
+lift -- see `PLANNING.md` Phase 6), but there's a lightweight bridge for
+testing with more than one person now: every client gets a short **sync
+code**, shown on their `/client` dashboard. Entering it once in the
+Android app's Settings (stored on-device, same APK for everyone -- no
+rebuild needed) tags that device's pushed rows with the code as `user_id`
+instead of the table's plain default, and `/client` filters by it. See
+[`supabase/migrations/0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql)
+for the details and its own scope boundary (this scopes what each person
+*sees*, not real database-level isolation -- the health-data tables' RLS
+is still the permissive anon-role policy from `0001_init.sql`).
 
 1. Run `supabase/migrations/0002_accounts.sql` the same way you ran
    `0001_init.sql`. This adds `profiles`, `client_profiles`, `invite_links`,
@@ -187,11 +197,12 @@ querying directly or building dashboard features around them:
   and distance live in separate Health Connect record types
   (`TotalCaloriesBurnedRecord`, `DistanceRecord`) that aren't correlated to
   a specific session yet.
-- **Client health data isn't attributed to individual accounts yet.** The
-  Android app still syncs everything under one shared anon key, so a
-  client's `/client` dashboard can't show their real numbers yet — that
-  needs the Android app to authenticate as a specific client. See
-  `supabase/migrations/0002_accounts.sql`'s header comment.
+- **Client health data attribution is a lightweight bridge, not real
+  per-user auth.** The sync-code pairing (see section 4 above) works for
+  testing with a few people, but the Android app still doesn't
+  authenticate as anyone -- it's a shared anon key with an
+  app-side-chosen `user_id` tag, not database-enforced isolation. See
+  `supabase/migrations/0003_sync_code.sql`'s header comment.
 - **Library/assignment content** (exercises, workouts, programs, documents)
   and **persisted coach↔client chat** don't exist yet — `/dashboard` today
   is just accounts + invites. See [`PLANNING.md`](PLANNING.md) for the full

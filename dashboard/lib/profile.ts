@@ -15,6 +15,9 @@ export interface ClientProfile {
   limitations: string | null;
   topDataPoints: string[];
   onboardedAt: string | null;
+  // Links this account to a specific Android install's synced rows -- see
+  // supabase/migrations/0003_sync_code.sql.
+  syncCode: string;
 }
 
 // Fetches the signed-in user's profile row, or null if not signed in. Used
@@ -55,7 +58,7 @@ export async function getClientProfile(
   const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("client_profiles")
-    .select("coach_id, phone, goals, limitations, top_data_points, onboarded_at")
+    .select("coach_id, phone, goals, limitations, top_data_points, onboarded_at, sync_code")
     .eq("profile_id", profileId)
     .single();
 
@@ -68,5 +71,6 @@ export async function getClientProfile(
     limitations: data.limitations,
     topDataPoints: data.top_data_points ?? [],
     onboardedAt: data.onboarded_at,
+    syncCode: data.sync_code,
   };
 }
