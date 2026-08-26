@@ -114,21 +114,34 @@ which is a later phase).
    right role/coach on signup.
 2. In the Supabase dashboard: **Authentication → Providers**, confirm
    **Email** is enabled with **magic link** (OTP) — this project doesn't
-   use passwords. Under **Authentication → URL Configuration**, set **Site
-   URL** to your dashboard's origin (e.g. `http://localhost:3000` for local
-   dev) and add `/auth/callback` under it to the redirect allowlist.
+   use passwords. Under **Authentication → URL Configuration**, add
+   `<origin>/auth/confirm` to the redirect allowlist for **every**
+   environment that will sign in against this project — e.g. both
+   `http://localhost:3000/auth/confirm` for local dev and
+   `https://your-site.netlify.app/auth/confirm` if you're also running a
+   deployed copy against the same project. The allowlist supports multiple
+   entries; **Site URL** itself doesn't need to change from whatever it's
+   currently set to (see the `{{ .RedirectTo }}` template below — it's what
+   makes multiple environments work off one Supabase project without
+   fighting over a single Site URL).
 3. **Authentication → Email Templates → Magic Link**: replace the body's
    default `{{ .ConfirmationURL }}` link with one pointing at
-   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`.
+   `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`.
    This is required, not optional -- the default link uses Supabase's PKCE
    `code` flow, which needs a secret stored on the browser that *requested*
    the link. Email links routinely get opened somewhere else (a mail app's
    in-app browser, a different device), which fails with "PKCE code
    verifier not found in storage." The `token_hash` link verifies the token
    itself server-side instead, so it works regardless of what opens it —
-   see `app/auth/confirm/route.ts`.
-4. Set `SITE_URL` in `dashboard/.env.local` (see `.env.local.example`) to
-   match the Site URL from step 2.
+   see `app/auth/confirm/route.ts`. Using `{{ .RedirectTo }}` (which
+   reflects whatever `SITE_URL` the *requesting* environment sent, as long
+   as it's in the allowlist from step 2) instead of `{{ .SiteURL }}` (a
+   single project-wide setting) is what lets local dev and a deployed demo
+   share one Supabase project without their magic links stepping on each
+   other.
+4. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
+   environment variables, if you're running a deployed copy too) to that
+   environment's own origin.
 5. Flow: a coach signs in at `/login` (magic link creates the account on
    first use), generates an invite link from `/dashboard`, and sends it to
    a prospective client. The client opens `/join/[token]`, enters their

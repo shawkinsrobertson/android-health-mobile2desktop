@@ -22,7 +22,7 @@ export async function sendCoachMagicLink(formData: FormData) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${siteUrl}/auth/callback`,
+      emailRedirectTo: `${siteUrl}/auth/confirm`,
       // Only applied if this creates a brand-new auth user; ignored for an
       // existing account. See handle_new_user() in the accounts migration.
       data: { role: "coach" },
