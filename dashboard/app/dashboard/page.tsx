@@ -36,7 +36,11 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("client_profiles")
-      .select("profile_id, onboarded_at, profiles(full_name, email)")
+      // client_profiles has two FKs into profiles (profile_id for the
+      // client's own row, coach_id for their coach's) -- plain
+      // `profiles(...)` is ambiguous between them and PostgREST errors
+      // rather than guessing. Naming the FK explicitly picks profile_id.
+      .select("profile_id, onboarded_at, profiles!client_profiles_profile_id_fkey(full_name, email)")
       .eq("coach_id", profile.id),
   ]);
 
@@ -101,7 +105,11 @@ export default async function DashboardPage() {
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Clients</h2>
-        {clients.length === 0 ? (
+        {clientsRes.error ? (
+          <p className="text-sm text-red-600 dark:text-red-400">
+            Couldn&apos;t load clients: {clientsRes.error.message}
+          </p>
+        ) : clients.length === 0 ? (
           <p className="text-sm text-ink-muted">
             No clients yet -- send someone an invite link above.
           </p>
