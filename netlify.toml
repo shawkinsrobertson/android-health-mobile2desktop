@@ -1,0 +1,12 @@
+# Netlify site config for the dashboard (Next.js App Router). This is a
+# monorepo -- android/, dashboard/, supabase/ -- so `base` points Netlify
+# at the Next.js app instead of the repo root; without it, Netlify's
+# framework auto-detection has nothing to find and the build fails before
+# it starts.
+[build]
+  base = "dashboard"
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

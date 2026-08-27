@@ -91,11 +91,86 @@ npm run dev                        # http://localhost:3000
 
 - **Overview** (`/`) — stat tiles plus steps/sleep charts, reading straight
   from Supabase via server components (`lib/queries.ts`).
-- **Coach** (`/coach`) — a chat UI shell. `app/api/chat/route.ts` currently
-  just echoes back a placeholder reply; the comment at the top of that file
-  walks through wiring in a real model (pull recent data via
-  `lib/queries.ts`, fold it into the prompt, call the LLM). That's the
-  natural next step once you're ready for the "assistant coach" piece.
+- **Coach** (`/coach`) — an AI assistant coach chat (`claude-opus-5` via
+  the Claude API), grounded in the synced data from `lib/queries.ts` and
+  rendering markdown replies. This is the original single-user surface and
+  is untouched by the accounts work below.
+
+## 4. Coach + client accounts
+
+This is new, additive structure for turning the dashboard into a real
+multi-tenant coach/client tool, layered on top of everything above without
+touching the existing single-user health-data tables' schema or RLS — see
+the header comment in
+[`supabase/migrations/0002_accounts.sql`](supabase/migrations/0002_accounts.sql)
+for the full reasoning.
+
+Attributing a client's synced data to their account still doesn't go
+through real per-client auth on the Android side (that's a bigger, later
+lift -- see `PLANNING.md` Phase 6), but there's a lightweight bridge for
+testing with more than one person now: every client gets a short **sync
+code**, shown on their `/client` dashboard. Entering it once in the
+Android app's Settings (stored on-device, same APK for everyone -- no
+rebuild needed) tags that device's pushed rows with the code as `user_id`
+instead of the table's plain default, and `/client` filters by it. See
+[`supabase/migrations/0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql)
+for the details and its own scope boundary (this scopes what each person
+*sees*, not real database-level isolation -- the health-data tables' RLS
+is still the permissive anon-role policy from `0001_init.sql`).
+
+1. Run `supabase/migrations/0002_accounts.sql` the same way you ran
+   `0001_init.sql`. This adds `profiles`, `client_profiles`, `invite_links`,
+   and the `handle_new_user()` trigger that links a new auth user to the
+   right role/coach on signup.
+2. In the Supabase dashboard: **Authentication → Providers**, confirm
+   **Email** is enabled with **magic link** (OTP) — this project doesn't
+   use passwords. Under **Authentication → URL Configuration**:
+   - **Site URL** should be a bare origin, no path (e.g.
+     `http://localhost:3000`) -- it's a fallback used whenever a
+     `redirect_to` doesn't match the allowlist below, not a specific route.
+   - **Redirect URLs**: add a wildcard per environment that will sign in
+     against this project, e.g. `http://localhost:3000/**` for local dev
+     and `https://your-site.netlify.app/**` for a deployed copy. A
+     `redirect_to` that doesn't match anything here silently falls back to
+     Site URL instead of erroring, which is a confusing failure mode if
+     you forget this step -- everything just quietly routes to whatever
+     Site URL happens to be.
+3. **Authentication → Emails**: template bodies can't be edited at all on
+   Supabase's default/shared SMTP -- there's a "set up custom SMTP to edit
+   templates" gate. Connect a free-tier provider (e.g.
+   [Resend](https://resend.com), no domain verification needed to start --
+   their `onboarding@resend.dev` sender works for testing) under
+   **Authentication → Emails → SMTP Settings** first. This also fixes the
+   very low email rate limit on the default sender, which you will hit
+   fast once more than one person is testing sign-in.
+4. Once SMTP is connected, edit **both** of these templates -- Supabase
+   sends **"Confirm signup"** for a brand-new account's first-ever sign-in,
+   and **"Magic Link"** for every sign-in after that, so both need the same
+   treatment or only returning users get the fix:
+   - **Confirm signup**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup`
+   - **Magic Link**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`
+
+   This is required, not optional -- the default `{{ .ConfirmationURL }}`
+   link uses Supabase's PKCE `code` flow, which needs a secret stored on
+   the browser that *requested* the link. Email links routinely get opened
+   somewhere else (a mail app's in-app browser, a different device), which
+   fails with "PKCE code verifier not found in storage." The `token_hash`
+   link verifies the token itself server-side instead, so it works
+   regardless of what opens it -- see `app/auth/confirm/route.ts`. Using
+   `{{ .RedirectTo }}` (which reflects whatever `SITE_URL` the *requesting*
+   environment sent, as long as it matched the allowlist in step 2) instead
+   of `{{ .SiteURL }}` (a single project-wide setting) is what lets local
+   dev and a deployed demo share one Supabase project without their magic
+   links stepping on each other.
+5. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
+   environment variables, if you're running a deployed copy too) to that
+   environment's own origin.
+6. Flow: a coach signs in at `/login` (magic link creates the account on
+   first use), generates an invite link from `/dashboard`, and sends it to
+   a prospective client. The client opens `/join/[token]`, enters their
+   email, gets their own magic link, and lands on a short intake form
+   (`/onboarding`) before reaching their own dashboard (`/client`), where
+   they can pick up to three data points to feature.
 
 ## Health Connect code reference
 
@@ -122,7 +197,18 @@ querying directly or building dashboard features around them:
   and distance live in separate Health Connect record types
   (`TotalCaloriesBurnedRecord`, `DistanceRecord`) that aren't correlated to
   a specific session yet.
-- **The AI coach** is a UI shell only — see `dashboard/app/api/chat/route.ts`.
+- **Client health data attribution is a lightweight bridge, not real
+  per-user auth.** The sync-code pairing (see section 4 above) works for
+  testing with a few people, but the Android app still doesn't
+  authenticate as anyone -- it's a shared anon key with an
+  app-side-chosen `user_id` tag, not database-enforced isolation. See
+  `supabase/migrations/0003_sync_code.sql`'s header comment.
+- **Library/assignment content** (exercises, workouts, programs, documents)
+  and **persisted coach↔client chat** don't exist yet — `/dashboard` today
+  is just accounts + invites. See [`PLANNING.md`](PLANNING.md) for the full
+  phase plan and the product decisions behind it (one coach per client,
+  snapshot-vs-live library templates, chat threading model, consent
+  semantics, etc.).
 - Pinned to the **stable** `androidx.health.connect:connect-client:1.1.0`
   release (not a pre-release alpha). `HealthConnectClient.getChanges()` is
   a plain suspend function returning a single `ChangesResponse` page —

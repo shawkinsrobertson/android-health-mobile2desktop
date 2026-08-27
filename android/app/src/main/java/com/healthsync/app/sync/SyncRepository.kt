@@ -53,9 +53,14 @@ class SyncRepository(
         var deleted = 0
         val errors = mutableListOf<String>()
 
+        // Read once per pass rather than per batch -- this is who every row
+        // pushed this run gets tagged as (falls back to the `user_id`
+        // column's plain default when unset, same as before this existed).
+        val userId = syncState.getSyncCode()
+
         for (spec in allSyncSpecs) {
             try {
-                val (u, d) = syncOne(spec)
+                val (u, d) = syncOne(spec, userId)
                 upserted += u
                 deleted += d
             } catch (e: Exception) {
@@ -67,22 +72,22 @@ class SyncRepository(
         return SyncResult(upserted, deleted, errors)
     }
 
-    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): Pair<Int, Int> {
+    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>, userId: String?): Pair<Int, Int> {
         val existingToken = syncState.getChangesToken(spec.key)
         return if (existingToken == null) {
-            backfill(spec)
+            backfill(spec, userId)
         } else {
-            drainChanges(spec, existingToken)
+            drainChanges(spec, existingToken, userId)
         }
     }
 
     /** First-time sync for a record type: pull recent history by time range, then mint a token. */
-    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): Pair<Int, Int> {
+    private suspend fun <T : Record> backfill(spec: SyncSpec<T>, userId: String?): Pair<Int, Int> {
         val client = healthConnectManager.client
         val start = Instant.now().minus(spec.initialBackfillDays, ChronoUnit.DAYS)
         val records = readAllPages(spec, TimeRangeFilter.after(start))
 
-        val upserted = pushRecords(spec, records)
+        val upserted = pushRecords(spec, records, userId)
 
         val token = client.getChangesToken(ChangesTokenRequest(recordTypes = setOf(spec.recordType)))
         syncState.saveChangesToken(spec.key, token)
@@ -116,7 +121,11 @@ class SyncRepository(
      * `changesTokenExpired` as the signal to fall back to a fresh backfill
      * (changes tokens are only valid ~30 days).
      */
-    private suspend fun <T : Record> drainChanges(spec: SyncSpec<T>, startToken: String): Pair<Int, Int> {
+    private suspend fun <T : Record> drainChanges(
+        spec: SyncSpec<T>,
+        startToken: String,
+        userId: String?,
+    ): Pair<Int, Int> {
         val client = healthConnectManager.client
         var upserted = 0
         var deleted = 0
@@ -128,7 +137,7 @@ class SyncRepository(
             if (response.changesTokenExpired) {
                 Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill")
                 syncState.clearChangesToken(spec.key)
-                val (u, d) = backfill(spec)
+                val (u, d) = backfill(spec, userId)
                 return (upserted + u) to (deleted + d)
             }
 
@@ -145,7 +154,7 @@ class SyncRepository(
                     }
                 }
             }
-            upserted += pushRecords(spec, upsertedRecords)
+            upserted += pushRecords(spec, upsertedRecords, userId)
 
             token = response.nextChangesToken
             if (!response.hasMore) break
@@ -165,15 +174,42 @@ class SyncRepository(
      * record. A single request per (table, batch) pair rather than per
      * record is what keeps a large backfill from taking forever.
      */
-    private suspend fun <T : Record> pushRecords(spec: SyncSpec<T>, records: List<T>): Int {
+    private suspend fun <T : Record> pushRecords(
+        spec: SyncSpec<T>,
+        records: List<T>,
+        userId: String?,
+    ): Int {
         if (records.isEmpty()) return 0
 
         val rowsByTable = mutableMapOf<String, MutableList<Map<String, Any?>>>()
         for (record in records) {
             for ((table, rows) in spec.toTableRows(record)) {
                 if (rows.isEmpty()) continue
-                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(rows)
+                // Tag with the client's sync code when one is set (see
+                // SyncStateStore.getSyncCode); otherwise every row's
+                // `user_id` falls back to the table column's own default,
+                // same behavior as before sync codes existed.
+                val taggedRows = if (userId != null) {
+                    rows.map { row -> row + ("user_id" to userId) }
+                } else {
+                    rows
+                }
+                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(taggedRows)
             }
+        }
+
+        // A single upsert command can't touch the same on_conflict key
+        // twice -- Postgres rejects the whole batch with "ON CONFLICT DO
+        // UPDATE command cannot affect row a second time" (error 21000)
+        // rather than just the offending rows. heart_rate_samples derives
+        // its id from the sample's own millisecond timestamp
+        // (record.metadata.id:epochMillis), and some sources report more
+        // than one sample in the same record at the same millisecond, so
+        // this does happen in practice, not just in theory. Deduplicate
+        // per table right before chunking/sending -- keeps the batch valid
+        // regardless of which SyncSpec produced the collision.
+        for ((table, rows) in rowsByTable) {
+            rowsByTable[table] = rows.associateBy { it["health_connect_id"] }.values.toMutableList()
         }
 
         var count = 0
