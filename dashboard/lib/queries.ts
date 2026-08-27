@@ -8,6 +8,36 @@ import { supabase } from "./supabase";
 // this filter is what the client dashboard (`/client`) uses to show only
 // its own synced rows among what is, today, still one shared pool.
 
+const PAGE_SIZE = 1000;
+
+// PostgREST caps a single response at 1000 rows by default, and none of
+// the sample-based queries below (steps, heart rate) had a .range() at
+// all -- fine when there wasn't much history, but confirmed in practice
+// to silently truncate once real volume built up: a dense month of
+// Garmin-plus-phone step data blew past 1000 rows within the *first two
+// days* of a 14-day window, so everything after was just never fetched
+// (not miscounted -- absent). Page through with .range() until a page
+// comes back short of a full page, instead of trusting one request to
+// return everything.
+async function fetchAllRows<T>(
+  buildQuery: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
+}
+
 export interface DailySteps {
   date: string; // yyyy-mm-dd
   count: number;
@@ -187,19 +217,23 @@ export async function getDailySteps(days = 14, userId?: string): Promise<DailySt
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  let query = supabase
-    .from("steps")
-    .select("start_time, end_time, count, source_package")
-    .gte("start_time", since.toISOString())
-    .order("start_time", { ascending: true });
-  if (userId) query = query.eq("user_id", userId);
-
-  const { data, error } = await query;
-
-  if (error) throw new Error(`Failed to load steps: ${error.message}`);
+  const data = await fetchAllRows<StepsRow>((from, to) => {
+    let query = supabase
+      .from("steps")
+      .select("start_time, end_time, count, source_package")
+      .gte("start_time", since.toISOString())
+      // id as a tiebreaker keeps page boundaries stable when many rows
+      // share the same start_time (seen in practice -- per-minute Garmin
+      // samples routinely do).
+      .order("start_time", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (userId) query = query.eq("user_id", userId);
+    return query;
+  });
 
   const byDay = new Map<string, number>();
-  accumulateStepsByDay(resolveOverlappingSources(data ?? []), byDay);
+  accumulateStepsByDay(resolveOverlappingSources(data), byDay);
 
   return Array.from(byDay.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -247,14 +281,6 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  let stepsQuery = supabase
-    .from("steps")
-    .select("count")
-    .gte("start_time", todayStart.toISOString());
-  let hrQuery = supabase
-    .from("heart_rate_samples")
-    .select("bpm")
-    .gte("sample_time", sevenDaysAgo.toISOString());
   let sleepQuery = supabase
     .from("sleep_sessions")
     .select("start_time, end_time")
@@ -266,30 +292,43 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
     .gte("start_time", sevenDaysAgo.toISOString());
 
   if (userId) {
-    stepsQuery = stepsQuery.eq("user_id", userId);
-    hrQuery = hrQuery.eq("user_id", userId);
     sleepQuery = sleepQuery.eq("user_id", userId);
     exerciseQuery = exerciseQuery.eq("user_id", userId);
   }
 
-  const [stepsRes, hrRes, sleepRes, exerciseRes] = await Promise.all([
-    stepsQuery,
-    hrQuery,
+  const [stepsRows, hrSamples, sleepRes, exerciseRes] = await Promise.all([
+    fetchAllRows<{ count: number | null }>((from, to) => {
+      let q = supabase
+        .from("steps")
+        .select("count")
+        .gte("start_time", todayStart.toISOString())
+        .order("start_time", { ascending: true })
+        .range(from, to);
+      if (userId) q = q.eq("user_id", userId);
+      return q;
+    }),
+    fetchAllRows<{ bpm: number }>((from, to) => {
+      let q = supabase
+        .from("heart_rate_samples")
+        .select("bpm")
+        .gte("sample_time", sevenDaysAgo.toISOString())
+        .order("sample_time", { ascending: true })
+        .range(from, to);
+      if (userId) q = q.eq("user_id", userId);
+      return q;
+    }),
     sleepQuery,
     exerciseQuery,
   ]);
 
-  if (stepsRes.error) throw new Error(stepsRes.error.message);
-  if (hrRes.error) throw new Error(hrRes.error.message);
   if (sleepRes.error) throw new Error(sleepRes.error.message);
   if (exerciseRes.error) throw new Error(exerciseRes.error.message);
 
-  const stepsToday = (stepsRes.data ?? []).reduce((sum, r) => sum + (r.count ?? 0), 0);
-
-  const hrSamples = (hrRes.data ?? []).map((r) => r.bpm as number);
+  const stepsToday = stepsRows.reduce((sum, r) => sum + (r.count ?? 0), 0);
+  const hrValues = hrSamples.map((r) => r.bpm);
   const avgHeartRate7d =
-    hrSamples.length > 0
-      ? Math.round(hrSamples.reduce((a, b) => a + b, 0) / hrSamples.length)
+    hrValues.length > 0
+      ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)
       : null;
 
   let lastSleepHours: number | null = null;
@@ -327,12 +366,15 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       return steps.length ? `${total.toLocaleString()} steps this week` : "No steps synced yet";
     }
     case "heart_rate_samples": {
-      const { data } = await supabase
-        .from("heart_rate_samples")
-        .select("bpm")
-        .eq("user_id", userId)
-        .gte("sample_time", since);
-      const samples = (data ?? []).map((r) => r.bpm as number);
+      const data = await fetchAllRows<{ bpm: number }>((from, to) =>
+        supabase
+          .from("heart_rate_samples")
+          .select("bpm")
+          .eq("user_id", userId)
+          .gte("sample_time", since)
+          .range(from, to),
+      );
+      const samples = data.map((r) => r.bpm);
       if (!samples.length) return "No heart rate data synced yet";
       const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
       return `${avg} bpm avg this week`;
@@ -352,12 +394,15 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       return `${count ?? 0} workout${count === 1 ? "" : "s"} this week`;
     }
     case "blood_oxygen": {
-      const { data } = await supabase
-        .from("blood_oxygen")
-        .select("percentage")
-        .eq("user_id", userId)
-        .gte("sample_time", since);
-      const samples = (data ?? []).map((r) => Number(r.percentage));
+      const data = await fetchAllRows<{ percentage: number }>((from, to) =>
+        supabase
+          .from("blood_oxygen")
+          .select("percentage")
+          .eq("user_id", userId)
+          .gte("sample_time", since)
+          .range(from, to),
+      );
+      const samples = data.map((r) => Number(r.percentage));
       if (!samples.length) return "No SpO2 data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg}% avg SpO2 this week`;
@@ -373,12 +418,15 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       return last ? `${last.systolic_mmhg}/${last.diastolic_mmhg} mmHg (most recent)` : "No blood pressure data synced yet";
     }
     case "respiratory_rate": {
-      const { data } = await supabase
-        .from("respiratory_rate")
-        .select("breaths_per_minute")
-        .eq("user_id", userId)
-        .gte("sample_time", since);
-      const samples = (data ?? []).map((r) => Number(r.breaths_per_minute));
+      const data = await fetchAllRows<{ breaths_per_minute: number }>((from, to) =>
+        supabase
+          .from("respiratory_rate")
+          .select("breaths_per_minute")
+          .eq("user_id", userId)
+          .gte("sample_time", since)
+          .range(from, to),
+      );
+      const samples = data.map((r) => Number(r.breaths_per_minute));
       if (!samples.length) return "No respiratory rate data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg} breaths/min avg this week`;
