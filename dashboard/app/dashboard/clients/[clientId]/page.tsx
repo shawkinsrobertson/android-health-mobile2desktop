@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, getClientProfile } from "@/lib/profile";
-import { getDataPointSummary } from "@/lib/queries";
+import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights } from "@/lib/queries";
 import { labelFor } from "@/app/client/data-points";
+import { StatCard } from "@/components/StatCard";
+import { StepsChart } from "@/components/StepsChart";
+import { SleepChart } from "@/components/SleepChart";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +32,21 @@ export default async function ClientDetailPage({ params }: { params: { clientId:
 
   const client = profileRes.data;
 
-  const summaries = clientProfile.onboardedAt
-    ? await Promise.all(
-        clientProfile.topDataPoints.map(async (key) => ({
-          key,
-          summary: await getDataPointSummary(key, clientProfile.syncCode).catch(
-            () => "Couldn't load this right now",
-          ),
-        })),
-      )
-    : [];
+  const [summaries, stats, steps, sleep] = clientProfile.onboardedAt
+    ? await Promise.all([
+        Promise.all(
+          clientProfile.topDataPoints.map(async (key) => ({
+            key,
+            summary: await getDataPointSummary(key, clientProfile.syncCode).catch(
+              () => "Couldn't load this right now",
+            ),
+          })),
+        ),
+        getOverviewStats(clientProfile.syncCode).catch(() => null),
+        getDailySteps(14, clientProfile.syncCode).catch(() => []),
+        getSleepNights(14, clientProfile.syncCode).catch(() => []),
+      ])
+    : [[], null, [], []];
 
   return (
     <div className="flex flex-col gap-8">
@@ -58,6 +66,31 @@ export default async function ClientDetailPage({ params }: { params: { clientId:
         </p>
       ) : (
         <>
+          {stats && (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <StatCard label="Steps today" value={stats.stepsToday.toLocaleString()} />
+              <StatCard
+                label="Avg heart rate (7d)"
+                value={stats.avgHeartRate7d ? `${stats.avgHeartRate7d} bpm` : "—"}
+              />
+              <StatCard
+                label="Last sleep"
+                value={stats.lastSleepHours ? `${stats.lastSleepHours}h` : "—"}
+              />
+              <StatCard label="Workouts (7d)" value={String(stats.exerciseSessions7d)} />
+            </div>
+          )}
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-2 text-sm font-medium text-ink-secondary">Steps, last 14 days</h2>
+            <StepsChart data={steps} />
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-2 text-sm font-medium text-ink-secondary">Sleep, last 14 days</h2>
+            <SleepChart data={sleep} />
+          </section>
+
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
             <h2 className="mb-3 text-sm font-semibold text-ink-primary">About</h2>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -81,7 +114,9 @@ export default async function ClientDetailPage({ params }: { params: { clientId:
           </section>
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-            <h2 className="mb-3 text-sm font-semibold text-ink-primary">Synced data</h2>
+            <h2 className="mb-3 text-sm font-semibold text-ink-primary">
+              Featured data points (client&apos;s picks)
+            </h2>
             {summaries.length === 0 ? (
               <p className="text-sm text-ink-muted">
                 They haven&apos;t picked any data points to feature yet.
