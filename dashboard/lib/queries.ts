@@ -13,13 +13,53 @@ export interface DailySteps {
   count: number;
 }
 
+// A StepsRecord's [start_time, end_time) isn't guaranteed to fit inside one
+// calendar day -- a historical backfill (seen with a Garmin-sourced import)
+// can write one record spanning several days. Crediting the whole count to
+// start_time's day, like a naive groupBy would, dumps it all onto one day
+// as a huge spike and leaves the days it actually covers looking empty.
+// Prorate each row's count across every UTC day it overlaps, weighted by
+// how much of the row's duration falls on that day.
+function accumulateStepsByDay(
+  rows: { start_time: string; end_time: string; count: number | null }[],
+  byDay: Map<string, number>,
+) {
+  for (const row of rows) {
+    const start = new Date(row.start_time);
+    const end = new Date(row.end_time);
+    const totalMs = end.getTime() - start.getTime();
+    const count = row.count ?? 0;
+
+    if (totalMs <= 0) {
+      // Zero/negative-duration row (bad data, or start == end) -- nothing
+      // to prorate across, just attribute it to the start day.
+      const day = row.start_time.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + count);
+      continue;
+    }
+
+    let cursor = start;
+    while (cursor < end) {
+      const dayStart = new Date(
+        Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate()),
+      );
+      const nextDayStart = new Date(dayStart.getTime() + 86_400_000);
+      const segmentEnd = end < nextDayStart ? end : nextDayStart;
+      const segmentMs = segmentEnd.getTime() - cursor.getTime();
+      const day = dayStart.toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + count * (segmentMs / totalMs));
+      cursor = segmentEnd;
+    }
+  }
+}
+
 export async function getDailySteps(days = 14, userId?: string): Promise<DailySteps[]> {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
   let query = supabase
     .from("steps")
-    .select("start_time, count")
+    .select("start_time, end_time, count")
     .gte("start_time", since.toISOString())
     .order("start_time", { ascending: true });
   if (userId) query = query.eq("user_id", userId);
@@ -29,11 +69,11 @@ export async function getDailySteps(days = 14, userId?: string): Promise<DailySt
   if (error) throw new Error(`Failed to load steps: ${error.message}`);
 
   const byDay = new Map<string, number>();
-  for (const row of data ?? []) {
-    const day = String(row.start_time).slice(0, 10);
-    byDay.set(day, (byDay.get(day) ?? 0) + (row.count ?? 0));
-  }
-  return Array.from(byDay.entries()).map(([date, count]) => ({ date, count }));
+  accumulateStepsByDay(data ?? [], byDay);
+
+  return Array.from(byDay.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, count]) => ({ date, count: Math.round(count) }));
 }
 
 export interface SleepNight {
