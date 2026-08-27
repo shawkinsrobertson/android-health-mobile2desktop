@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.healthsync.app.healthconnect.allSyncSpecs
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -35,11 +36,31 @@ class SyncStateStore(context: Context) {
 
     suspend fun getSyncCode(): String? = store.data.map { prefs -> prefs[SYNC_CODE_KEY] }.first()
 
-    /** Blank input clears the code (reverts to the `user_id` column's default) rather than saving "". */
+    /**
+     * Blank input clears the code (reverts to the `user_id` column's
+     * default) rather than saving "".
+     *
+     * When the code actually changes, also clears every record type's
+     * changes-API token. Sync after that point only pushes what's changed
+     * *since the last sync* -- for anything already synced before you
+     * entered a code (which, for anything other than continuously-sampled
+     * data like heart rate, is most of it), there may be nothing new to
+     * push for a long while, so it would silently sit there tagged under
+     * the old identity. Clearing the token forces the next sync to
+     * backfill again; since every row upserts on the record's own stable
+     * `health_connect_id`, that re-tags the existing rows in place with
+     * the new user_id rather than duplicating them.
+     */
     suspend fun saveSyncCode(code: String) {
         val trimmed = code.trim().uppercase()
+        val previous = getSyncCode()
         store.edit { prefs ->
             if (trimmed.isEmpty()) prefs.remove(SYNC_CODE_KEY) else prefs[SYNC_CODE_KEY] = trimmed
+        }
+        if (trimmed != (previous ?: "")) {
+            for (spec in allSyncSpecs) {
+                clearChangesToken(spec.key)
+            }
         }
     }
 

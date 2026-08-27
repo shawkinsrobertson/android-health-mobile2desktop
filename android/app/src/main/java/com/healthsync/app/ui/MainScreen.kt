@@ -124,7 +124,17 @@ fun MainScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Button(onClick = { scope.launch { syncStateStore.saveSyncCode(syncCodeInput) } }) {
+                        Button(onClick = {
+                            scope.launch {
+                                // Suspends until the code (and, if it changed,
+                                // the cleared changes tokens -- see
+                                // SyncStateStore.saveSyncCode) is actually
+                                // persisted, so the sync this triggers reads
+                                // the new state rather than racing it.
+                                syncStateStore.saveSyncCode(syncCodeInput)
+                                onSyncNow()
+                            }
+                        }) {
                             Text("Save")
                         }
                     }
