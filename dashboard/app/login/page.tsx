@@ -11,9 +11,10 @@ export default function LoginPage({
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Coach sign in</h1>
+      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Sign in</h1>
       <p className="mb-6 text-sm text-ink-secondary">
-        Enter your email and we&apos;ll send you a sign-in link -- no password needed.
+        For coaches, and for clients signing back in after their first visit. Enter your email
+        and we&apos;ll send you a sign-in link -- no password needed.
       </p>
 
       {sent ? (
@@ -40,7 +41,8 @@ export default function LoginPage({
       )}
 
       <p className="mt-6 text-xs text-ink-muted">
-        Client? Use the invite link your coach sent you instead.
+        New client, no account yet? You&apos;ll need an invite link from your coach -- that link
+        only works once, so sign in here after that.
       </p>
     </div>
   );

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
@@ -107,16 +108,18 @@ export default async function DashboardPage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {clients.map((client) => (
-              <li
-                key={client.profile_id}
-                className="flex items-center justify-between rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm"
-              >
-                <span className="text-ink-primary">
-                  {client.profiles?.full_name || client.profiles?.email || "Unnamed client"}
-                </span>
-                <span className="text-xs text-ink-muted">
-                  {client.onboarded_at ? "onboarded" : "invited, not onboarded yet"}
-                </span>
+              <li key={client.profile_id}>
+                <Link
+                  href={`/dashboard/clients/${client.profile_id}`}
+                  className="flex items-center justify-between rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm hover:bg-[color:var(--border-hairline)]"
+                >
+                  <span className="text-ink-primary">
+                    {client.profiles?.full_name || client.profiles?.email || "Unnamed client"}
+                  </span>
+                  <span className="text-xs text-ink-muted">
+                    {client.onboarded_at ? "onboarded" : "invited, not onboarded yet"}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
