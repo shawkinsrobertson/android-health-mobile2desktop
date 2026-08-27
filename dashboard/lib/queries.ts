@@ -13,6 +13,136 @@ export interface DailySteps {
   count: number;
 }
 
+interface StepsRow {
+  start_time: string;
+  end_time: string;
+  count: number | null;
+  source_package: string | null;
+}
+
+// Merges possibly-overlapping [start, end] ms intervals into a minimal
+// sorted set of non-overlapping ones.
+function mergeIntervals(intervals: [number, number][]): [number, number][] {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [[...sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const cur = sorted[i];
+    if (cur[0] <= last[1]) {
+      last[1] = Math.max(last[1], cur[1]);
+    } else {
+      merged.push([...cur]);
+    }
+  }
+  return merged;
+}
+
+// The portion(s) of [start, end] not covered by any interval in `covering`
+// (already merged/non-overlapping and sorted).
+function subtractIntervals(
+  start: number,
+  end: number,
+  covering: [number, number][],
+): [number, number][] {
+  const gaps: [number, number][] = [];
+  let cursor = start;
+  for (const [cs, ce] of covering) {
+    if (ce <= cursor) continue;
+    if (cs >= end) break;
+    if (cs > cursor) gaps.push([cursor, Math.min(cs, end)]);
+    cursor = Math.max(cursor, ce);
+    if (cursor >= end) break;
+  }
+  if (cursor < end) gaps.push([cursor, end]);
+  return gaps;
+}
+
+// Health Connect doesn't dedupe steps written by multiple source apps for
+// the same real activity -- seen in practice with Garmin Connect and a
+// phone's own step sensor both writing overlapping records for the same
+// walk (confirmed from raw synced rows, not a hypothesis). Naively summing
+// every row double-counts.
+//
+// Per UTC day, pick whichever source has the most total steps as that
+// day's "primary" and count it in full. For every other source's rows
+// that day, only count the portion of their time range the primary source
+// didn't already cover -- a genuine gap-filler (primary had no data then)
+// still contributes, but an overlapping duplicate reading doesn't.
+//
+// This is a heuristic, not a guaranteed-correct dedup (we can't know for
+// certain which source is "truth" for a given window without more than
+// what's stored) -- but it's a real improvement over blind summing, and
+// doesn't require touching how the Android app syncs.
+function resolveOverlappingSources(rows: StepsRow[]): StepsRow[] {
+  const byDay = new Map<string, StepsRow[]>();
+  for (const row of rows) {
+    const day = row.start_time.slice(0, 10);
+    const list = byDay.get(day);
+    if (list) list.push(row);
+    else byDay.set(day, [row]);
+  }
+
+  const resolved: StepsRow[] = [];
+
+  for (const dayRows of byDay.values()) {
+    const bySource = new Map<string, StepsRow[]>();
+    for (const row of dayRows) {
+      const key = row.source_package ?? "unknown";
+      const list = bySource.get(key);
+      if (list) list.push(row);
+      else bySource.set(key, [row]);
+    }
+
+    if (bySource.size <= 1) {
+      resolved.push(...dayRows);
+      continue;
+    }
+
+    let primaryKey = "";
+    let primaryTotal = -1;
+    for (const [key, sourceRows] of bySource) {
+      const total = sourceRows.reduce((sum, r) => sum + (r.count ?? 0), 0);
+      if (total > primaryTotal) {
+        primaryTotal = total;
+        primaryKey = key;
+      }
+    }
+
+    const primaryRows = bySource.get(primaryKey)!;
+    resolved.push(...primaryRows);
+
+    const primaryIntervals = mergeIntervals(
+      primaryRows.map(
+        (r) => [new Date(r.start_time).getTime(), new Date(r.end_time).getTime()] as [number, number],
+      ),
+    );
+
+    for (const [key, sourceRows] of bySource) {
+      if (key === primaryKey) continue;
+      for (const row of sourceRows) {
+        const startMs = new Date(row.start_time).getTime();
+        const endMs = new Date(row.end_time).getTime();
+        const totalMs = endMs - startMs;
+        if (totalMs <= 0) {
+          resolved.push(row);
+          continue;
+        }
+        for (const [gapStart, gapEnd] of subtractIntervals(startMs, endMs, primaryIntervals)) {
+          resolved.push({
+            start_time: new Date(gapStart).toISOString(),
+            end_time: new Date(gapEnd).toISOString(),
+            count: (row.count ?? 0) * ((gapEnd - gapStart) / totalMs),
+            source_package: row.source_package,
+          });
+        }
+      }
+    }
+  }
+
+  return resolved;
+}
+
 // A StepsRecord's [start_time, end_time) isn't guaranteed to fit inside one
 // calendar day -- a historical backfill (seen with a Garmin-sourced import)
 // can write one record spanning several days. Crediting the whole count to
@@ -59,7 +189,7 @@ export async function getDailySteps(days = 14, userId?: string): Promise<DailySt
 
   let query = supabase
     .from("steps")
-    .select("start_time, end_time, count")
+    .select("start_time, end_time, count, source_package")
     .gte("start_time", since.toISOString())
     .order("start_time", { ascending: true });
   if (userId) query = query.eq("user_id", userId);
@@ -69,7 +199,7 @@ export async function getDailySteps(days = 14, userId?: string): Promise<DailySt
   if (error) throw new Error(`Failed to load steps: ${error.message}`);
 
   const byDay = new Map<string, number>();
-  accumulateStepsByDay(data ?? [], byDay);
+  accumulateStepsByDay(resolveOverlappingSources(data ?? []), byDay);
 
   return Array.from(byDay.entries())
     .sort(([a], [b]) => a.localeCompare(b))
