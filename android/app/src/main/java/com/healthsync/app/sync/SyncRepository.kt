@@ -198,6 +198,20 @@ class SyncRepository(
             }
         }
 
+        // A single upsert command can't touch the same on_conflict key
+        // twice -- Postgres rejects the whole batch with "ON CONFLICT DO
+        // UPDATE command cannot affect row a second time" (error 21000)
+        // rather than just the offending rows. heart_rate_samples derives
+        // its id from the sample's own millisecond timestamp
+        // (record.metadata.id:epochMillis), and some sources report more
+        // than one sample in the same record at the same millisecond, so
+        // this does happen in practice, not just in theory. Deduplicate
+        // per table right before chunking/sending -- keeps the batch valid
+        // regardless of which SyncSpec produced the collision.
+        for ((table, rows) in rowsByTable) {
+            rowsByTable[table] = rows.associateBy { it["health_connect_id"] }.values.toMutableList()
+        }
+
         var count = 0
         for ((table, rows) in rowsByTable) {
             for (batch in rows.chunked(UPSERT_BATCH_SIZE)) {
