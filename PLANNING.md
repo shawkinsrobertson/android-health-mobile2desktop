@@ -27,21 +27,42 @@ real per-user isolation -- see `supabase/migrations/0003_sync_code.sql`'s
 header comment. Phase 6 replaces this outright rather than building on
 top of it.
 
-## Phase 1 -- basic library + chat structure (not started)
+## Phase 1 -- content libraries (shipped)
 
-Empty-but-real CRUD for `libraryExercise` / `libraryWorkout` /
-`libraryProgram` / `libraryDocument` (coach-scoped, no assignment logic
-yet), and persisted 1:1 coach↔client chat threads/messages (replacing
-today's ephemeral `/coach` chat pattern for this new surface).
+Full CRUD for `library_exercises` / `library_workouts` / `library_programs`
+/ `library_documents` (coach-scoped). Workouts and programs reference their
+children (exercises, workouts) via live join rows -- editing an exercise or
+workout updates everywhere it's still referenced by something unassigned.
+Every photo/video slot supports both a Supabase Storage upload and an
+external URL, independently. Documents are either a plain uploaded/linked
+file or a coach-built dynamic form (text / number / dropdown / checkbox /
+multiple_choice / file_upload fields). See
+`supabase/migrations/0004_libraries.sql`.
 
-## Phase 2 -- assignment pipeline (not started)
+Persisted 1:1 coach↔client chat threads (replacing today's ephemeral
+`/coach` chat pattern) were originally scoped into this phase but weren't
+built here -- still open, folded into Phase 3 below.
 
-`assignedExercise` / `assignedWorkout` / `assignedProgram` /
-`assignedDocument`. **Snapshot-copy at assignment, not a live reference** --
-assigning copies the library item's fields onto the client's assigned row,
-so editing the template later never rewrites a client's already-logged
-history. Client completion/tracking flow, including variance from what was
-prescribed (weight/reps/rest actually done vs. assigned).
+Also not built here, flagged for a later discussion rather than scoped in:
+how to seed/populate the exercise library at scale (e.g. sourcing exercise
+videos from YouTube by search criteria, manual vs. semi-automated).
+
+## Phase 2 -- assignment pipeline (partially shipped)
+
+`assigned_workouts` / `assigned_programs` / `assigned_documents` /
+`assigned_workout_exercises` / `document_responses`.
+**Snapshot-copy at assignment, not a live reference** -- assigning a
+workout/program/document recursively copies its (and its children's)
+current library fields onto client-owned rows via the
+`assign_workout_to_client` / `assign_program_to_client` /
+`assign_document_to_client` Postgres functions, so editing the library
+source later never rewrites what a client was already assigned. Documents
+of type "form" collect client responses into `document_responses`, keyed
+by the form's field ids. See `supabase/migrations/0005_assigned.sql`.
+
+Client completion/tracking flow -- variance from what was prescribed
+(weight/reps/rest actually done vs. assigned, logged per session) -- was
+originally scoped into this phase but wasn't built here; still open.
 
 ## Phase 3 -- chat richness (not started)
 

@@ -20,6 +20,11 @@ export async function NavBar() {
               Clients
             </Link>
           )}
+          {profile?.role === "coach" && (
+            <Link href="/dashboard/library" className="hover:text-ink-primary">
+              Library
+            </Link>
+          )}
           {profile?.role === "client" && (
             <Link href="/client" className="hover:text-ink-primary">
               My dashboard

@@ -7,10 +7,23 @@ import { labelFor } from "@/app/client/data-points";
 import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
 import { SleepChart } from "@/components/SleepChart";
+import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientDetailPage({ params }: { params: { clientId: string } }) {
+interface AssignedRow {
+  id: string;
+  name: string;
+  assigned_at: string;
+}
+
+export default async function ClientDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { clientId: string };
+  searchParams: { error?: string };
+}) {
   const coach = await getCurrentProfile();
   if (!coach) redirect("/login");
   if (coach.role !== "coach") redirect("/client");
@@ -47,6 +60,36 @@ export default async function ClientDetailPage({ params }: { params: { clientId:
         getSleepNights(14, clientProfile.syncCode).catch(() => []),
       ])
     : [[], null, [], []];
+
+  const [libraryWorkoutsRes, libraryProgramsRes, libraryDocumentsRes, assignedWorkoutsRes, assignedProgramsRes, assignedDocumentsRes] =
+    await Promise.all([
+      supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
+      supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
+      supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
+      supabase
+        .from("assigned_workouts")
+        .select("id, name, assigned_at")
+        .eq("client_id", params.clientId)
+        .is("assigned_program_id", null)
+        .order("assigned_at", { ascending: false }),
+      supabase
+        .from("assigned_programs")
+        .select("id, name, assigned_at")
+        .eq("client_id", params.clientId)
+        .order("assigned_at", { ascending: false }),
+      supabase
+        .from("assigned_documents")
+        .select("id, name, assigned_at")
+        .eq("client_id", params.clientId)
+        .order("assigned_at", { ascending: false }),
+    ]);
+
+  const libraryWorkouts = (libraryWorkoutsRes.data ?? []) as { id: string; name: string }[];
+  const libraryPrograms = (libraryProgramsRes.data ?? []) as { id: string; name: string }[];
+  const libraryDocuments = (libraryDocumentsRes.data ?? []) as { id: string; name: string }[];
+  const assignedWorkouts = (assignedWorkoutsRes.data ?? []) as AssignedRow[];
+  const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
+  const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
   return (
     <div className="flex flex-col gap-8">
@@ -135,7 +178,137 @@ export default async function ClientDetailPage({ params }: { params: { clientId:
               </div>
             )}
           </section>
+
+          {searchParams.error && (
+            <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+          )}
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-3 text-sm font-semibold text-ink-primary">Assign content</h2>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <AssignForm
+                label="Workout"
+                emptyLabel="No workouts in your library yet."
+                fieldName="workout_id"
+                options={libraryWorkouts}
+                action={assignWorkoutToClient.bind(null, params.clientId)}
+              />
+              <AssignForm
+                label="Program"
+                emptyLabel="No programs in your library yet."
+                fieldName="program_id"
+                options={libraryPrograms}
+                action={assignProgramToClient.bind(null, params.clientId)}
+              />
+              <AssignForm
+                label="Document"
+                emptyLabel="No documents in your library yet."
+                fieldName="document_id"
+                options={libraryDocuments}
+                action={assignDocumentToClient.bind(null, params.clientId)}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-3 text-sm font-semibold text-ink-primary">Assigned content</h2>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <AssignedList
+                title="Workouts"
+                items={assignedWorkouts}
+                hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/workouts/${id}`}
+              />
+              <AssignedList
+                title="Programs"
+                items={assignedPrograms}
+                hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/programs/${id}`}
+              />
+              <AssignedList
+                title="Documents"
+                items={assignedDocuments}
+                hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/documents/${id}`}
+              />
+            </div>
+          </section>
         </>
+      )}
+    </div>
+  );
+}
+
+function AssignForm({
+  label,
+  emptyLabel,
+  fieldName,
+  options,
+  action,
+}: {
+  label: string;
+  emptyLabel: string;
+  fieldName: string;
+  options: { id: string; name: string }[];
+  action: (formData: FormData) => void | Promise<void>;
+}) {
+  if (options.length === 0) {
+    return (
+      <div>
+        <h3 className="mb-2 text-xs font-medium text-ink-secondary">{label}</h3>
+        <p className="text-xs text-ink-muted">{emptyLabel}</p>
+      </div>
+    );
+  }
+
+  return (
+    <form action={action} className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium text-ink-secondary">{label}</h3>
+      <select
+        name={fieldName}
+        required
+        className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
+      >
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="submit"
+        className="w-fit rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+      >
+        Assign
+      </button>
+    </form>
+  );
+}
+
+function AssignedList({
+  title,
+  items,
+  hrefFor,
+}: {
+  title: string;
+  items: AssignedRow[];
+  hrefFor: (id: string) => string;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium text-ink-secondary">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-ink-muted">Nothing assigned yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {items.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={hrefFor(item.id)}
+                className="block truncate rounded-md bg-[color:var(--page-plane)] px-2 py-1.5 text-xs text-ink-primary hover:bg-[color:var(--border-hairline)]"
+              >
+                {item.name}
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

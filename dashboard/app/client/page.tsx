@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getClientProfile, getCurrentProfile } from "@/lib/profile";
 import { getDataPointSummary } from "@/lib/queries";
 import { DataPointPicker } from "@/components/DataPointPicker";
@@ -32,6 +33,16 @@ export default async function ClientDashboardPage() {
         </h1>
         <p className="text-sm text-ink-secondary">Your dashboard.</p>
       </div>
+
+      <Link
+        href="/client/assigned"
+        className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 hover:bg-[color:var(--page-plane)]"
+      >
+        <h2 className="text-sm font-semibold text-ink-primary">Your training</h2>
+        <p className="mt-1 text-xs text-ink-secondary">
+          See the workouts, programs, and documents your coach has assigned you.
+        </p>
+      </Link>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>
