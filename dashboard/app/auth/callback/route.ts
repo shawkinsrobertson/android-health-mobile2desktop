@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/route-handler";
 import { postAuthDestination } from "@/lib/auth-redirect";
 
 function toLogin(origin: string, message: string) {
@@ -31,18 +31,22 @@ export async function GET(request: Request) {
     );
   }
 
-  const supabase = await createClient();
+  const { supabase, applyCookies } = await createRouteHandlerClient();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    return toLogin(origin, error.message);
+    return applyCookies(toLogin(origin, error.message));
   }
 
   const destination = await postAuthDestination(supabase);
-  if (destination) return NextResponse.redirect(`${origin}${destination}`);
+  if (destination) {
+    return applyCookies(NextResponse.redirect(`${origin}${destination}`));
+  }
 
-  return toLogin(
-    origin,
-    "Signed in, but no profile row was found for this account -- the signup trigger may not have run.",
+  return applyCookies(
+    toLogin(
+      origin,
+      "Signed in, but no profile row was found for this account -- the signup trigger may not have run.",
+    ),
   );
 }
