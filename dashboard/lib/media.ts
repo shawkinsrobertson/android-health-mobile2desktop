@@ -91,6 +91,39 @@ export function hasFile(value: FormDataEntryValue | null): value is File {
   return value instanceof File && value.size > 0;
 }
 
+// A YouTube watch/share/shorts URL isn't a playable video file -- a plain
+// <video src> can't decode a YouTube webpage, which is why those links
+// used to render as a blank player with just the controls bar showing.
+// This turns one into an embeddable player URL (for an <iframe>) instead.
+// Only ever relevant for an *external* video_url -- an uploaded file
+// (video_path) is always a real video file and never needs this.
+export function getYouTubeEmbedUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./, "");
+  let videoId: string | null = null;
+
+  if (host === "youtu.be") {
+    videoId = parsed.pathname.slice(1).split("/")[0] || null;
+  } else if (host === "youtube.com" || host === "m.youtube.com") {
+    if (parsed.pathname === "/watch") {
+      videoId = parsed.searchParams.get("v");
+    } else if (parsed.pathname.startsWith("/shorts/")) {
+      videoId = parsed.pathname.split("/")[2] || null;
+    } else if (parsed.pathname.startsWith("/embed/")) {
+      videoId = parsed.pathname.split("/")[2] || null;
+    }
+  }
+
+  if (!videoId) return null;
+  return `https://www.youtube.com/embed/${videoId}`;
+}
+
 // One media slot's raw form input -- see components/library/MediaUploadField.tsx,
 // which renders the three inputs this reads: `${prefix}_file`, `${prefix}_url`,
 // and `${prefix}_remove` (a "remove the uploaded file" checkbox, only shown

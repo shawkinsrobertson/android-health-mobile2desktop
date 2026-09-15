@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getClientProfile, getCurrentProfile } from "@/lib/profile";
 import { resolveMediaPair } from "@/lib/media";
+import { VideoPreview } from "@/components/library/VideoPreview";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,7 @@ export default async function ClientAssignedProgramPage({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={photoUrl} alt="" className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)]" />
       )}
-      {videoUrl && (
-        <video src={videoUrl} controls className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)]" />
-      )}
+      <VideoPreview path={program.video_path} url={program.video_url} resolvedUrl={videoUrl} />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Workouts</h2>

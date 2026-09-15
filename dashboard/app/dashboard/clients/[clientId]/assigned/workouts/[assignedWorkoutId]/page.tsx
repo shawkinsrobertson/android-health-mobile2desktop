@@ -3,25 +3,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaPair } from "@/lib/media";
+import { VideoPreview } from "@/components/library/VideoPreview";
+import { AssignedExerciseList, type AssignedBlock, type AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
 
 export const dynamic = "force-dynamic";
-
-interface AssignedExerciseRow {
-  id: string;
-  order_index: number;
-  name: string;
-  instructions: string | null;
-  photo_path: string | null;
-  photo_url: string | null;
-  video_path: string | null;
-  video_url: string | null;
-  sets: number | null;
-  reps: string | null;
-  weight_note: string | null;
-  rest_seconds: number | null;
-  tempo: string | null;
-  notes: string | null;
-}
 
 export default async function AssignedWorkoutPage({
   params,
@@ -46,15 +31,22 @@ export default async function AssignedWorkoutPage({
 
   if (error || !workout) redirect(`/dashboard/clients/${params.clientId}`);
 
-  const { data: exerciseRows } = await supabase
-    .from("assigned_workout_exercises")
-    .select(
-      "id, order_index, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, weight_note, rest_seconds, tempo, notes",
-    )
-    .eq("assigned_workout_id", workout.id)
-    .order("order_index");
+  const [{ data: exerciseRows }, { data: blockRows }] = await Promise.all([
+    supabase
+      .from("assigned_workout_exercises")
+      .select(
+        "id, order_index, block_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+      )
+      .eq("assigned_workout_id", workout.id)
+      .order("order_index"),
+    supabase
+      .from("assigned_workout_blocks")
+      .select("id, block_type, rounds, notes")
+      .eq("assigned_workout_id", workout.id),
+  ]);
 
-  const exercises = (exerciseRows ?? []) as AssignedExerciseRow[];
+  const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];
+  const blocks = (blockRows ?? []) as AssignedBlock[];
 
   const [{ photoUrl, videoUrl }, exerciseMedia, sourceStillExists] = await Promise.all([
     resolveMediaPair(supabase, workout),
@@ -69,6 +61,8 @@ export default async function AssignedWorkoutPage({
           .then((r) => !!r.data)
       : Promise.resolve(false),
   ]);
+
+  const media = Object.fromEntries(exercises.map((e, i) => [e.id, exerciseMedia[i]]));
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
@@ -102,50 +96,11 @@ export default async function AssignedWorkoutPage({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={photoUrl} alt="" className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)]" />
       )}
-      {videoUrl && (
-        <video src={videoUrl} controls className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)]" />
-      )}
+      <VideoPreview path={workout.video_path} url={workout.video_url} resolvedUrl={videoUrl} />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
-        {exercises.length === 0 ? (
-          <p className="text-sm text-ink-muted">No exercises in this workout.</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {exercises.map((ex, i) => (
-              <li key={ex.id} className="rounded-lg border border-[color:var(--border-hairline)] p-3">
-                <div className="flex items-start gap-3">
-                  {exerciseMedia[i].photoUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={exerciseMedia[i].photoUrl!}
-                      alt=""
-                      className="h-12 w-12 shrink-0 rounded-md object-cover"
-                    />
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink-primary">{ex.name}</div>
-                    <div className="text-xs text-ink-muted">
-                      {[
-                        ex.sets ? `${ex.sets} sets` : null,
-                        ex.reps ? `${ex.reps} reps` : null,
-                        ex.weight_note,
-                        ex.rest_seconds ? `${ex.rest_seconds}s rest` : null,
-                        ex.tempo,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "No prescription details"}
-                    </div>
-                    {ex.instructions && (
-                      <p className="mt-1 text-xs text-ink-secondary">{ex.instructions}</p>
-                    )}
-                    {ex.notes && <p className="mt-1 text-xs text-ink-secondary">{ex.notes}</p>}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <AssignedExerciseList exercises={exercises} blocks={blocks} media={media} />
       </section>
     </div>
   );

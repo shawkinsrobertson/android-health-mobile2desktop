@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
+import { VideoPreview } from "@/components/library/VideoPreview";
 import { updateExercise, deleteExercise } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -115,13 +116,7 @@ export default async function ExerciseDetailPage({
               className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)] object-cover"
             />
           )}
-          {videoUrl && (
-            <video
-              src={videoUrl}
-              controls
-              className="max-h-60 w-fit rounded-lg border border-[color:var(--border-hairline)]"
-            />
-          )}
+          <VideoPreview path={exercise.video_path} url={exercise.video_url} resolvedUrl={videoUrl} />
         </div>
       ) : (
         <form action={updateExercise.bind(null, exercise.id)} className="flex flex-col gap-4">

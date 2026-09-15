@@ -4,6 +4,8 @@
 // server-rendered markup; no interactivity beyond the native inputs, so no
 // "use client" boundary needed.
 
+import { getYouTubeEmbedUrl } from "@/lib/media";
+
 type MediaKind = "photo" | "video" | "file";
 
 export function MediaUploadField({
@@ -22,6 +24,12 @@ export function MediaUploadField({
   hasStoredFile?: boolean;
 }) {
   const accept = kind === "photo" ? "image/*" : kind === "video" ? "video/*" : undefined;
+  // An uploaded file is always a real video; only an external URL can be a
+  // YouTube link needing an embed instead of a <video> tag -- see
+  // components/library/VideoPreview.tsx for the read-only version of this
+  // same check.
+  const youTubeEmbedUrl =
+    kind === "video" && !hasStoredFile && urlValue ? getYouTubeEmbedUrl(urlValue) : null;
 
   return (
     <fieldset className="flex flex-col gap-2 rounded-lg border border-[color:var(--border-hairline)] p-3">
@@ -36,11 +44,21 @@ export function MediaUploadField({
             className="max-h-40 w-fit rounded-md border border-[color:var(--border-hairline)] object-cover"
           />
         ) : kind === "video" ? (
-          <video
-            src={previewUrl}
-            controls
-            className="max-h-40 w-fit rounded-md border border-[color:var(--border-hairline)]"
-          />
+          youTubeEmbedUrl ? (
+            <iframe
+              src={youTubeEmbedUrl}
+              title="Video preview"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="aspect-video w-full max-w-sm rounded-md border border-[color:var(--border-hairline)]"
+            />
+          ) : (
+            <video
+              src={previewUrl}
+              controls
+              className="max-h-40 w-fit rounded-md border border-[color:var(--border-hairline)]"
+            />
+          )
         ) : (
           <a
             href={previewUrl}

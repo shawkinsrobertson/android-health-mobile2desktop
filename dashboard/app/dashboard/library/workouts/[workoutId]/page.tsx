@@ -4,7 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
-import { WorkoutExerciseListEditor, type WorkoutExerciseItem } from "@/components/library/WorkoutExerciseListEditor";
+import {
+  WorkoutExerciseListEditor,
+  type WorkoutBlock,
+  type WorkoutExerciseItem,
+} from "@/components/library/WorkoutExerciseListEditor";
 import { updateWorkout, deleteWorkout } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +17,11 @@ interface JoinRow {
   id: string;
   exercise_id: string;
   order_index: number;
+  block_id: string | null;
   sets: number | null;
   reps: string | null;
+  prescription_type: "reps" | "time";
+  duration_seconds: number | null;
   weight_note: string | null;
   rest_seconds: number | null;
   tempo: string | null;
@@ -35,7 +42,7 @@ export default async function WorkoutDetailPage({
 
   const supabase = await createClient();
 
-  const [{ data: workout, error }, { data: joinRows }, { count: usedInPrograms }, { data: exercises }] =
+  const [{ data: workout, error }, { data: joinRows }, { data: blockRows }, { count: usedInPrograms }, { data: exercises }] =
     await Promise.all([
       supabase
         .from("library_workouts")
@@ -46,10 +53,14 @@ export default async function WorkoutDetailPage({
       supabase
         .from("library_workout_exercises")
         .select(
-          "id, exercise_id, order_index, sets, reps, weight_note, rest_seconds, tempo, notes, library_exercises(name)",
+          "id, exercise_id, order_index, block_id, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes, library_exercises(name)",
         )
         .eq("workout_id", params.workoutId)
         .order("order_index"),
+      supabase
+        .from("library_workout_blocks")
+        .select("id, block_type, rounds, notes")
+        .eq("workout_id", params.workoutId),
       supabase
         .from("library_program_workouts")
         .select("id", { count: "exact", head: true })
@@ -72,13 +83,18 @@ export default async function WorkoutDetailPage({
     exercise_id: row.exercise_id,
     exercise_name: row.library_exercises?.name ?? "Unknown exercise",
     order_index: row.order_index,
+    block_id: row.block_id,
     sets: row.sets,
     reps: row.reps,
+    prescription_type: row.prescription_type,
+    duration_seconds: row.duration_seconds,
     weight_note: row.weight_note,
     rest_seconds: row.rest_seconds,
     tempo: row.tempo,
     notes: row.notes,
   }));
+
+  const blocks = (blockRows ?? []) as WorkoutBlock[];
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8">
@@ -165,6 +181,7 @@ export default async function WorkoutDetailPage({
         <WorkoutExerciseListEditor
           workoutId={workout.id}
           items={items}
+          blocks={blocks}
           availableExercises={((exercises ?? []) as { id: string; name: string; coach_id: string | null }[]).map(
             (e) => ({ id: e.id, name: e.name, shared: e.coach_id === null }),
           )}
