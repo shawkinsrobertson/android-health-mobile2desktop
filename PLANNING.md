@@ -64,6 +64,38 @@ Client completion/tracking flow -- variance from what was prescribed
 (weight/reps/rest actually done vs. assigned, logged per session) -- was
 originally scoped into this phase but wasn't built here; still open.
 
+## Up next (queued for the next session)
+
+Two items, not yet started:
+
+1. **Finish assignments.** Most likely means the Phase 2 client
+   completion/tracking flow noted above as still open (variance from what
+   was prescribed -- weight/reps/rest actually done vs. assigned, logged
+   per session) -- confirm exact scope at the start of the session rather
+   than assuming.
+
+2. **Fold the single-user Overview into the per-client dashboard, and gate
+   everything behind coach → client list → client.** Today `/` (root,
+   `app/page.tsx`) is a standalone, unauthenticated Health Connect data
+   view left over from before the coach/client pivot, and `middleware.ts`'s
+   matcher explicitly excludes both `/` and `/coach` from the
+   session-required routes. The ask is to retire that surface as a public
+   destination -- a coach should only ever reach a data dashboard by
+   signing in, picking a client from `/dashboard`, and landing on
+   `/dashboard/clients/[clientId]`, which **already renders essentially
+   this dashboard** (stats/steps/sleep via `clientProfile.syncCode`, see
+   `lib/queries.ts`) for that one client, RLS/sync-code-scoped. So this is
+   mostly about *removing/redirecting* the standalone `/` route and
+   updating `middleware.ts`'s matcher and `NavBar.tsx`'s "Overview" link,
+   not building new dashboard UI. Open question to settle first: what
+   happens to `/` and `/coach` themselves -- delete outright, redirect to
+   `/login` or `/dashboard`, or keep as a dev/demo view but no longer
+   linked from nav? `/coach`'s single-user AI chat is a separate, currently
+   unscoped question -- Phase 5 above already plans to give it a per-client
+   "chat about a specific client" replacement, so it may just ride along
+   with whatever `/` decision is made, or may be explicitly out of scope
+   for this cleanup.
+
 ## Phase 3 -- chat richness (not started)
 
 - **Broadcast messages fan out to N separate 1:1 threads** -- no shared
