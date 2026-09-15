@@ -24,7 +24,7 @@ export async function assignWorkoutToClient(clientId: string, formData: FormData
   if (!workoutId) redirect(`${path}?error=${encodeURIComponent("Pick a workout to assign.")}`);
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("assign_workout_to_client", {
+  const { data, error } = await supabase.rpc("assign_workout_to_client", {
     p_workout_id: workoutId,
     p_client_id: clientId,
   });
@@ -32,6 +32,9 @@ export async function assignWorkoutToClient(clientId: string, formData: FormData
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);
 
   revalidatePath(path);
+  // Land the coach on what they just assigned, instead of leaving them to
+  // hunt for it back on the client page.
+  redirect(`${path}/assigned/workouts/${data}`);
 }
 
 export async function assignProgramToClient(clientId: string, formData: FormData) {
@@ -41,7 +44,7 @@ export async function assignProgramToClient(clientId: string, formData: FormData
   if (!programId) redirect(`${path}?error=${encodeURIComponent("Pick a program to assign.")}`);
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("assign_program_to_client", {
+  const { data, error } = await supabase.rpc("assign_program_to_client", {
     p_program_id: programId,
     p_client_id: clientId,
   });
@@ -49,6 +52,7 @@ export async function assignProgramToClient(clientId: string, formData: FormData
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);
 
   revalidatePath(path);
+  redirect(`${path}/assigned/programs/${data}`);
 }
 
 export async function assignDocumentToClient(clientId: string, formData: FormData) {
@@ -58,7 +62,7 @@ export async function assignDocumentToClient(clientId: string, formData: FormDat
   if (!documentId) redirect(`${path}?error=${encodeURIComponent("Pick a document to assign.")}`);
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("assign_document_to_client", {
+  const { data, error } = await supabase.rpc("assign_document_to_client", {
     p_document_id: documentId,
     p_client_id: clientId,
   });
@@ -66,4 +70,5 @@ export async function assignDocumentToClient(clientId: string, formData: FormDat
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);
 
   revalidatePath(path);
+  redirect(`${path}/assigned/documents/${data}`);
 }

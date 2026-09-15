@@ -7,14 +7,10 @@ export async function NavBar() {
   return (
     <header className="border-b border-[color:var(--border-hairline)] bg-surface">
       <div className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4">
-        <span className="font-semibold text-ink-primary">Health Sync</span>
+        <Link href="/" className="font-semibold text-ink-primary">
+          Health Sync
+        </Link>
         <nav className="flex flex-1 gap-4 text-sm text-ink-secondary">
-          <Link href="/" className="hover:text-ink-primary">
-            Overview
-          </Link>
-          <Link href="/coach" className="hover:text-ink-primary">
-            Coach
-          </Link>
           {profile?.role === "coach" && (
             <Link href="/dashboard" className="hover:text-ink-primary">
               Clients

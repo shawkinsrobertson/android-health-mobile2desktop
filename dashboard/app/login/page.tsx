@@ -1,12 +1,24 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { postAuthDestination } from "@/lib/auth-redirect";
 import { sendCoachMagicLink } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: { sent?: string; error?: string };
 }) {
+  // "/" and "/coach" both funnel here unconditionally now (see their own
+  // pages' comments), so this is the one place that has to tell an
+  // already-signed-in visitor apart from someone who actually needs to
+  // sign in -- otherwise every "opening the app" visit would dead-end on
+  // a sign-in form for someone who's already signed in.
+  const supabase = await createClient();
+  const destination = await postAuthDestination(supabase);
+  if (destination) redirect(destination);
+
   const { sent, error } = searchParams;
 
   return (

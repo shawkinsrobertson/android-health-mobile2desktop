@@ -29,9 +29,11 @@ an AI training coach grounded in that data.
   "Sync now" button.
 - **`supabase/`** — SQL migration for the Postgres schema those tables
   live in.
-- **`dashboard/`** — Next.js app that reads the same Supabase project:
-  an overview page with charts, and a `/coach` chat shell ready for you to
-  wire an LLM into.
+- **`dashboard/`** — Next.js app that reads the same Supabase project.
+  Everything requires signing in (`/login` is the app's front door): a
+  coach picks a client from `/dashboard` and lands on that client's own
+  page (charts + content library assignments); a client sees the same
+  data at `/client`.
 
 ## 1. Set up Supabase
 
@@ -89,12 +91,12 @@ cp .env.local.example .env.local   # fill in SUPABASE_URL / SUPABASE_ANON_KEY
 npm run dev                        # http://localhost:3000
 ```
 
-- **Overview** (`/`) — stat tiles plus steps/sleep charts, reading straight
-  from Supabase via server components (`lib/queries.ts`).
-- **Coach** (`/coach`) — an AI assistant coach chat (`claude-opus-5` via
-  the Claude API), grounded in the synced data from `lib/queries.ts` and
-  rendering markdown replies. This is the original single-user surface and
-  is untouched by the accounts work below.
+`/` and `/coach` were the original single-user surfaces (a standalone
+stats/charts overview, and an AI coach chat) -- both now just redirect to
+`/login`. That data view lives on, per-client, at
+`/dashboard/clients/[clientId]` (see section 4 below); the AI coach chat is
+retired pending a per-client replacement (`PLANNING.md` Phase 5) rather
+than being a public, ungrounded single-user chat.
 
 ## 4. Coach + client accounts
 

@@ -55,8 +55,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except static assets, images, and the existing public
-    // overview/coach-chat routes (unchanged, still single-user for now).
-    "/((?!_next/static|_next/image|favicon.ico|api/chat|coach$|$).*)",
+    // Everything except static assets, images, and the chat API route
+    // (an unauthenticated redirect there would just break its caller's
+    // fetch rather than send a browser anywhere useful). "/" and "/coach"
+    // used to be excluded too, back when they were standalone single-user
+    // pages -- both now just redirect to /login themselves, so they're
+    // covered by the default session-required matcher like everything
+    // else.
+    "/((?!_next/static|_next/image|favicon.ico|api/chat).*)",
   ],
 };
