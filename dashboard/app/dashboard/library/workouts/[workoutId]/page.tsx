@@ -54,7 +54,10 @@ export default async function WorkoutDetailPage({
         .from("library_program_workouts")
         .select("id", { count: "exact", head: true })
         .eq("workout_id", params.workoutId),
-      supabase.from("library_exercises").select("id, name").eq("coach_id", profile.id).order("name"),
+      // No coach_id filter -- RLS already includes shared (coach_id IS
+      // NULL) exercises alongside this coach's own, so they show up as
+      // addable options too (see supabase/migrations/0006_shared_exercises.sql).
+      supabase.from("library_exercises").select("id, name, coach_id").order("name"),
     ]);
 
   if (error || !workout) redirect("/dashboard/library/workouts");
@@ -162,7 +165,9 @@ export default async function WorkoutDetailPage({
         <WorkoutExerciseListEditor
           workoutId={workout.id}
           items={items}
-          availableExercises={(exercises ?? []) as { id: string; name: string }[]}
+          availableExercises={((exercises ?? []) as { id: string; name: string; coach_id: string | null }[]).map(
+            (e) => ({ id: e.id, name: e.name, shared: e.coach_id === null }),
+          )}
         />
       </section>
     </div>

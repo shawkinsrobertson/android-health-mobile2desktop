@@ -12,6 +12,7 @@ interface ExerciseRow {
   category: string | null;
   photo_path: string | null;
   photo_url: string | null;
+  coach_id: string | null;
 }
 
 export default async function ExerciseLibraryPage() {
@@ -22,7 +23,7 @@ export default async function ExerciseLibraryPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("library_exercises")
-    .select("id, name, category, photo_path, photo_url")
+    .select("id, name, category, photo_path, photo_url, coach_id")
     .order("name");
 
   const exercises = (data ?? []) as ExerciseRow[];
@@ -74,7 +75,14 @@ export default async function ExerciseLibraryPage() {
                   <div className="h-12 w-12 shrink-0 rounded-lg bg-[color:var(--page-plane)]" />
                 )}
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-ink-primary">{exercise.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="truncate text-sm font-medium text-ink-primary">{exercise.name}</div>
+                    {exercise.coach_id === null && (
+                      <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-sleep)]">
+                        Shared
+                      </span>
+                    )}
+                  </div>
                   {exercise.category && (
                     <div className="truncate text-xs text-ink-muted">{exercise.category}</div>
                   )}

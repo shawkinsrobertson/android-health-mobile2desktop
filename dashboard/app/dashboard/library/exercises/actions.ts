@@ -83,12 +83,22 @@ export async function updateExercise(exerciseId: string, formData: FormData) {
 
   const supabase = await createClient();
 
+  // No coach_id filter on this read -- RLS lets a coach select a shared
+  // (coach_id IS NULL) row too, so we can tell "not found" apart from
+  // "found, but it's shared and not yours to edit" and give a clear error
+  // instead of the update below silently matching zero rows.
   const { data: existing } = await supabase
     .from("library_exercises")
-    .select("photo_path, video_path")
+    .select("coach_id, photo_path, video_path")
     .eq("id", exerciseId)
-    .eq("coach_id", coach.id)
     .single();
+
+  if (!existing) redirect(LIST_PATH);
+  if (existing.coach_id !== coach.id) {
+    redirect(
+      `${LIST_PATH}/${exerciseId}?error=${encodeURIComponent("This is a shared exercise and can't be edited here.")}`,
+    );
+  }
 
   try {
     const photo = await applyMediaField(
@@ -134,6 +144,19 @@ export async function updateExercise(exerciseId: string, formData: FormData) {
 export async function deleteExercise(exerciseId: string) {
   const coach = await requireCoach();
   const supabase = await createClient();
+
+  const { data: existing } = await supabase
+    .from("library_exercises")
+    .select("coach_id")
+    .eq("id", exerciseId)
+    .single();
+
+  if (!existing) redirect(LIST_PATH);
+  if (existing.coach_id !== coach.id) {
+    redirect(
+      `${LIST_PATH}/${exerciseId}?error=${encodeURIComponent("This is a shared exercise and can't be deleted here.")}`,
+    );
+  }
 
   const { error } = await supabase
     .from("library_exercises")

@@ -48,7 +48,7 @@ export function WorkoutExerciseListEditor({
 }: {
   workoutId: string;
   items: WorkoutExerciseItem[];
-  availableExercises: { id: string; name: string }[];
+  availableExercises: { id: string; name: string; shared?: boolean }[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -164,6 +164,7 @@ export function WorkoutExerciseListEditor({
             {availableExercises.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name}
+                {e.shared ? " (shared)" : ""}
               </option>
             ))}
           </select>
