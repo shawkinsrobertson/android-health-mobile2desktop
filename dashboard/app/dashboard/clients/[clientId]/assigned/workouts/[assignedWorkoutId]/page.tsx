@@ -8,6 +8,13 @@ import { AssignedExerciseList, type AssignedBlock, type AssignedExerciseItem } f
 
 export const dynamic = "force-dynamic";
 
+interface SessionRow {
+  id: string;
+  performed_on: string;
+  completed_at: string | null;
+  notes: string | null;
+}
+
 export default async function AssignedWorkoutPage({
   params,
 }: {
@@ -64,6 +71,25 @@ export default async function AssignedWorkoutPage({
 
   const media = Object.fromEntries(exercises.map((e, i) => [e.id, exerciseMedia[i]]));
 
+  const { data: sessionRows } = await supabase
+    .from("workout_sessions")
+    .select("id, performed_on, completed_at, notes")
+    .eq("assigned_workout_id", workout.id)
+    .order("performed_on", { ascending: false });
+  const sessions = (sessionRows ?? []) as SessionRow[];
+
+  const prCounts: Record<string, number> = {};
+  if (sessions.length > 0) {
+    const { data: prRows } = await supabase
+      .from("workout_session_exercises")
+      .select("session_id")
+      .in("session_id", sessions.map((s) => s.id))
+      .eq("is_pr", true);
+    for (const row of prRows ?? []) {
+      prCounts[row.session_id] = (prCounts[row.session_id] ?? 0) + 1;
+    }
+  }
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
       <div>
@@ -101,6 +127,30 @@ export default async function AssignedWorkoutPage({
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
         <AssignedExerciseList exercises={exercises} blocks={blocks} media={media} />
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session history</h2>
+        {sessions.length === 0 ? (
+          <p className="text-sm text-ink-muted">Nothing logged yet.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {sessions.map((s) => (
+              <li key={s.id}>
+                <Link
+                  href={`/dashboard/clients/${params.clientId}/assigned/workouts/${workout.id}/sessions/${s.id}`}
+                  className="flex items-center justify-between rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm hover:bg-[color:var(--border-hairline)]"
+                >
+                  <span className="text-ink-primary">{new Date(s.performed_on).toLocaleDateString()}</span>
+                  <span className="text-xs text-ink-muted">
+                    {s.completed_at ? "completed" : "in progress"}
+                    {prCounts[s.id] ? ` · ${prCounts[s.id]} PR${prCounts[s.id] === 1 ? "" : "s"}` : ""}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );
