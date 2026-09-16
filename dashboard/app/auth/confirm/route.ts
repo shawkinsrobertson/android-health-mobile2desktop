@@ -30,7 +30,22 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
 
   if (error) {
-    return applyCookies(toLogin(origin, error.message));
+    // A token_hash is single-use, and the same magic-link URL sometimes
+    // gets hit twice in the same browser before the person actually reads
+    // it -- link-preview/"safe browsing" prefetching by the email client
+    // (iOS Mail's SFSafariViewController and Android's Chrome Custom Tabs
+    // both share the system browser's cookie jar, so a prefetch there
+    // really does leave a valid session behind) is the common cause. If
+    // that already happened, this request's own cookies already carry a
+    // valid session -- verifyOtp failing here doesn't mean signing in
+    // failed, just that this particular attempt at the token lost the
+    // race. Check for that before treating it as a real failure.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return applyCookies(toLogin(origin, error.message));
+    }
   }
 
   const destination = await postAuthDestination(supabase);
