@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights } from "@/lib/queries";
+import { getThreadReadOnly, isThreadUnread } from "@/lib/chat";
 import { labelFor } from "@/app/client/data-points";
 import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
@@ -44,6 +45,8 @@ export default async function ClientDetailPage({
   }
 
   const client = profileRes.data;
+  const thread = await getThreadReadOnly(supabase, coach.id, params.clientId);
+  const chatUnread = thread ? isThreadUnread(thread, "coach") : false;
 
   const [summaries, stats, steps, sleep] = clientProfile.onboardedAt
     ? await Promise.all([
@@ -97,9 +100,21 @@ export default async function ClientDetailPage({
         <Link href="/dashboard" className="text-sm text-ink-secondary hover:text-ink-primary">
           ← Clients
         </Link>
-        <h1 className="mt-1 text-lg font-semibold text-ink-primary">
-          {client?.full_name || client?.email || "Client"}
-        </h1>
+        <div className="mt-1 flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-ink-primary">
+            {client?.full_name || client?.email || "Client"}
+          </h1>
+          <Link
+            href={`/dashboard/clients/${params.clientId}/chat`}
+            className="relative text-ink-secondary hover:text-ink-primary"
+            aria-label="Chat with this client"
+          >
+            💬
+            {chatUnread && (
+              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-yellow-400" aria-label="Unread messages" />
+            )}
+          </Link>
+        </div>
         <p className="text-sm text-ink-secondary">{client?.email}</p>
       </div>
 

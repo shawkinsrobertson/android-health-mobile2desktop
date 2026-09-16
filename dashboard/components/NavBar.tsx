@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/profile";
+import { createClient } from "@/lib/supabase/server";
+import { listThreadsForUnread } from "@/lib/chat";
+import { InboxNavLink } from "@/components/chat/InboxNavLink";
 
 export async function NavBar() {
   const profile = await getCurrentProfile();
+
+  const initialThreads =
+    profile && (profile.role === "coach" || profile.role === "client")
+      ? await listThreadsForUnread(await createClient(), profile.id, profile.role)
+      : [];
 
   return (
     <header className="border-b border-[color:var(--border-hairline)] bg-surface">
@@ -21,10 +29,16 @@ export async function NavBar() {
               Library
             </Link>
           )}
+          {profile?.role === "coach" && (
+            <InboxNavLink href="/dashboard/inbox" role="coach" profileId={profile.id} initialThreads={initialThreads} />
+          )}
           {profile?.role === "client" && (
             <Link href="/client" className="hover:text-ink-primary">
               My dashboard
             </Link>
+          )}
+          {profile?.role === "client" && (
+            <InboxNavLink href="/client/inbox" role="client" profileId={profile.id} initialThreads={initialThreads} />
           )}
         </nav>
         {profile ? (
