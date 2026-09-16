@@ -18,6 +18,9 @@ export interface ClientProfile {
   // Links this account to a specific Android install's synced rows -- see
   // supabase/migrations/0003_sync_code.sql.
   syncCode: string;
+  // Carried into every logged set's weight display -- see
+  // supabase/migrations/0010_session_sets_and_timers.sql.
+  preferredWeightUnit: "lbs" | "kg";
 }
 
 // Fetches the signed-in user's profile row, or null if not signed in. Used
@@ -58,7 +61,7 @@ export async function getClientProfile(
   const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("client_profiles")
-    .select("coach_id, phone, goals, limitations, top_data_points, onboarded_at, sync_code")
+    .select("coach_id, phone, goals, limitations, top_data_points, onboarded_at, sync_code, preferred_weight_unit")
     .eq("profile_id", profileId)
     .single();
 
@@ -72,5 +75,6 @@ export async function getClientProfile(
     topDataPoints: data.top_data_points ?? [],
     onboardedAt: data.onboarded_at,
     syncCode: data.sync_code,
+    preferredWeightUnit: data.preferred_weight_unit ?? "lbs",
   };
 }

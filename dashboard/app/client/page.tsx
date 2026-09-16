@@ -5,6 +5,7 @@ import { getDataPointSummary } from "@/lib/queries";
 import { DataPointPicker } from "@/components/DataPointPicker";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { labelFor } from "./data-points";
+import { updateWeightUnit } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,37 @@ export default async function ClientDashboardPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Your top data points</h2>
         <DataPointPicker initialSelected={clientProfile.topDataPoints} />
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Weight units</h2>
+        <p className="mb-3 text-xs text-ink-secondary">Used when logging weight during a workout.</p>
+        <form action={updateWeightUnit} className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm text-ink-primary">
+            <input
+              type="radio"
+              name="preferred_weight_unit"
+              value="lbs"
+              defaultChecked={clientProfile.preferredWeightUnit === "lbs"}
+            />
+            lbs
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-ink-primary">
+            <input
+              type="radio"
+              name="preferred_weight_unit"
+              value="kg"
+              defaultChecked={clientProfile.preferredWeightUnit === "kg"}
+            />
+            kg
+          </label>
+          <button
+            type="submit"
+            className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+          >
+            Save
+          </button>
+        </form>
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

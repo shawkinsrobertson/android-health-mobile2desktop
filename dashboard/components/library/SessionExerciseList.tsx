@@ -1,7 +1,8 @@
 import { groupIntoUnits } from "@/lib/workout-blocks";
+import { formatClock } from "@/lib/time-format";
 import { VideoPreview } from "./VideoPreview";
 import type { AssignedBlock, AssignedExerciseItem } from "./AssignedExerciseList";
-import type { SessionExerciseLog } from "./SessionLogger";
+import type { SessionExerciseState, SessionSetState } from "./SessionLogger";
 
 function prescribedSummary(item: AssignedExerciseItem): string {
   return (
@@ -21,31 +22,37 @@ function prescribedSummary(item: AssignedExerciseItem): string {
   );
 }
 
-function actualSummary(log: SessionExerciseLog | undefined): string | null {
-  if (!log) return null;
-  const parts = [
-    log.actual_sets ? `${log.actual_sets} sets` : null,
-    log.actual_duration_seconds ? `${log.actual_duration_seconds}s` : log.actual_reps ? `${log.actual_reps} reps` : null,
-    log.actual_weight,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : null;
+function setSummary(set: SessionSetState, isTimed: boolean, weightUnit: string): string {
+  return (
+    [
+      isTimed ? (set.duration_seconds ? `${formatClock(set.duration_seconds)}` : null) : set.reps ? `${set.reps} reps` : null,
+      set.weight ? `${set.weight} ${weightUnit}` : null,
+      set.rest_seconds ? `${formatClock(set.rest_seconds)} rest` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not logged"
+  );
 }
 
-// Read-only coach view of one logged session: prescribed vs. what the
-// client actually reported, per exercise, grouped by block the same way
-// as the coach's editor and the client's logger (see lib/workout-blocks.ts).
+// Read-only coach view of one logged session: prescribed vs. each set the
+// client actually reported, grouped by block the same way as the coach's
+// editor and the client's logger (see lib/workout-blocks.ts).
 function ExerciseDetail({
   item,
-  log,
+  exercise,
+  sets,
+  weightUnit,
   photoUrl,
   videoUrl,
 }: {
   item: AssignedExerciseItem;
-  log: SessionExerciseLog | undefined;
+  exercise: SessionExerciseState | undefined;
+  sets: SessionSetState[];
+  weightUnit: string;
   photoUrl: string | null;
   videoUrl: string | null;
 }) {
-  const actual = actualSummary(log);
+  const isTimed = item.prescription_type === "time";
 
   return (
     <div className="flex items-start gap-3">
@@ -56,20 +63,32 @@ function ExerciseDetail({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-sm font-medium text-ink-primary">{item.name}</div>
-          {log?.completed && (
+          {exercise?.completed && (
             <span className="rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-sleep)]">
               Done
             </span>
           )}
-          {log?.is_pr && (
+          {exercise?.is_pr && (
             <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-heart)]">
               PR
             </span>
           )}
         </div>
         <div className="text-xs text-ink-muted">Prescribed: {prescribedSummary(item)}</div>
-        <div className="text-xs text-ink-secondary">{actual ? `Actual: ${actual}` : "Not logged"}</div>
-        {log?.notes && <p className="mt-1 text-xs text-ink-secondary">{log.notes}</p>}
+
+        {sets.length === 0 ? (
+          <div className="text-xs text-ink-secondary">Not logged</div>
+        ) : (
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {sets.map((set) => (
+              <li key={set.id} className="text-xs text-ink-secondary">
+                Set {set.set_number}: {setSummary(set, isTimed, weightUnit)}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {exercise?.notes && <p className="mt-1 text-xs text-ink-secondary">{exercise.notes}</p>}
         <VideoPreview
           path={item.video_path}
           url={item.video_url}
@@ -84,12 +103,16 @@ function ExerciseDetail({
 export function SessionExerciseList({
   exercises,
   blocks,
-  logs,
+  exerciseRows,
+  setsByExercise,
+  weightUnit,
   media,
 }: {
   exercises: AssignedExerciseItem[];
   blocks: AssignedBlock[];
-  logs: Record<string, SessionExerciseLog>;
+  exerciseRows: Record<string, SessionExerciseState>;
+  setsByExercise: Record<string, SessionSetState[]>;
+  weightUnit: string;
   media: Record<string, { photoUrl: string | null; videoUrl: string | null }>;
 }) {
   const units = groupIntoUnits(exercises, blocks);
@@ -98,17 +121,26 @@ export function SessionExerciseList({
     return <p className="text-sm text-ink-muted">No exercises in this workout.</p>;
   }
 
+  function renderDetail(item: AssignedExerciseItem) {
+    const exercise = exerciseRows[item.id];
+    return (
+      <ExerciseDetail
+        item={item}
+        exercise={exercise}
+        sets={exercise ? (setsByExercise[exercise.id] ?? []) : []}
+        weightUnit={weightUnit}
+        photoUrl={media[item.id]?.photoUrl ?? null}
+        videoUrl={media[item.id]?.videoUrl ?? null}
+      />
+    );
+  }
+
   return (
     <ul className="flex flex-col gap-3">
       {units.map((unit) =>
         unit.type === "exercise" ? (
           <li key={unit.key} className="rounded-lg border border-[color:var(--border-hairline)] p-3">
-            <ExerciseDetail
-              item={unit.item}
-              log={logs[unit.item.id]}
-              photoUrl={media[unit.item.id]?.photoUrl ?? null}
-              videoUrl={media[unit.item.id]?.videoUrl ?? null}
-            />
+            {renderDetail(unit.item)}
           </li>
         ) : (
           <li key={unit.key} className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
@@ -121,12 +153,7 @@ export function SessionExerciseList({
             <ul className="flex flex-col gap-2">
               {unit.members.map((member) => (
                 <li key={member.id} className="rounded-md border border-[color:var(--border-hairline)] bg-surface p-2">
-                  <ExerciseDetail
-                    item={member}
-                    log={logs[member.id]}
-                    photoUrl={media[member.id]?.photoUrl ?? null}
-                    videoUrl={media[member.id]?.videoUrl ?? null}
-                  />
+                  {renderDetail(member)}
                 </li>
               ))}
             </ul>

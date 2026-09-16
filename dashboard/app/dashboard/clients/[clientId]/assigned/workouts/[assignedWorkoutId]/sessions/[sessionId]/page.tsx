@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaPair } from "@/lib/media";
 import { SessionExerciseList } from "@/components/library/SessionExerciseList";
-import type { SessionExerciseLog } from "@/components/library/SessionLogger";
+import type { SessionExerciseState, SessionSetState } from "@/components/library/SessionLogger";
 import type { AssignedBlock, AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,7 @@ export default async function CoachWorkoutSessionPage({
 
   if (!workout || sessionError || !session) redirect(`/dashboard/clients/${params.clientId}`);
 
-  const [{ data: exerciseRows }, { data: blockRows }, { data: logRows }] = await Promise.all([
+  const [{ data: exerciseRows }, { data: blockRows }, { data: clientProfile }] = await Promise.all([
     supabase
       .from("assigned_workout_exercises")
       .select(
@@ -51,32 +51,48 @@ export default async function CoachWorkoutSessionPage({
       .select("id, block_type, rounds, notes")
       .eq("assigned_workout_id", workout.id),
     supabase
-      .from("workout_session_exercises")
-      .select(
-        "assigned_workout_exercise_id, completed, is_pr, actual_sets, actual_reps, actual_duration_seconds, actual_weight, notes",
-      )
-      .eq("session_id", session.id),
+      .from("client_profiles")
+      .select("preferred_weight_unit")
+      .eq("profile_id", params.clientId)
+      .single(),
   ]);
 
   const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];
   const blocks = (blockRows ?? []) as AssignedBlock[];
-  const exerciseMedia = await Promise.all(exercises.map((e) => resolveMediaPair(supabase, e)));
+  const weightUnit = clientProfile?.preferred_weight_unit ?? "lbs";
+
+  const [{ data: sessionExerciseData }, exerciseMedia] = await Promise.all([
+    supabase
+      .from("workout_session_exercises")
+      .select("id, assigned_workout_exercise_id, completed, is_pr, notes")
+      .eq("session_id", session.id),
+    Promise.all(exercises.map((e) => resolveMediaPair(supabase, e))),
+  ]);
+
   const media = Object.fromEntries(exercises.map((e, i) => [e.id, exerciseMedia[i]]));
 
-  const logs: Record<string, SessionExerciseLog> = {};
-  for (const row of logRows ?? []) {
-    logs[row.assigned_workout_exercise_id] = {
-      completed: row.completed,
-      is_pr: row.is_pr,
-      actual_sets: row.actual_sets,
-      actual_reps: row.actual_reps,
-      actual_duration_seconds: row.actual_duration_seconds,
-      actual_weight: row.actual_weight,
-      notes: row.notes,
-    };
+  const exerciseStateRows: Record<string, SessionExerciseState> = {};
+  const sessionExerciseIds: string[] = [];
+  for (const row of (sessionExerciseData ?? []) as (SessionExerciseState & { assigned_workout_exercise_id: string })[]) {
+    exerciseStateRows[row.assigned_workout_exercise_id] = row;
+    sessionExerciseIds.push(row.id);
   }
 
-  const prCount = Object.values(logs).filter((l) => l.is_pr).length;
+  const { data: setRows } = sessionExerciseIds.length
+    ? await supabase
+        .from("workout_session_sets")
+        .select("id, session_exercise_id, set_number, reps, duration_seconds, weight, rest_seconds")
+        .in("session_exercise_id", sessionExerciseIds)
+        .order("set_number")
+    : { data: [] };
+
+  const setsByExercise: Record<string, SessionSetState[]> = {};
+  for (const row of setRows ?? []) {
+    const key = row.session_exercise_id as string;
+    (setsByExercise[key] ??= []).push(row);
+  }
+
+  const prCount = Object.values(exerciseStateRows).filter((e) => e.is_pr).length;
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
@@ -101,7 +117,14 @@ export default async function CoachWorkoutSessionPage({
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
-        <SessionExerciseList exercises={exercises} blocks={blocks} logs={logs} media={media} />
+        <SessionExerciseList
+          exercises={exercises}
+          blocks={blocks}
+          exerciseRows={exerciseStateRows}
+          setsByExercise={setsByExercise}
+          weightUnit={weightUnit}
+          media={media}
+        />
       </section>
     </div>
   );
