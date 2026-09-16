@@ -1,16 +1,10 @@
-import { ChatPanel } from "@/components/ChatPanel";
+import { redirect } from "next/navigation";
 
+// Retired as a standalone single-user AI chat surface -- Phase 5 in
+// PLANNING.md plans a proper per-client replacement ("chat about a
+// specific client", tool-calling instead of one shared system prompt).
+// Until then this route is just a redirect, same as "/" -- see that
+// page's comment.
 export default function CoachPage() {
-  return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-lg font-semibold text-ink-primary">Coach</h1>
-        <p className="text-sm text-ink-secondary">
-          Chat with an AI coach grounded in your synced Health Connect data — steps,
-          heart rate, sleep, and workouts, pulled fresh from Supabase on every message.
-        </p>
-      </div>
-      <ChatPanel />
-    </div>
-  );
+  redirect("/login");
 }
