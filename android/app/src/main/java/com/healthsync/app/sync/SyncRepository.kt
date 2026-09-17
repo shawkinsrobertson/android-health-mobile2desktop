@@ -42,6 +42,13 @@ data class SyncResult(
  *
  * One record type failing (e.g. a permission was revoked) doesn't stop the
  * others — errors are collected and returned rather than thrown.
+ *
+ * Every pushed row's ownership comes from [supabase]'s access token (RLS
+ * resolves `client_id` via `auth.uid()` on the Supabase side -- see
+ * `supabase/migrations/0015_health_data_auth.sql`), not from anything
+ * this class adds to the row payload -- unlike before real per-client
+ * auth existed, when this repository stamped a `user_id` value (the
+ * manually-entered sync code) onto every row itself.
  */
 class SyncRepository(
     private val healthConnectManager: HealthConnectManager,
@@ -53,14 +60,9 @@ class SyncRepository(
         var deleted = 0
         val errors = mutableListOf<String>()
 
-        // Read once per pass rather than per batch -- this is who every row
-        // pushed this run gets tagged as (falls back to the `user_id`
-        // column's plain default when unset, same as before this existed).
-        val userId = syncState.getSyncCode()
-
         for (spec in allSyncSpecs) {
             try {
-                val (u, d) = syncOne(spec, userId)
+                val (u, d) = syncOne(spec)
                 upserted += u
                 deleted += d
             } catch (e: Exception) {
@@ -72,22 +74,22 @@ class SyncRepository(
         return SyncResult(upserted, deleted, errors)
     }
 
-    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>, userId: String?): Pair<Int, Int> {
+    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): Pair<Int, Int> {
         val existingToken = syncState.getChangesToken(spec.key)
         return if (existingToken == null) {
-            backfill(spec, userId)
+            backfill(spec)
         } else {
-            drainChanges(spec, existingToken, userId)
+            drainChanges(spec, existingToken)
         }
     }
 
     /** First-time sync for a record type: pull recent history by time range, then mint a token. */
-    private suspend fun <T : Record> backfill(spec: SyncSpec<T>, userId: String?): Pair<Int, Int> {
+    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): Pair<Int, Int> {
         val client = healthConnectManager.client
         val start = Instant.now().minus(spec.initialBackfillDays, ChronoUnit.DAYS)
         val records = readAllPages(spec, TimeRangeFilter.after(start))
 
-        val upserted = pushRecords(spec, records, userId)
+        val upserted = pushRecords(spec, records)
 
         val token = client.getChangesToken(ChangesTokenRequest(recordTypes = setOf(spec.recordType)))
         syncState.saveChangesToken(spec.key, token)
@@ -124,7 +126,6 @@ class SyncRepository(
     private suspend fun <T : Record> drainChanges(
         spec: SyncSpec<T>,
         startToken: String,
-        userId: String?,
     ): Pair<Int, Int> {
         val client = healthConnectManager.client
         var upserted = 0
@@ -137,7 +138,7 @@ class SyncRepository(
             if (response.changesTokenExpired) {
                 Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill")
                 syncState.clearChangesToken(spec.key)
-                val (u, d) = backfill(spec, userId)
+                val (u, d) = backfill(spec)
                 return (upserted + u) to (deleted + d)
             }
 
@@ -154,7 +155,7 @@ class SyncRepository(
                     }
                 }
             }
-            upserted += pushRecords(spec, upsertedRecords, userId)
+            upserted += pushRecords(spec, upsertedRecords)
 
             token = response.nextChangesToken
             if (!response.hasMore) break
@@ -174,27 +175,14 @@ class SyncRepository(
      * record. A single request per (table, batch) pair rather than per
      * record is what keeps a large backfill from taking forever.
      */
-    private suspend fun <T : Record> pushRecords(
-        spec: SyncSpec<T>,
-        records: List<T>,
-        userId: String?,
-    ): Int {
+    private suspend fun <T : Record> pushRecords(spec: SyncSpec<T>, records: List<T>): Int {
         if (records.isEmpty()) return 0
 
         val rowsByTable = mutableMapOf<String, MutableList<Map<String, Any?>>>()
         for (record in records) {
             for ((table, rows) in spec.toTableRows(record)) {
                 if (rows.isEmpty()) continue
-                // Tag with the client's sync code when one is set (see
-                // SyncStateStore.getSyncCode); otherwise every row's
-                // `user_id` falls back to the table column's own default,
-                // same behavior as before sync codes existed.
-                val taggedRows = if (userId != null) {
-                    rows.map { row -> row + ("user_id" to userId) }
-                } else {
-                    rows
-                }
-                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(taggedRows)
+                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(rows)
             }
         }
 

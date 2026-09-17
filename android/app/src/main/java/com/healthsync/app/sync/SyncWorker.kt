@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
+import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.healthconnect.HealthConnectManager
 import com.healthsync.app.supabase.SupabaseRestClient
 
@@ -36,9 +37,16 @@ class SyncWorker(
             )
         }
 
+        val accessToken = AuthRepository(applicationContext).getValidAccessToken()
+        if (accessToken == null) {
+            return Result.failure(
+                Data.Builder().putString(KEY_FAILURE_REASON, "Not signed in").build()
+            )
+        }
+
         val repository = SyncRepository(
             healthConnectManager = healthConnectManager,
-            supabase = SupabaseRestClient(),
+            supabase = SupabaseRestClient(accessToken = accessToken),
             syncState = SyncStateStore(applicationContext),
         )
 

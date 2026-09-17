@@ -15,15 +15,27 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Minimal PostgREST client for pushing Health Connect data to Supabase.
- * Talks straight to `/rest/v1/<table>` with the anon key rather than
- * pulling in the full Supabase SDK — this app only ever upserts/deletes a
- * handful of tables, so a couple of OkHttp calls are simpler than a
- * dependency with its own auth/session machinery this app doesn't use.
+ * Talks straight to `/rest/v1/<table>` rather than pulling in the full
+ * Supabase SDK — this app only ever upserts/deletes a handful of tables,
+ * so a couple of OkHttp calls are simpler than a dependency with its own
+ * auth/session machinery (see auth/SupabaseAuthClient.kt for the small
+ * hand-rolled equivalent this app does need).
+ *
+ * [accessToken] is the signed-in client's current Supabase session
+ * token (see AuthRepository.getValidAccessToken()) — required, not
+ * defaulted, so a caller can't accidentally construct this
+ * unauthenticated. `apikey` stays the project's anon key on every
+ * request regardless (standard Supabase convention: `apikey` identifies
+ * the project, `Authorization` identifies the caller); RLS on the
+ * health-data tables now keys off the latter via auth.uid() (see
+ * supabase/migrations/0015_health_data_auth.sql), not a `user_id` value
+ * stuffed into the row payload.
  *
  * SUPABASE_URL / SUPABASE_ANON_KEY come from local.properties via
  * BuildConfig (see app/build.gradle.kts) and are never committed.
  */
 class SupabaseRestClient(
+    private val accessToken: String,
     private val baseUrl: String = BuildConfig.SUPABASE_URL,
     private val anonKey: String = BuildConfig.SUPABASE_ANON_KEY,
 ) {
@@ -62,7 +74,7 @@ class SupabaseRestClient(
         val request = Request.Builder()
             .url(url)
             .header("apikey", anonKey)
-            .header("Authorization", "Bearer $anonKey")
+            .header("Authorization", "Bearer $accessToken")
             .header("Content-Type", "application/json")
             .header("Prefer", "resolution=merge-duplicates,return=minimal")
             .post(body.toString().toRequestBody(jsonMediaType))
@@ -84,7 +96,7 @@ class SupabaseRestClient(
         val request = Request.Builder()
             .url(url)
             .header("apikey", anonKey)
-            .header("Authorization", "Bearer $anonKey")
+            .header("Authorization", "Bearer $accessToken")
             .header("Prefer", "return=minimal")
             .delete()
             .build()
