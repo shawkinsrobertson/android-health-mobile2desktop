@@ -4,10 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights } from "@/lib/queries";
 import { getThreadReadOnly, isThreadUnread } from "@/lib/chat";
-import { labelFor } from "@/app/client/data-points";
+import { getPersonalRecords } from "@/lib/personal-records";
+import { DATA_POINTS, labelFor } from "@/app/client/data-points";
 import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
 import { SleepChart } from "@/components/SleepChart";
+import { PersonalRecordsList } from "@/components/PersonalRecordsList";
 import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
 import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
@@ -118,6 +120,17 @@ export default async function ClientDetailPage({
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
+  const [personalRecords, { data: consentRows }] = clientProfile.onboardedAt
+    ? await Promise.all([
+        getPersonalRecords(supabase, params.clientId),
+        supabase
+          .from("client_data_consent")
+          .select("data_type, consented")
+          .eq("client_id", params.clientId),
+      ])
+    : [[], { data: [] as { data_type: string; consented: boolean }[] }];
+  const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -196,6 +209,30 @@ export default async function ClientDetailPage({
           </section>
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">Data sharing</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              What this client has chosen to share with you. Read-only -- they set this from their
+              own dashboard.
+            </p>
+            <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+              {DATA_POINTS.map((d) => {
+                const consented = consentByType[d.key] !== false;
+                return (
+                  <li key={d.key} className="flex items-center gap-2 text-ink-primary">
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        consented ? "bg-[color:var(--series-steps)]" : "bg-ink-muted"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span className={consented ? "" : "text-ink-muted"}>{d.label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
             <h2 className="mb-1 text-sm font-semibold text-ink-primary">Coach notes</h2>
             <p className="mb-3 text-xs text-ink-muted">
               Only you see these. Mark a note private to keep it out of the AI assistant&apos;s context too.
@@ -205,6 +242,25 @@ export default async function ClientDetailPage({
               initialNotes={coachNotes}
               seeAllHref={`/dashboard/clients/${params.clientId}/notes`}
               totalCount={coachNotesCount}
+            />
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink-primary">Personal records</h2>
+              {personalRecords.length > 3 && (
+                <Link
+                  href={`/dashboard/clients/${params.clientId}/personal-records`}
+                  className="text-xs text-[color:var(--series-steps)] hover:underline"
+                >
+                  See all
+                </Link>
+              )}
+            </div>
+            <PersonalRecordsList
+              records={personalRecords}
+              weightUnit={clientProfile.preferredWeightUnit}
+              limit={3}
             />
           </section>
 

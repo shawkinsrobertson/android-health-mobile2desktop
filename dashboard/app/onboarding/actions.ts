@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile } from "@/lib/profile";
+import { getClientProfile, getCurrentProfile } from "@/lib/profile";
+import { DATA_POINTS } from "@/app/client/data-points";
 
 export async function completeOnboarding(formData: FormData) {
   const profile = await getCurrentProfile();
@@ -20,6 +21,7 @@ export async function completeOnboarding(formData: FormData) {
   }
 
   const supabase = await createClient();
+  const clientProfile = await getClientProfile(profile.id, supabase);
 
   const [profileUpdate, clientUpdate] = await Promise.all([
     supabase.from("profiles").update({ full_name: fullName }).eq("id", profile.id),
@@ -38,6 +40,20 @@ export async function completeOnboarding(formData: FormData) {
   if (profileUpdate.error || clientUpdate.error) {
     const message = profileUpdate.error?.message ?? clientUpdate.error?.message ?? "Unknown error";
     redirect(`/onboarding?error=${encodeURIComponent(message)}`);
+  }
+
+  if (clientProfile?.coachId) {
+    const now = new Date().toISOString();
+    await supabase.from("client_data_consent").upsert(
+      DATA_POINTS.map((d) => ({
+        client_id: profile.id,
+        coach_id: clientProfile.coachId as string,
+        data_type: d.key,
+        consented: formData.get(`consent_${d.key}`) === "on",
+        updated_at: now,
+      })),
+      { onConflict: "client_id,data_type" },
+    );
   }
 
   redirect("/client");

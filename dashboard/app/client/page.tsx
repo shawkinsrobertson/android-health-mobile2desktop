@@ -5,10 +5,12 @@ import { getClientProfile, getCurrentProfile } from "@/lib/profile";
 import { getDataPointSummary } from "@/lib/queries";
 import { resolveMediaPair } from "@/lib/media";
 import { formatClock, sessionDurationSeconds } from "@/lib/time-format";
+import { getPersonalRecords } from "@/lib/personal-records";
 import { DataPointPicker } from "@/components/DataPointPicker";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
-import { labelFor } from "./data-points";
-import { updateWeightUnit } from "./actions";
+import { PersonalRecordsList } from "@/components/PersonalRecordsList";
+import { DATA_POINTS, labelFor } from "./data-points";
+import { updateWeightUnit, updateDataConsent } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +90,12 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
+  const [personalRecords, { data: consentRows }] = await Promise.all([
+    getPersonalRecords(supabase, profile.id),
+    supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
+  ]);
+  const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -165,6 +173,25 @@ export default async function ClientDashboardPage() {
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-ink-primary">Personal records</h2>
+          {personalRecords.length > 3 && (
+            <Link
+              href="/client/personal-records"
+              className="text-xs text-[color:var(--series-steps)] hover:underline"
+            >
+              See all
+            </Link>
+          )}
+        </div>
+        <PersonalRecordsList
+          records={personalRecords}
+          weightUnit={clientProfile.preferredWeightUnit}
+          limit={3}
+        />
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>
         <p className="mb-3 text-sm text-ink-secondary">
           Open the Health Sync app, enter this code once in Settings, and your synced Health
@@ -208,6 +235,32 @@ export default async function ClientDashboardPage() {
           <button
             type="submit"
             className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+          >
+            Save
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Data sharing</h2>
+        <p className="mb-3 text-xs text-ink-secondary">
+          Choose what your coach can see. Turning something off here is visible to your coach, but
+          doesn&apos;t yet stop it from syncing from your phone.
+        </p>
+        <form action={updateDataConsent} className="flex flex-col gap-2">
+          {DATA_POINTS.map((d) => (
+            <label key={d.key} className="flex items-center gap-2 text-sm text-ink-primary">
+              <input
+                type="checkbox"
+                name={`consent_${d.key}`}
+                defaultChecked={consentByType[d.key] !== false}
+              />
+              {d.label}
+            </label>
+          ))}
+          <button
+            type="submit"
+            className="mt-1 w-fit rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
           >
             Save
           </button>

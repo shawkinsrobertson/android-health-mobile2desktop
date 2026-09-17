@@ -41,13 +41,13 @@ multiple_choice / file_upload fields). See
 
 Persisted 1:1 coach↔client chat threads (replacing today's ephemeral
 `/coach` chat pattern) were originally scoped into this phase but weren't
-built here -- still open, folded into Phase 3 below.
+built here -- shipped later, as Phase 3 below.
 
 Also not built here, flagged for a later discussion rather than scoped in:
 how to seed/populate the exercise library at scale (e.g. sourcing exercise
 videos from YouTube by search criteria, manual vs. semi-automated).
 
-## Phase 2 -- assignment pipeline (partially shipped)
+## Phase 2 -- assignment pipeline (shipped)
 
 `assigned_workouts` / `assigned_programs` / `assigned_documents` /
 `assigned_workout_exercises` / `document_responses`.
@@ -61,58 +61,43 @@ of type "form" collect client responses into `document_responses`, keyed
 by the form's field ids. See `supabase/migrations/0005_assigned.sql`.
 
 Client completion/tracking flow -- variance from what was prescribed
-(weight/reps/rest actually done vs. assigned, logged per session) -- was
-originally scoped into this phase but wasn't built here; still open.
+(weight/reps/rest actually done vs. assigned, logged per set, with a
+workout timer and a per-user weight-unit preference) shipped as "workout
+tracking v2." Finishing a session walks through a confirmation modal → an
+editable summary card → back to the dashboard; the client dashboard surfaces
+a "next assigned workout" preview and a recent/full workout history.
 
-## Up next (queued for the next session)
+The single-user Overview (`/`, `app/page.tsx`) that predated the coach/client
+pivot has also been retired -- everything is gated behind
+coach/client sign-in → `/dashboard` or `/client`, and
+`/dashboard/clients/[clientId]` is now the only per-client data view.
 
-Two items, not yet started:
+## Phase 3 -- chat richness (partially shipped)
 
-1. **Finish assignments.** Most likely means the Phase 2 client
-   completion/tracking flow noted above as still open (variance from what
-   was prescribed -- weight/reps/rest actually done vs. assigned, logged
-   per session) -- confirm exact scope at the start of the session rather
-   than assuming.
+Shipped: persisted 1:1 coach↔client threads, threaded replies
+(`reply_to_id`), message reactions and pinning, media attachments
+(photo/video/voice) via Supabase Storage, and custom video/audio calling
+(`chat_calls` + Daily.co, a custom React UI on `daily-react` rather than
+Daily's prebuilt UI -- originally scoped as a separate decision, ended up
+built alongside the rest of this phase).
 
-2. **Fold the single-user Overview into the per-client dashboard, and gate
-   everything behind coach → client list → client.** Today `/` (root,
-   `app/page.tsx`) is a standalone, unauthenticated Health Connect data
-   view left over from before the coach/client pivot, and `middleware.ts`'s
-   matcher explicitly excludes both `/` and `/coach` from the
-   session-required routes. The ask is to retire that surface as a public
-   destination -- a coach should only ever reach a data dashboard by
-   signing in, picking a client from `/dashboard`, and landing on
-   `/dashboard/clients/[clientId]`, which **already renders essentially
-   this dashboard** (stats/steps/sleep via `clientProfile.syncCode`, see
-   `lib/queries.ts`) for that one client, RLS/sync-code-scoped. So this is
-   mostly about *removing/redirecting* the standalone `/` route and
-   updating `middleware.ts`'s matcher and `NavBar.tsx`'s "Overview" link,
-   not building new dashboard UI. Open question to settle first: what
-   happens to `/` and `/coach` themselves -- delete outright, redirect to
-   `/login` or `/dashboard`, or keep as a dev/demo view but no longer
-   linked from nav? `/coach`'s single-user AI chat is a separate, currently
-   unscoped question -- Phase 5 above already plans to give it a per-client
-   "chat about a specific client" replacement, so it may just ride along
-   with whatever `/` decision is made, or may be explicitly out of scope
-   for this cleanup.
-
-## Phase 3 -- chat richness (not started)
-
+Still open:
 - **Broadcast messages fan out to N separate 1:1 threads** -- no shared
   group thread. Keeps the coach-client privacy boundary intact; a broadcast
   is "the same message sent to multiple threads," not a new thread type.
-- **Replies are nested/threaded** (Slack-style, reply-to-a-specific-message
-  via `parent_message_id`), not just a flat chronological log.
-- **Read receipts are in scope** -- needs a per-message-per-recipient read
-  state, not just a per-thread "last read" pointer, once broadcast fan-out
-  is in play.
-- Media (photos/video/voice notes) via Supabase Storage, reactions
-  (including custom).
+- **True per-message-per-recipient read receipts.** Today's unread state
+  (`coach_last_read_at`/`client_last_read_at` on `chat_threads`) is a
+  per-thread last-read pointer, not a per-message-per-recipient one --
+  fine for a 1:1 thread, but broadcast fan-out above would want to know
+  who's actually seen a given broadcast.
 
-## Phase 4 -- data depth, notes, consent (not started)
+## Phase 4 -- data depth, notes, consent (in progress)
 
-- Additional `healthData` types beyond steps/HR/sleep/exercise/SpO2/BP/
-  respiratory rate (e.g. nutrition), `personalRecords` derivation.
+- **`coachNotes` (shipped).** A dated, coach-only note log per client
+  (`coach_notes` table), with an `is_private` flag -- see the privacy note
+  below -- an edit-in-place modal (save → confirm → back to the dashboard,
+  not a full-page nav), and a 3-note preview on the client detail page that
+  links out to a full history page once a client has more than three.
 - **`coachNotes` privacy**: the AI assistant coach only ever talks *to the
   coach*, never directly to a client, so the private flag isn't guarding
   against an AI→client leak (that channel doesn't exist). It's about which
@@ -121,14 +106,26 @@ Two items, not yet started:
   whatever builds the AI assistant's context (system prompt today, tool
   calls later) must exclude notes flagged private; there's no client-facing
   angle to worry about.
-- **Consent is enforcement, not just visibility.** Declining a data type
-  stops it from syncing at all -- it's not synced-but-hidden-from-coach.
-  This has a real dependency: the Android app needs to know which client
-  it's syncing as and read that client's consent settings *before* deciding
-  what to read from Health Connect and push -- so consent enforcement can't
-  actually land before the Phase 6 mobile per-client-auth work below. Track
-  the consent schema/UI here, but expect the enforcement half to ship
-  alongside Phase 6, not before it.
+- **`personalRecords` derivation (in progress).** Heaviest weight ever
+  logged per exercise, derived from the existing per-set session logs
+  (`workout_session_exercise_sets` et al.) -- no new Android/sync work
+  needed, purely a dashboard-side read.
+- **Consent schema/UI (in progress).** Per-data-type toggles a client sets
+  during onboarding and can revisit later from a client settings page;
+  the coach sees the client's current consent state (read-only) on the
+  client detail page. **Consent is enforcement, not just visibility** --
+  declining a data type should eventually stop it from syncing at all, not
+  just hide it from the coach after the fact. That enforcement half has a
+  real dependency: the Android app needs to know which client it's syncing
+  as and read that client's consent settings *before* deciding what to read
+  from Health Connect and push -- so enforcement can't actually land before
+  Phase 6's mobile per-client-auth work. This pass ships the schema and the
+  visibility-only UI; enforcement ships alongside Phase 6.
+- **Additional `healthData` types beyond steps/HR/sleep/exercise/SpO2/BP/
+  respiratory rate (e.g. nutrition) -- deferred to Phase 6.** Any new
+  Health Connect type touches the same Android sync/auth code Phase 6 is
+  about to rework, so it's bundled there rather than changing that code
+  twice.
 
 ## Phase 5 -- AI assistant coach v2 (not started)
 
@@ -138,13 +135,45 @@ client's data/notes on demand -- so it scales across a full roster. Also
 adds the coach↔AI "chat about a specific client" surface as its own
 persisted thread, separate from coach↔client chat.
 
-## Phase 6 -- mobile rearchitecture + iOS (not started)
+## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
 Android app needs real per-client login instead of one shared anon key
 baked into `local.properties` at build time -- this is also the
-prerequisite for Phase 4's consent enforcement and for a client's `/client`
-dashboard to ever show real synced numbers instead of a placeholder. Net-new
-iOS HealthKit app is a separate, later effort.
+prerequisite for Phase 4's consent enforcement and its deferred
+additional-health-data-types work, and for a client's `/client` dashboard
+to ever show real synced numbers instead of a placeholder. Net-new iOS
+HealthKit app is a separate, later effort.
+
+**Decided 2026-09-17: pulled forward ahead of those remaining Phase 4
+Android-dependent items**, once it was clear both were blocked on it
+anyway -- rather than finish Phase 4 fully first, the non-blocked pieces
+(coachNotes, personalRecords, consent schema/UI) ship first and the
+Android-dependent remainder (consent enforcement, new health data types)
+folds into this phase instead of a second Phase 4 pass.
+
+Known shape of the work (see prior research): the Android-side change
+itself is small -- roughly `SupabaseRestClient.kt` (swap the static anon
+key for a per-session JWT), `SyncRepository.kt` (tag rows by real user id
+instead of the manually-entered `sync_code`), `SyncStateStore.kt`/
+`MainScreen.kt` (replace sync-code entry with a login screen), plus a new
+session-refresh step in `SyncWorker.kt`/`SyncScheduler.kt`. The bulk of the
+real work is elsewhere:
+- **RLS rewrite.** `supabase/migrations/0001_init.sql` currently locks the
+  health-data tables to a fully permissive `anon`-role policy
+  (`using (true)` -- the header comment calls the anon key "equivalent to a
+  password"). Real per-client auth needs `authenticated`-role RLS scoped to
+  `auth.uid()`, replacing that.
+- **Email OTP, not magic-link deep-linking.** There's no deep-link
+  infrastructure in the app today (no registered URI scheme, no callback
+  activity), and magic-link assumes an interactive foreground moment
+  anyway. A typed-in-app 6-digit email OTP sidesteps both problems and
+  fits a background-sync app better.
+- **Headless session refresh for WorkManager.** Periodic background sync
+  (no user present) needs a persisted, silently-refreshable session --
+  auth session design has to account for that from the start, not bolt it
+  on after.
+- **One-time data migration** of existing `sync_code`-tagged rows to real
+  per-user ids once auth lands.
 
 ## Standing product decisions
 
