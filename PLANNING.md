@@ -122,10 +122,11 @@ Still open:
   Phase 6's mobile per-client-auth work. This pass ships the schema and the
   visibility-only UI; enforcement ships alongside Phase 6.
 - **Additional `healthData` types beyond steps/HR/sleep/exercise/SpO2/BP/
-  respiratory rate (e.g. nutrition) -- deferred to Phase 6.** Any new
-  Health Connect type touches the same Android sync/auth code Phase 6 is
-  about to rework, so it's bundled there rather than changing that code
-  twice.
+  respiratory rate -- deferred to Phase 6, scope decided.** Any new Health
+  Connect type touches the same Android sync/auth code Phase 6 is about to
+  rework, so it's bundled there rather than changing that code twice. See
+  Phase 6 below for the concrete list and the two decisions it needed
+  (cycle-tracking's consent default, nutrition's field scope).
 
 ## Phase 5 -- AI assistant coach v2 (not started)
 
@@ -174,6 +175,53 @@ real work is elsewhere:
   on after.
 - **One-time data migration** of existing `sync_code`-tagged rows to real
   per-user ids once auth lands.
+
+**New health data types, scoped 2026-09-17** (bundled into this phase --
+see Phase 4 above). Prompted by realizing Health Connect isn't just "the
+wearable's data" -- any app that writes to Health Connect contributes
+(e.g. a CGM app writing blood glucose), so the real source list is
+whatever a given client's phone has installed, not just their watch.
+Record type names below are Health Connect's own (see
+[the data types guide](https://developer.android.com/health-and-fitness/health-connect/data-types)),
+grouped by its permission categories since that's what drives the Android
+permission requests -- each becomes one new `SyncSpec` entry + Supabase
+table, same pattern as the existing 7:
+
+- **Activity** (extends steps/exercise): `ActiveCaloriesBurnedRecord`,
+  `TotalCaloriesBurnedRecord`, `DistanceRecord`, `FloorsClimbedRecord`.
+- **Body measurement**: `BasalMetabolicRateRecord`, `WeightRecord`.
+- **Vitals** (extends HR/SpO2/BP/resp-rate): `BloodGlucoseRecord`,
+  `BodyTemperatureRecord`.
+- **Nutrition**: `HydrationRecord`, and `NutritionRecord` scoped to a
+  curated macro subset -- calories, protein, carbs, fat, sugar, fiber,
+  sodium -- not the 40+ individual-nutrient fields Health Connect exposes
+  (biotin, every vitamin/mineral, ...). What a fitness coach actually
+  programs around; the full set would be a much wider table and a UI no
+  one uses soon.
+- **Cycle tracking** (all 7 types -- reproductive health):
+  `BasalBodyTemperatureRecord`, `CervicalMucusRecord`,
+  `IntermenstrualBleedingRecord`, `MenstruationFlowRecord`,
+  `MenstruationPeriodRecord`, `OvulationTestRecord`,
+  `SexualActivityRecord`. **Defaults to off/opt-in in
+  `client_data_consent`**, unlike every other type (which defaults to
+  shared) -- more sensitive than steps or heart rate, so the client has to
+  actively turn it on rather than actively turn it off.
+- **Wellness**: `MindfulnessSessionRecord` -- gated behind Health
+  Connect's `FEATURE_MINDFULNESS_SESSION` availability check, not
+  guaranteed present on every device/HC version like the others.
+
+Not in scope (skipped as niche/telemetry-level for a coaching app, revisit
+only if asked): `ElevationGainedRecord`, `Vo2MaxRecord`,
+`WheelchairPushesRecord`, the cadence/power/speed series records,
+`BodyFatRecord`/`BodyWaterMassRecord`/`BoneMassRecord`/`HeightRecord`/
+`LeanBodyMassRecord`, `HeartRateVariabilityRmssdRecord`,
+`RestingHeartRateRecord`, `SkinTemperatureRecord`.
+
+That's 18 new record types against today's 7 -- roughly triples the
+data-type surface in one phase. Worth tiering the implementation itself
+(e.g. simple single-value types first, `NutritionRecord`/cycle
+tracking/mindfulness last) rather than one single PR, but that's an
+implementation-sequencing call for whenever this phase actually starts.
 
 ## Standing product decisions
 
