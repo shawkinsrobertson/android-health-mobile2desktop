@@ -130,15 +130,28 @@ export async function resumeWorkoutTimer(sessionId: string) {
   return data;
 }
 
+// Called both to actually finish a session (from the confirm-then-submit
+// flow in FinishWorkoutForm) and to edit notes afterward (a plain <form> on
+// the summary page) -- either way, completing lands back on the summary
+// page rather than the live tracking page, per the "finish -> summary"
+// flow. Set completion time only once: re-submitting notes from the
+// summary page shouldn't push completed_at forward.
 export async function completeSession(assignedWorkoutId: string, sessionId: string, formData: FormData) {
   const profile = await requireClient();
   const supabase = await createClient();
+
+  const { data: existing } = await supabase
+    .from("workout_sessions")
+    .select("completed_at")
+    .eq("id", sessionId)
+    .eq("client_id", profile.id)
+    .single();
 
   await supabase
     .from("workout_sessions")
     .update({
       notes: strOrNull(formData.get("notes")),
-      completed_at: new Date().toISOString(),
+      completed_at: existing?.completed_at ?? new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", sessionId)
@@ -146,6 +159,8 @@ export async function completeSession(assignedWorkoutId: string, sessionId: stri
 
   revalidatePath(`/client/assigned/workouts/${assignedWorkoutId}/sessions/${sessionId}`);
   revalidatePath(`/client/assigned/workouts/${assignedWorkoutId}`);
+  revalidatePath("/client");
+  redirect(`/client/assigned/workouts/${assignedWorkoutId}/sessions/${sessionId}/summary`);
 }
 
 // ---------------------------------------------------------------------------

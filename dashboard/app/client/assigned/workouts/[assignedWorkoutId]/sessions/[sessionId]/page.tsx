@@ -9,8 +9,8 @@ import { TimerOverlay } from "@/components/library/TimerOverlay";
 import { TimerBanner } from "@/components/library/TimerBanner";
 import { WorkoutClock } from "@/components/library/WorkoutClock";
 import { SessionLogger } from "@/components/library/SessionLogger";
+import { FinishWorkoutForm } from "@/components/library/FinishWorkoutForm";
 import type { AssignedBlock, AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
-import { completeSession } from "@/app/client/sessions/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +90,14 @@ export default async function WorkoutSessionPage({
             {new Date(session.performed_on).toLocaleDateString()}
             {session.completed_at && ` · Completed ${new Date(session.completed_at).toLocaleString()}`}
           </p>
+          {session.completed_at && (
+            <Link
+              href={`/client/assigned/workouts/${workout.id}/sessions/${session.id}/summary`}
+              className="mt-1 inline-block text-xs font-medium text-[color:var(--series-steps)] hover:underline"
+            >
+              View summary →
+            </Link>
+          )}
         </div>
 
         {searchParams.error && (
@@ -115,25 +123,8 @@ export default async function WorkoutSessionPage({
           media={media}
         />
 
-        {session.started_at && (
-          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-            <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session notes</h2>
-            <form action={completeSession.bind(null, workout.id, session.id)} className="flex flex-col gap-3">
-              <textarea
-                name="notes"
-                rows={3}
-                placeholder="How did the whole session go?"
-                defaultValue={session.notes ?? ""}
-                className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
-              />
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-[color:var(--series-steps)] px-4 py-3 text-sm font-medium text-white"
-              >
-                {session.completed_at ? "Save notes" : "Finish Workout"}
-              </button>
-            </form>
-          </section>
+        {session.started_at && !session.completed_at && (
+          <FinishWorkoutForm workoutId={workout.id} sessionId={session.id} initialNotes={session.notes} />
         )}
       </div>
     </ActiveTimerProvider>
