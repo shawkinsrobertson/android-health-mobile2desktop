@@ -57,14 +57,14 @@ export default async function ClientDetailPage({
         Promise.all(
           clientProfile.topDataPoints.map(async (key) => ({
             key,
-            summary: await getDataPointSummary(key, clientProfile.syncCode).catch(
+            summary: await getDataPointSummary(supabase, key, params.clientId).catch(
               () => "Couldn't load this right now",
             ),
           })),
         ),
-        getOverviewStats(clientProfile.syncCode).catch(() => null),
-        getDailySteps(14, clientProfile.syncCode).catch(() => []),
-        getSleepNights(14, clientProfile.syncCode).catch(() => []),
+        getOverviewStats(supabase, params.clientId).catch(() => null),
+        getDailySteps(supabase, 14, params.clientId).catch(() => []),
+        getSleepNights(supabase, 14, params.clientId).catch(() => []),
       ])
     : [[], null, [], []];
 

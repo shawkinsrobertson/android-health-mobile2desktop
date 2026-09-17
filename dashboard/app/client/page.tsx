@@ -50,7 +50,7 @@ export default async function ClientDashboardPage() {
   const summaries = await Promise.all(
     clientProfile.topDataPoints.map(async (key) => ({
       key,
-      summary: await getDataPointSummary(key, clientProfile.syncCode).catch(
+      summary: await getDataPointSummary(supabase, key, profile.id).catch(
         () => "Couldn't load this right now",
       ),
     })),
