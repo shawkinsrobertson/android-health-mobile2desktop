@@ -9,6 +9,7 @@ import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
 import { SleepChart } from "@/components/SleepChart";
 import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
+import { addCoachNote, deleteCoachNote } from "./notes-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,13 @@ interface AssignedRow {
   id: string;
   name: string;
   assigned_at: string;
+}
+
+interface CoachNoteRow {
+  id: string;
+  body: string;
+  is_private: boolean;
+  created_at: string;
 }
 
 export default async function ClientDetailPage({
@@ -64,33 +72,47 @@ export default async function ClientDetailPage({
       ])
     : [[], null, [], []];
 
-  const [libraryWorkoutsRes, libraryProgramsRes, libraryDocumentsRes, assignedWorkoutsRes, assignedProgramsRes, assignedDocumentsRes] =
-    await Promise.all([
-      supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase
-        .from("assigned_workouts")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .is("assigned_program_id", null)
-        .order("assigned_at", { ascending: false }),
-      supabase
-        .from("assigned_programs")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .order("assigned_at", { ascending: false }),
-      supabase
-        .from("assigned_documents")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .order("assigned_at", { ascending: false }),
-    ]);
+  const [
+    libraryWorkoutsRes,
+    libraryProgramsRes,
+    libraryDocumentsRes,
+    assignedWorkoutsRes,
+    assignedProgramsRes,
+    assignedDocumentsRes,
+    coachNotesRes,
+  ] = await Promise.all([
+    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase
+      .from("assigned_workouts")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .is("assigned_program_id", null)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("assigned_programs")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("assigned_documents")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("coach_notes")
+      .select("id, body, is_private, created_at")
+      .eq("coach_id", coach.id)
+      .eq("client_id", params.clientId)
+      .order("created_at", { ascending: false }),
+  ]);
 
   const libraryWorkouts = (libraryWorkoutsRes.data ?? []) as { id: string; name: string }[];
   const libraryPrograms = (libraryProgramsRes.data ?? []) as { id: string; name: string }[];
   const libraryDocuments = (libraryDocumentsRes.data ?? []) as { id: string; name: string }[];
   const assignedWorkouts = (assignedWorkoutsRes.data ?? []) as AssignedRow[];
+  const coachNotes = (coachNotesRes.data ?? []) as CoachNoteRow[];
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
@@ -169,6 +191,66 @@ export default async function ClientDetailPage({
                 <dd className="text-ink-primary">{clientProfile.limitations || "—"}</dd>
               </div>
             </dl>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">Coach notes</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              Only you see these. Mark a note private to keep it out of the AI assistant&apos;s context too.
+            </p>
+            {coachNotes.length > 0 && (
+              <ul className="mb-3 flex flex-col gap-2">
+                {coachNotes.map((note) => (
+                  <li
+                    key={note.id}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-[color:var(--page-plane)] p-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="text-xs text-ink-muted">
+                          {new Date(note.created_at).toLocaleDateString()}
+                        </span>
+                        {note.is_private && (
+                          <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-heart)]">
+                            Private
+                          </span>
+                        )}
+                      </div>
+                      <p className="whitespace-pre-wrap text-ink-primary">{note.body}</p>
+                    </div>
+                    <form action={deleteCoachNote.bind(null, params.clientId, note.id)}>
+                      <button
+                        type="submit"
+                        className="shrink-0 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form action={addCoachNote.bind(null, params.clientId)} className="flex flex-col gap-2">
+              <textarea
+                name="body"
+                rows={2}
+                required
+                placeholder="Add a note about this client…"
+                className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
+              />
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+                  <input type="checkbox" name="is_private" />
+                  Keep private (excluded from AI assistant context)
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  Add note
+                </button>
+              </div>
+            </form>
           </section>
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
