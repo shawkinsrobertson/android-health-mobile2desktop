@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getClientProfile, getCurrentProfile } from "@/lib/profile";
 import { groupIntoUnits } from "@/lib/workout-blocks";
 import { formatClock, sessionDurationSeconds } from "@/lib/time-format";
-import { completeSession } from "@/app/client/sessions/actions";
+import { SaveSummaryForm } from "@/components/library/SaveSummaryForm";
 import type { AssignedBlock, AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
 import type { SessionExerciseState, SessionSetState } from "@/components/library/SessionLogger";
 
@@ -175,39 +175,14 @@ export default async function WorkoutSessionSummaryPage({
         )}
       </section>
 
-      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session notes</h2>
-        <form action={completeSession.bind(null, workout.id, session.id)} className="flex flex-col gap-3">
-          <textarea
-            name="notes"
-            rows={3}
-            placeholder="How did the whole session go?"
-            defaultValue={session.notes ?? ""}
-            className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
-          />
-          <button
-            type="submit"
-            className="w-full rounded-lg border border-[color:var(--border-hairline)] px-4 py-2 text-sm font-medium text-ink-primary"
-          >
-            Save notes
-          </button>
-        </form>
-      </section>
+      <SaveSummaryForm workoutId={workout.id} sessionId={session.id} initialNotes={session.notes} />
 
-      <div className="flex gap-3">
-        <Link
-          href={`/client/assigned/workouts/${workout.id}/sessions/${session.id}`}
-          className="flex-1 rounded-lg border border-[color:var(--border-hairline)] px-4 py-3 text-center text-sm font-medium text-ink-primary"
-        >
-          Edit sets
-        </Link>
-        <Link
-          href="/client"
-          className="flex-1 rounded-lg bg-[color:var(--series-steps)] px-4 py-3 text-center text-sm font-medium text-white"
-        >
-          Back to dashboard
-        </Link>
-      </div>
+      <Link
+        href={`/client/assigned/workouts/${workout.id}/sessions/${session.id}`}
+        className="rounded-lg border border-[color:var(--border-hairline)] px-4 py-3 text-center text-sm font-medium text-ink-primary"
+      >
+        Edit sets
+      </Link>
     </div>
   );
 }

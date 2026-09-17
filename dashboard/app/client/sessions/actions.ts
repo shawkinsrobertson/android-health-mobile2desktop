@@ -130,12 +130,15 @@ export async function resumeWorkoutTimer(sessionId: string) {
   return data;
 }
 
-// Called both to actually finish a session (from the confirm-then-submit
-// flow in FinishWorkoutForm) and to edit notes afterward (a plain <form> on
-// the summary page) -- either way, completing lands back on the summary
-// page rather than the live tracking page, per the "finish -> summary"
-// flow. Set completion time only once: re-submitting notes from the
-// summary page shouldn't push completed_at forward.
+// Called from two confirm-then-submit flows: finishing a session for the
+// first time (FinishWorkoutForm, on the live tracking page) and finishing a
+// review of it afterward (SaveSummaryForm, on the summary page) -- either
+// way this lands on the summary page by default. Set completion time only
+// once: re-submitting notes from the summary page shouldn't push
+// completed_at forward. A `redirect` field of "dashboard" (set by
+// SaveSummaryForm's final save) sends the client home instead -- see the
+// summary page's two exits: "Edit sets" loops back through the tracking
+// page's own SaveEditsButton, which returns here with no redirect field.
 export async function completeSession(assignedWorkoutId: string, sessionId: string, formData: FormData) {
   const profile = await requireClient();
   const supabase = await createClient();
@@ -160,6 +163,10 @@ export async function completeSession(assignedWorkoutId: string, sessionId: stri
   revalidatePath(`/client/assigned/workouts/${assignedWorkoutId}/sessions/${sessionId}`);
   revalidatePath(`/client/assigned/workouts/${assignedWorkoutId}`);
   revalidatePath("/client");
+
+  if (formData.get("redirect") === "dashboard") {
+    redirect("/client");
+  }
   redirect(`/client/assigned/workouts/${assignedWorkoutId}/sessions/${sessionId}/summary`);
 }
 

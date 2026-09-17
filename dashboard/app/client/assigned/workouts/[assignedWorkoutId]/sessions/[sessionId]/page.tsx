@@ -10,6 +10,7 @@ import { TimerBanner } from "@/components/library/TimerBanner";
 import { WorkoutClock } from "@/components/library/WorkoutClock";
 import { SessionLogger } from "@/components/library/SessionLogger";
 import { FinishWorkoutForm } from "@/components/library/FinishWorkoutForm";
+import { SaveEditsButton } from "@/components/library/SaveEditsButton";
 import type { AssignedBlock, AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
 
 export const dynamic = "force-dynamic";
@@ -90,14 +91,6 @@ export default async function WorkoutSessionPage({
             {new Date(session.performed_on).toLocaleDateString()}
             {session.completed_at && ` · Completed ${new Date(session.completed_at).toLocaleString()}`}
           </p>
-          {session.completed_at && (
-            <Link
-              href={`/client/assigned/workouts/${workout.id}/sessions/${session.id}/summary`}
-              className="mt-1 inline-block text-xs font-medium text-[color:var(--series-steps)] hover:underline"
-            >
-              View summary →
-            </Link>
-          )}
         </div>
 
         {searchParams.error && (
@@ -125,6 +118,12 @@ export default async function WorkoutSessionPage({
 
         {session.started_at && !session.completed_at && (
           <FinishWorkoutForm workoutId={workout.id} sessionId={session.id} initialNotes={session.notes} />
+        )}
+
+        {session.completed_at && (
+          <SaveEditsButton
+            summaryHref={`/client/assigned/workouts/${workout.id}/sessions/${session.id}/summary`}
+          />
         )}
       </div>
     </ActiveTimerProvider>
