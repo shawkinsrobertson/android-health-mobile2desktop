@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveChatAttachmentUrl } from "@/lib/chat-media";
 import { QUICK_REACTIONS, EmojiPicker } from "./EmojiPicker";
@@ -90,6 +90,7 @@ export function MessageBubble({
   onTogglePin: (messageId: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const reactButtonRef = useRef<HTMLButtonElement>(null);
 
   const grouped = new Map<string, number>();
   for (const r of reactions) grouped.set(r.emoji, (grouped.get(r.emoji) ?? 0) + 1);
@@ -139,7 +140,12 @@ export function MessageBubble({
         <button type="button" onClick={() => onReply(message)} className="hover:text-ink-primary">
           Reply
         </button>
-        <button type="button" onClick={() => setPickerOpen((v) => !v)} className="hover:text-ink-primary">
+        <button
+          ref={reactButtonRef}
+          type="button"
+          onClick={() => setPickerOpen((v) => !v)}
+          className="hover:text-ink-primary"
+        >
           React
         </button>
         <button type="button" onClick={() => onTogglePin(message.id)} className="hover:text-ink-primary">
@@ -150,6 +156,7 @@ export function MessageBubble({
             palette={QUICK_REACTIONS}
             onSelect={(emoji) => onToggleReaction(message.id, emoji)}
             onClose={() => setPickerOpen(false)}
+            triggerRef={reactButtonRef}
           />
         )}
       </div>

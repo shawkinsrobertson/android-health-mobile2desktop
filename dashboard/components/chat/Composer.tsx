@@ -19,6 +19,7 @@ export function Composer({
   const [recording, setRecording] = useState(false);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordStartRef = useRef<number>(0);
@@ -104,6 +105,7 @@ export function Composer({
       <div className="flex items-end gap-2">
         <div className="relative">
           <button
+            ref={emojiButtonRef}
             type="button"
             onClick={() => setPickerOpen((v) => !v)}
             className="rounded-md border border-[color:var(--border-hairline)] px-2 py-2 text-sm"
@@ -111,7 +113,11 @@ export function Composer({
             😊
           </button>
           {pickerOpen && (
-            <EmojiPicker onSelect={(emoji) => setText((t) => t + emoji)} onClose={() => setPickerOpen(false)} />
+            <EmojiPicker
+              onSelect={(emoji) => setText((t) => t + emoji)}
+              onClose={() => setPickerOpen(false)}
+              triggerRef={emojiButtonRef}
+            />
           )}
         </div>
         <button
