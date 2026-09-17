@@ -23,15 +23,18 @@ export default async function LoginPage({
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Sign in</h1>
+      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Sign in or sign up</h1>
       <p className="mb-6 text-sm text-ink-secondary">
-        For coaches, and for clients signing back in after their first visit. Enter your email
-        and we&apos;ll send you a sign-in link -- no password needed.
+        Coaches: enter your email below. If you don&apos;t have an account yet, this creates one
+        for you -- there&apos;s no separate sign-up. Clients: this is also where you sign back in
+        after your first visit (new clients need an invite link from their coach instead).
+        Either way, we&apos;ll email you a link -- no password needed.
       </p>
 
       {sent ? (
         <p className="rounded-lg border border-[color:var(--border-hairline)] bg-[color:var(--page-plane)] px-4 py-3 text-sm text-ink-primary">
-          Check your email for a sign-in link. You can close this tab.
+          Check your email for your link -- it signs you in, or finishes creating your account if
+          this is your first time. You can close this tab.
         </p>
       ) : (
         <form action={sendCoachMagicLink} className="flex flex-col gap-3">
@@ -47,15 +50,10 @@ export default async function LoginPage({
             type="submit"
             className="rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
           >
-            Send sign-in link
+            Send magic link
           </button>
         </form>
       )}
-
-      <p className="mt-6 text-xs text-ink-muted">
-        New client, no account yet? You&apos;ll need an invite link from your coach -- that link
-        only works once, so sign in here after that.
-      </p>
     </div>
   );
 }

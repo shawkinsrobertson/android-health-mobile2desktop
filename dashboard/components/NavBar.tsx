@@ -50,7 +50,7 @@ export async function NavBar() {
           </form>
         ) : (
           <Link href="/login" className="text-sm text-ink-secondary hover:text-ink-primary">
-            Sign in
+            Sign in / Sign up
           </Link>
         )}
       </div>
