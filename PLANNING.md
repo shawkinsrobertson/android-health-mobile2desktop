@@ -281,7 +281,33 @@ consumer yet -- that's Phase 5's per-client AI assistant, not built.
 `calendar_connections` (tokens encrypted at rest via `pgcrypto`, new
 ground for this schema), the connect flow, `get_calendar_sync_token`,
 incremental sync via `syncToken`, the "also add to Google Calendar"
-modal checkbox.
+modal checkbox. Also folds in three UX fixes from testing pass 1's
+`EventModal`/video-call flow:
+
+- **End-time auto-fill**: changing the start time on a *new* (not
+  editing an existing) event should bump the end time to 30 minutes
+  after it, instead of the end field sitting still until manually
+  touched.
+- **Video call link populated at save, not first "Join".** Pass 1
+  deliberately deferred Daily.co room creation to whoever clicked
+  "Join" first, specifically to anchor the room's `exp` to the event's
+  real `end_time` instead of "2 hours from whenever this was created"
+  (see pass 1 above). Testing surfaced that the room/link should already
+  be visible and clickable right after saving, not after a first join --
+  fix is to create the room *at save time* when `has_video_call` is set
+  (still using the same `end_time + 30min` expiry `createDailyRoom`
+  already supports), and simplify `joinCalendarEvent` down to "mint a
+  fresh per-participant token against the already-existing room" --
+  `startCall`/`joinCall`'s split, just collapsed since there's no
+  "first join creates it" case left. Known follow-up, not blocking:
+  rescheduling an event with an already-created room doesn't currently
+  regenerate the room's expiry to match the new end_time.
+- **Time inputs: scrollable *and* typeable, typing filters to matching
+  times.** The plain `<input type="datetime-local">` in pass 1 supports
+  typing digits but not a filtered dropdown of times: this needs a
+  small custom time-combobox (text input + a scrollable list of times
+  that narrows as you type) alongside a normal date input, replacing
+  the combined datetime-local field.
 
 **Pass 3 (not started)**: native booking -- `coach_availability` + its
 UI, `profiles.booking_token`, the public `/book/[token]` page,
