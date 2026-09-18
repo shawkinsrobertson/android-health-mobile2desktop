@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { saveAvailability } from "@/lib/booking-actions";
 import { TimeCombobox } from "@/components/calendar/TimeCombobox";
 import type { AvailabilityDay, CoachAvailability, TimeBlock } from "@/lib/booking";
@@ -12,10 +13,11 @@ function defaultBlock(): TimeBlock {
 }
 
 export function AvailabilityEditor({ initial }: { initial: CoachAvailability }) {
+  const router = useRouter();
   const [timezone, setTimezone] = useState(initial.timezone);
   const [days, setDays] = useState<AvailabilityDay[]>(initial.days);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   function updateDay(dayOfWeek: number, patch: Partial<AvailabilityDay>) {
     setDays((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d)));
@@ -49,13 +51,12 @@ export function AvailabilityEditor({ initial }: { initial: CoachAvailability }) 
 
   async function handleSave() {
     setSaving(true);
-    setMessage(null);
+    setError(null);
     try {
       await saveAvailability(timezone, days);
-      setMessage("Saved.");
+      router.push("/dashboard");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Failed to save.");
-    } finally {
+      setError(e instanceof Error ? e.message : "Failed to save.");
       setSaving(false);
     }
   }
@@ -132,7 +133,7 @@ export function AvailabilityEditor({ initial }: { initial: CoachAvailability }) 
         ))}
       </div>
 
-      {message && <p className="text-sm text-ink-secondary">{message}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <button
         type="button"
