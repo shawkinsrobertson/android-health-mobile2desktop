@@ -63,6 +63,12 @@ installable from Play Store on 9–13).
    and fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` from step 1.
    `local.properties` is gitignored — this never gets committed.
 3. Build & run. On first launch:
+   - **Sign in**: enter the same email you (or the client) used to join
+     on the dashboard (see section 4 below -- an account has to exist
+     there first, via a coach's invite link, before the app can sign
+     into it), then enter the 6-digit code emailed to that address. Sync
+     won't run at all until this step is done -- see `AuthRepository
+     .getValidAccessToken()`.
    - If Health Connect isn't installed, the app prompts you to install it.
    - Tap **Grant permissions** and allow read access to the requested data
      types.
@@ -75,10 +81,12 @@ installable from Play Store on 9–13).
    if you want more). After that, sync is incremental via Health Connect's
    changes API, so it only pushes what actually changed.
 
-**Keeping the anon key private matters here**: because RLS is wide open
-for the `anon` role, anyone with that key can read/write your tables. Don't
-publish this app, don't put the key in a public repo, and don't reuse this
-setup for anything beyond your own device.
+Health-data RLS is `auth.uid()`-scoped now (see section 4), not the
+wide-open `anon`-role policy this section used to warn about -- signing in
+as the wrong client is a real mistake (you'd see *their* data, or push
+into their rows), but a leaked anon key alone no longer hands out
+read/write access to everyone's data the way it used to before this app
+authenticated as anyone.
 
 ## 3. Set up the dashboard
 
@@ -107,18 +115,23 @@ the header comment in
 [`supabase/migrations/0002_accounts.sql`](supabase/migrations/0002_accounts.sql)
 for the full reasoning.
 
-Attributing a client's synced data to their account still doesn't go
-through real per-client auth on the Android side (that's a bigger, later
-lift -- see `PLANNING.md` Phase 6), but there's a lightweight bridge for
-testing with more than one person now: every client gets a short **sync
-code**, shown on their `/client` dashboard. Entering it once in the
-Android app's Settings (stored on-device, same APK for everyone -- no
-rebuild needed) tags that device's pushed rows with the code as `user_id`
-instead of the table's plain default, and `/client` filters by it. See
-[`supabase/migrations/0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql)
-for the details and its own scope boundary (this scopes what each person
-*sees*, not real database-level isolation -- the health-data tables' RLS
-is still the permissive anon-role policy from `0001_init.sql`).
+The Android app now authenticates as the specific client it's syncing
+for, via Supabase Auth email OTP (a 6-digit code typed in-app, not a
+magic-link tap-through -- there's no deep-link handling in the app). A
+client signs in on their phone with the same email they used to join on
+the dashboard; `handle_new_user()` (see `0002_accounts.sql`) already
+created their account then, so this is a plain sign-in, never a signup.
+The health-data tables (`steps`, `heart_rate_samples`, `sleep_sessions`,
+`sleep_stages`, `exercise_sessions`, `blood_oxygen`, `blood_pressure`,
+`respiratory_rate`) carry a real `client_id` column now, RLS-scoped to
+`auth.uid()` -- a client sees only their own rows, their coach sees their
+own clients' via the same `client_profiles.coach_id` pattern used
+elsewhere. See
+[`supabase/migrations/0015_health_data_auth.sql`](supabase/migrations/0015_health_data_auth.sql).
+(The earlier manually-entered sync-code stopgap --
+[`0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql) -- is fully
+retired; the column it used is left in place, harmless, but no longer
+read for access control.)
 
 1. Run `supabase/migrations/0002_accounts.sql` the same way you ran
    `0001_init.sql`. This adds `profiles`, `client_profiles`, `invite_links`,
@@ -199,12 +212,14 @@ querying directly or building dashboard features around them:
   and distance live in separate Health Connect record types
   (`TotalCaloriesBurnedRecord`, `DistanceRecord`) that aren't correlated to
   a specific session yet.
-- **Client health data attribution is a lightweight bridge, not real
-  per-user auth.** The sync-code pairing (see section 4 above) works for
-  testing with a few people, but the Android app still doesn't
-  authenticate as anyone -- it's a shared anon key with an
-  app-side-chosen `user_id` tag, not database-enforced isolation. See
-  `supabase/migrations/0003_sync_code.sql`'s header comment.
+- **Client health data attribution is now real, database-enforced
+  per-client auth** (see section 4 above) -- the Android app signs in as
+  the specific client via Supabase Auth email OTP, and RLS on the
+  health-data tables keys off `auth.uid()`, not an app-chosen tag.
+  Consent *enforcement* (stopping a declined data type from syncing at
+  all, not just hiding it after the fact) still isn't wired up -- that's
+  the next piece to layer on top now that the app knows which client it's
+  syncing as. See `PLANNING.md`'s Phase 4/6 sections.
 - **Library/assignment content** (exercises, workouts, programs, documents)
   and **persisted coach↔client chat** don't exist yet — `/dashboard` today
   is just accounts + invites. See [`PLANNING.md`](PLANNING.md) for the full

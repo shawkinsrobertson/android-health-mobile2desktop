@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
+import { listEvents } from "@/lib/calendar";
+import { rangeForView } from "@/lib/calendar-grid";
+import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { createInviteLink } from "./actions";
 
@@ -29,7 +32,7 @@ export default async function DashboardPage() {
 
   const supabase = await createClient();
 
-  const [invitesRes, clientsRes] = await Promise.all([
+  const [invitesRes, clientsRes, googleConnectionRes, bookingProfileRes] = await Promise.all([
     supabase
       .from("invite_links")
       .select("token, status, expires_at, used_by")
@@ -42,10 +45,24 @@ export default async function DashboardPage() {
       // rather than guessing. Naming the FK explicitly picks profile_id.
       .select("profile_id, onboarded_at, profiles!client_profiles_profile_id_fkey(full_name, email)")
       .eq("coach_id", profile.id),
+    supabase
+      .from("calendar_connections")
+      .select("external_account_email, last_synced_at")
+      .eq("profile_id", profile.id)
+      .eq("provider", "google")
+      .maybeSingle(),
+    supabase.from("profiles").select("booking_token").eq("id", profile.id).single(),
   ]);
 
   const invites = (invitesRes.data ?? []) as InviteRow[];
   const clients = (clientsRes.data ?? []) as unknown as ClientRow[];
+  const bookingToken = bookingProfileRes.data?.booking_token ?? null;
+
+  const initialEvents = await listEvents(supabase, { coachId: profile.id }, rangeForView("month", new Date()));
+  const assignableClients = clients.map((c) => ({
+    id: c.profile_id,
+    name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
+  }));
 
   return (
     <div className="flex flex-col gap-8">
@@ -56,6 +73,22 @@ export default async function DashboardPage() {
           they can create their account.
         </p>
       </div>
+
+      <CalendarCard
+        scope={{ coachId: profile.id }}
+        initialEvents={initialEvents}
+        assignableClients={assignableClients}
+        googleSync={{
+          targetProfileId: profile.id,
+          ownAccountEmail: googleConnectionRes.data?.external_account_email ?? null,
+          lastSyncedAt: googleConnectionRes.data?.last_synced_at ?? null,
+        }}
+        creatorHasGoogleConnection={!!googleConnectionRes.data}
+        booking={{
+          bookingUrl: bookingToken ? `${siteUrl}/book/${bookingToken}` : null,
+          availabilityHref: "/dashboard/calendar",
+        }}
+      />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <div className="mb-3 flex items-center justify-between">

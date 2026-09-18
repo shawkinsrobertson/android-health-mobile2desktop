@@ -41,13 +41,13 @@ multiple_choice / file_upload fields). See
 
 Persisted 1:1 coach↔client chat threads (replacing today's ephemeral
 `/coach` chat pattern) were originally scoped into this phase but weren't
-built here -- still open, folded into Phase 3 below.
+built here -- shipped later, as Phase 3 below.
 
 Also not built here, flagged for a later discussion rather than scoped in:
 how to seed/populate the exercise library at scale (e.g. sourcing exercise
 videos from YouTube by search criteria, manual vs. semi-automated).
 
-## Phase 2 -- assignment pipeline (partially shipped)
+## Phase 2 -- assignment pipeline (shipped)
 
 `assigned_workouts` / `assigned_programs` / `assigned_documents` /
 `assigned_workout_exercises` / `document_responses`.
@@ -61,58 +61,43 @@ of type "form" collect client responses into `document_responses`, keyed
 by the form's field ids. See `supabase/migrations/0005_assigned.sql`.
 
 Client completion/tracking flow -- variance from what was prescribed
-(weight/reps/rest actually done vs. assigned, logged per session) -- was
-originally scoped into this phase but wasn't built here; still open.
+(weight/reps/rest actually done vs. assigned, logged per set, with a
+workout timer and a per-user weight-unit preference) shipped as "workout
+tracking v2." Finishing a session walks through a confirmation modal → an
+editable summary card → back to the dashboard; the client dashboard surfaces
+a "next assigned workout" preview and a recent/full workout history.
 
-## Up next (queued for the next session)
+The single-user Overview (`/`, `app/page.tsx`) that predated the coach/client
+pivot has also been retired -- everything is gated behind
+coach/client sign-in → `/dashboard` or `/client`, and
+`/dashboard/clients/[clientId]` is now the only per-client data view.
 
-Two items, not yet started:
+## Phase 3 -- chat richness (partially shipped)
 
-1. **Finish assignments.** Most likely means the Phase 2 client
-   completion/tracking flow noted above as still open (variance from what
-   was prescribed -- weight/reps/rest actually done vs. assigned, logged
-   per session) -- confirm exact scope at the start of the session rather
-   than assuming.
+Shipped: persisted 1:1 coach↔client threads, threaded replies
+(`reply_to_id`), message reactions and pinning, media attachments
+(photo/video/voice) via Supabase Storage, and custom video/audio calling
+(`chat_calls` + Daily.co, a custom React UI on `daily-react` rather than
+Daily's prebuilt UI -- originally scoped as a separate decision, ended up
+built alongside the rest of this phase).
 
-2. **Fold the single-user Overview into the per-client dashboard, and gate
-   everything behind coach → client list → client.** Today `/` (root,
-   `app/page.tsx`) is a standalone, unauthenticated Health Connect data
-   view left over from before the coach/client pivot, and `middleware.ts`'s
-   matcher explicitly excludes both `/` and `/coach` from the
-   session-required routes. The ask is to retire that surface as a public
-   destination -- a coach should only ever reach a data dashboard by
-   signing in, picking a client from `/dashboard`, and landing on
-   `/dashboard/clients/[clientId]`, which **already renders essentially
-   this dashboard** (stats/steps/sleep via `clientProfile.syncCode`, see
-   `lib/queries.ts`) for that one client, RLS/sync-code-scoped. So this is
-   mostly about *removing/redirecting* the standalone `/` route and
-   updating `middleware.ts`'s matcher and `NavBar.tsx`'s "Overview" link,
-   not building new dashboard UI. Open question to settle first: what
-   happens to `/` and `/coach` themselves -- delete outright, redirect to
-   `/login` or `/dashboard`, or keep as a dev/demo view but no longer
-   linked from nav? `/coach`'s single-user AI chat is a separate, currently
-   unscoped question -- Phase 5 above already plans to give it a per-client
-   "chat about a specific client" replacement, so it may just ride along
-   with whatever `/` decision is made, or may be explicitly out of scope
-   for this cleanup.
-
-## Phase 3 -- chat richness (not started)
-
+Still open:
 - **Broadcast messages fan out to N separate 1:1 threads** -- no shared
   group thread. Keeps the coach-client privacy boundary intact; a broadcast
   is "the same message sent to multiple threads," not a new thread type.
-- **Replies are nested/threaded** (Slack-style, reply-to-a-specific-message
-  via `parent_message_id`), not just a flat chronological log.
-- **Read receipts are in scope** -- needs a per-message-per-recipient read
-  state, not just a per-thread "last read" pointer, once broadcast fan-out
-  is in play.
-- Media (photos/video/voice notes) via Supabase Storage, reactions
-  (including custom).
+- **True per-message-per-recipient read receipts.** Today's unread state
+  (`coach_last_read_at`/`client_last_read_at` on `chat_threads`) is a
+  per-thread last-read pointer, not a per-message-per-recipient one --
+  fine for a 1:1 thread, but broadcast fan-out above would want to know
+  who's actually seen a given broadcast.
 
-## Phase 4 -- data depth, notes, consent (not started)
+## Phase 4 -- data depth, notes, consent (in progress)
 
-- Additional `healthData` types beyond steps/HR/sleep/exercise/SpO2/BP/
-  respiratory rate (e.g. nutrition), `personalRecords` derivation.
+- **`coachNotes` (shipped).** A dated, coach-only note log per client
+  (`coach_notes` table), with an `is_private` flag -- see the privacy note
+  below -- an edit-in-place modal (save → confirm → back to the dashboard,
+  not a full-page nav), and a 3-note preview on the client detail page that
+  links out to a full history page once a client has more than three.
 - **`coachNotes` privacy**: the AI assistant coach only ever talks *to the
   coach*, never directly to a client, so the private flag isn't guarding
   against an AI→client leak (that channel doesn't exist). It's about which
@@ -121,14 +106,27 @@ Two items, not yet started:
   whatever builds the AI assistant's context (system prompt today, tool
   calls later) must exclude notes flagged private; there's no client-facing
   angle to worry about.
-- **Consent is enforcement, not just visibility.** Declining a data type
-  stops it from syncing at all -- it's not synced-but-hidden-from-coach.
-  This has a real dependency: the Android app needs to know which client
-  it's syncing as and read that client's consent settings *before* deciding
-  what to read from Health Connect and push -- so consent enforcement can't
-  actually land before the Phase 6 mobile per-client-auth work below. Track
-  the consent schema/UI here, but expect the enforcement half to ship
-  alongside Phase 6, not before it.
+- **`personalRecords` derivation (in progress).** Heaviest weight ever
+  logged per exercise, derived from the existing per-set session logs
+  (`workout_session_exercise_sets` et al.) -- no new Android/sync work
+  needed, purely a dashboard-side read.
+- **Consent schema/UI (in progress).** Per-data-type toggles a client sets
+  during onboarding and can revisit later from a client settings page;
+  the coach sees the client's current consent state (read-only) on the
+  client detail page. **Consent is enforcement, not just visibility** --
+  declining a data type should eventually stop it from syncing at all, not
+  just hide it from the coach after the fact. That enforcement half has a
+  real dependency: the Android app needs to know which client it's syncing
+  as and read that client's consent settings *before* deciding what to read
+  from Health Connect and push -- so enforcement can't actually land before
+  Phase 6's mobile per-client-auth work. This pass ships the schema and the
+  visibility-only UI; enforcement ships alongside Phase 6.
+- **Additional `healthData` types beyond steps/HR/sleep/exercise/SpO2/BP/
+  respiratory rate -- deferred to Phase 6, scope decided.** Any new Health
+  Connect type touches the same Android sync/auth code Phase 6 is about to
+  rework, so it's bundled there rather than changing that code twice. See
+  Phase 6 below for the concrete list and the two decisions it needed
+  (cycle-tracking's consent default, nutrition's field scope).
 
 ## Phase 5 -- AI assistant coach v2 (not started)
 
@@ -138,13 +136,269 @@ client's data/notes on demand -- so it scales across a full roster. Also
 adds the coach↔AI "chat about a specific client" surface as its own
 persisted thread, separate from coach↔client chat.
 
-## Phase 6 -- mobile rearchitecture + iOS (not started)
+## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
 Android app needs real per-client login instead of one shared anon key
 baked into `local.properties` at build time -- this is also the
-prerequisite for Phase 4's consent enforcement and for a client's `/client`
-dashboard to ever show real synced numbers instead of a placeholder. Net-new
-iOS HealthKit app is a separate, later effort.
+prerequisite for Phase 4's consent enforcement and its deferred
+additional-health-data-types work, and for a client's `/client` dashboard
+to ever show real synced numbers instead of a placeholder. Net-new iOS
+HealthKit app is a separate, later effort.
+
+**Decided 2026-09-17: pulled forward ahead of those remaining Phase 4
+Android-dependent items**, once it was clear both were blocked on it
+anyway -- rather than finish Phase 4 fully first, the non-blocked pieces
+(coachNotes, personalRecords, consent schema/UI) ship first and the
+Android-dependent remainder (consent enforcement, new health data types)
+folds into this phase instead of a second Phase 4 pass.
+
+Known shape of the work (see prior research): the Android-side change
+itself is small -- roughly `SupabaseRestClient.kt` (swap the static anon
+key for a per-session JWT), `SyncRepository.kt` (tag rows by real user id
+instead of the manually-entered `sync_code`), `SyncStateStore.kt`/
+`MainScreen.kt` (replace sync-code entry with a login screen), plus a new
+session-refresh step in `SyncWorker.kt`/`SyncScheduler.kt`. The bulk of the
+real work is elsewhere:
+- **RLS rewrite.** `supabase/migrations/0001_init.sql` currently locks the
+  health-data tables to a fully permissive `anon`-role policy
+  (`using (true)` -- the header comment calls the anon key "equivalent to a
+  password"). Real per-client auth needs `authenticated`-role RLS scoped to
+  `auth.uid()`, replacing that.
+- **Email OTP, not magic-link deep-linking.** There's no deep-link
+  infrastructure in the app today (no registered URI scheme, no callback
+  activity), and magic-link assumes an interactive foreground moment
+  anyway. A typed-in-app 6-digit email OTP sidesteps both problems and
+  fits a background-sync app better.
+- **Headless session refresh for WorkManager.** Periodic background sync
+  (no user present) needs a persisted, silently-refreshable session --
+  auth session design has to account for that from the start, not bolt it
+  on after.
+- **One-time data migration** of existing `sync_code`-tagged rows to real
+  per-user ids once auth lands.
+
+**New health data types, scoped 2026-09-17** (bundled into this phase --
+see Phase 4 above). Prompted by realizing Health Connect isn't just "the
+wearable's data" -- any app that writes to Health Connect contributes
+(e.g. a CGM app writing blood glucose), so the real source list is
+whatever a given client's phone has installed, not just their watch.
+Record type names below are Health Connect's own (see
+[the data types guide](https://developer.android.com/health-and-fitness/health-connect/data-types)),
+grouped by its permission categories since that's what drives the Android
+permission requests -- each becomes one new `SyncSpec` entry + Supabase
+table, same pattern as the existing 7:
+
+- **Activity** (extends steps/exercise): `ActiveCaloriesBurnedRecord`,
+  `TotalCaloriesBurnedRecord`, `DistanceRecord`, `FloorsClimbedRecord`.
+- **Body measurement**: `BasalMetabolicRateRecord`, `WeightRecord`.
+- **Vitals** (extends HR/SpO2/BP/resp-rate): `BloodGlucoseRecord`,
+  `BodyTemperatureRecord`.
+- **Nutrition**: `HydrationRecord`, and `NutritionRecord` scoped to a
+  curated macro subset -- calories, protein, carbs, fat, sugar, fiber,
+  sodium -- not the 40+ individual-nutrient fields Health Connect exposes
+  (biotin, every vitamin/mineral, ...). What a fitness coach actually
+  programs around; the full set would be a much wider table and a UI no
+  one uses soon.
+- **Cycle tracking** (all 7 types -- reproductive health):
+  `BasalBodyTemperatureRecord`, `CervicalMucusRecord`,
+  `IntermenstrualBleedingRecord`, `MenstruationFlowRecord`,
+  `MenstruationPeriodRecord`, `OvulationTestRecord`,
+  `SexualActivityRecord`. **Defaults to off/opt-in in
+  `client_data_consent`**, unlike every other type (which defaults to
+  shared) -- more sensitive than steps or heart rate, so the client has to
+  actively turn it on rather than actively turn it off.
+- **Wellness**: `MindfulnessSessionRecord` -- gated behind Health
+  Connect's `FEATURE_MINDFULNESS_SESSION` availability check, not
+  guaranteed present on every device/HC version like the others.
+
+Not in scope (skipped as niche/telemetry-level for a coaching app, revisit
+only if asked): `ElevationGainedRecord`, `Vo2MaxRecord`,
+`WheelchairPushesRecord`, the cadence/power/speed series records,
+`BodyFatRecord`/`BodyWaterMassRecord`/`BoneMassRecord`/`HeightRecord`/
+`LeanBodyMassRecord`, `HeartRateVariabilityRmssdRecord`,
+`RestingHeartRateRecord`, `SkinTemperatureRecord`.
+
+That's 18 new record types against today's 7 -- roughly triples the
+data-type surface in one phase. Worth tiering the implementation itself
+(e.g. simple single-value types first, `NutritionRecord`/cycle
+tracking/mindfulness last) rather than one single PR, but that's an
+implementation-sequencing call for whenever this phase actually starts.
+
+## Phase 7 -- shared coach-client calendar (shipped)
+
+A shared calendar per coach-client pair: clients flag personal events
+that could affect training (visible to the coach in full, to any AI
+assistant only as an opaque busy block -- no per-event privacy flag,
+that split is enforced by which query a caller uses), a booking link the
+coach can send to *anyone* (not just an existing client) to grab open
+time, and both a client's and the coach's own connected Google Calendar
+feeding into the same view. Full design/decisions in the planning
+session that scoped this -- summarized here for anyone picking it up
+later:
+
+- **Booking is native, not Cal.com** -- no second external system to
+  reconcile against `calendar_events`, and Cal.com's real value (staff
+  round-robin, multi-organizer conflict resolution) doesn't fit a
+  1-coach-to-many-clients shape.
+- **Google Calendar sync is lazy-pull**, refreshed on the token owner's
+  own visit, plus a coach-triggered refresh via one narrow `security
+  definer` function -- not push webhooks, not a standing background job,
+  not a blanket service-role key. The one deliberate exception to this
+  app's "RLS is the real boundary, no service-role bypass" rule, scoped
+  to a single function/purpose.
+- **CalDAV is deferred to vNext** (Apple/iCloud, Fastmail, self-hosted
+  Nextcloud, etc., via `tsdav` when it lands -- the same library Cal.com
+  itself uses internally). The sync-engine shape (one connection row per
+  provider per user, a sync-cursor equivalent, one shared
+  `calendar_events` target) is designed so this is a bolt-on later, not
+  a rewrite.
+- **Coach availability is a weekly template** (`coach_availability`:
+  one row per day-of-week, a list of time blocks, a per-day
+  available/unavailable toggle that preserves configured hours when
+  toggled back on). A one-off exception (a single vacation day) is just
+  an ordinary `calendar_events` block on that date.
+- **The booking link isn't scoped to an existing client** -- the coach
+  sends it to anyone, so a booked appointment can have no client
+  relationship at all (`calendar_events.client_id`/`created_by` are
+  nullable; `booker_name`/`booker_email`/`booker_phone` carry contact
+  info instead). The public booking page has no session at all, so its
+  read (open slots) and write (create the booking) go through two
+  `security definer` RPCs (`get_open_slots`/`create_booking`) rather
+  than table RLS -- same idea as `invite_status`'s narrow public view
+  and `handle_new_user()`'s trigger, just as RPCs.
+
+**Pass 1 (shipped)**: `calendar_events` + dual-ownership RLS, CRUD
+actions, the collapsible `CalendarCard` (agenda/day/week/month views,
+hand-rolled date-grid math, no new dependency) on the coach's dashboard,
+the client's dashboard, and the coach's per-client detail page, and
+lazy Daily.co video-call room creation (anchored to the event's own
+`end_time`, not to whenever the event was created -- see `lib/daily.ts`'s
+`createDailyRoom`/`createMeetingToken`, now taking an optional
+`expEpochSeconds`). The AI-context privacy boundary
+(`lib/calendar.ts`'s `getBusyBlocks`) exists from day one but has no
+consumer yet -- that's Phase 5's per-client AI assistant, not built.
+
+**Pass 2 (shipped)**: Google Calendar OAuth + sync --
+`calendar_connections` (tokens encrypted at rest via Node's own
+`crypto`, AES-256-GCM, in `lib/calendar-crypto.ts` -- a deliberate
+simplification over the originally-planned `pgcrypto` approach, so the
+encryption key only ever needs configuring in one place, the app's own
+`CALENDAR_TOKEN_ENC_KEY` env var, not kept in sync between the app and a
+Postgres setting too), the connect flow (`/api/calendar/google/{start,
+callback}`), `get_calendar_sync_token`/`update_calendar_sync_state`,
+incremental sync via `syncToken` (falls back to a full resync on a 410,
+same shape as the Android app's Health Connect changes-token fallback),
+and the "also add to Google Calendar" modal checkbox (shown only when
+the signed-in user has their own connection, since it writes through
+their own token). Also folded in three UX fixes from testing pass 1's
+`EventModal`/video-call flow:
+
+- **End-time auto-fill** (done): changing the start time (or date) on a
+  *new* (not editing an existing) event bumps the end time to 30 minutes
+  after it, instead of the end field sitting still until manually
+  touched.
+- **Video call link populated at save, not first "Join"** (done). Pass 1
+  deliberately deferred Daily.co room creation to whoever clicked
+  "Join" first, specifically to anchor the room's `exp` to the event's
+  real `end_time` instead of "2 hours from whenever this was created"
+  (see pass 1 above). Testing surfaced that the room/link should already
+  be visible and clickable right after saving, not after a first join --
+  fixed by creating the room *at save time* in `createEvent`/`updateEvent`
+  when `has_video_call` is set (still using the same `end_time + 30min`
+  expiry `createDailyRoom` already supports), and simplifying
+  `joinCalendarEvent` down to "mint a fresh per-participant token against
+  the already-existing room" -- `startCall`/`joinCall`'s split, just
+  collapsed since there's no "first join creates it" case left. Known
+  follow-up, not blocking: rescheduling an event with an already-created
+  room doesn't currently regenerate the room's expiry to match the new
+  end_time.
+- **Time inputs: scrollable *and* typeable, typing filters to matching
+  times** (done). The plain `<input type="datetime-local">` in pass 1
+  supported typing digits but not a filtered dropdown of times --
+  replaced with a plain date input plus a small custom
+  `TimeCombobox` (30-minute increments, text input + a scrollable list
+  that narrows by substring match as you type; picking an option or an
+  exact label match commits it, otherwise the field reverts).
+
+**Pass 3 (shipped)**: native booking. `coach_availability` (weekly
+template: one row per coach/day-of-week, a `time_blocks` jsonb list so a
+split day doesn't need a second row, a per-day `is_available` toggle that
+preserves configured hours when re-enabled, one stored IANA timezone),
+edited via a plain weekly editor (`AvailabilityEditor`, reusing pass 2's
+`TimeCombobox` for each block's start/end), embedded in the expanded
+calendar page below rather than a standalone route.
+`profiles.booking_token` -- lazily generated (same `randomBytes(24)
+base64url` shape as `invite_links.token`) the first time a coach clicks
+"Generate booking link" on their dashboard, not eagerly at signup, since
+not every coach uses public booking. The public `/book/[token]` page has
+no session at all (added to `middleware.ts`'s `PUBLIC_PATHS`), so it
+goes through the same two precedents `0002_accounts.sql` established for
+exactly this situation: `booking_profile`, a narrow public view mirroring
+`invite_status` (token -> coach_id/full_name, nothing else), and
+`get_open_slots`/`create_booking`, a `security definer` RPC pair
+(callable by `anon`) that does the actual slot math and insert entirely
+in PL/pgSQL -- expanding the weekly template into concrete UTC slots in
+the coach's own stored timezone, subtracting conflicting
+`calendar_events` (covers real bookings *and* an ad-hoc vacation block
+placed directly on the calendar), and re-validating a slot is still open
+immediately before inserting (race protection against two visitors
+booking the same slot). A booked appointment writes into `calendar_events`
+with `client_id`/`created_by` left null and `booker_name`/`booker_email`/
+`booker_phone` populated instead -- the shape `0016_calendar_events.sql`
+reserved for exactly this back in pass 1. Linking a booking to an
+existing client after the fact (if the booker's email matches one) is a
+nice-to-have follow-up, not built.
+
+**Post-pass-3 UI rework (shipped)**: testing surfaced that booking
+link/availability didn't belong on their own dashboard sections, and
+that the public booking page's week-list-of-times didn't scale well.
+Changes:
+
+- **Compact vs. expanded calendar surfaces.** The dashboard's
+  `CalendarCard` (quick glance, also used on the client's own dashboard
+  and a coach's per-client page) now just shows a booking-link row
+  (generate/copy) and a "Manage availability →" link, instead of owning
+  full sections of its own. The actual editing UI lives on a new
+  `/dashboard/calendar` page (`CalendarWorkspace`) -- a permanently
+  expanded, two-pane layout: a month grid in the right 2/3 (clicking a
+  day opens "new event" pre-set to that day; clicking an event opens it
+  for editing), and the booking link, a collapsible availability editor,
+  and an agenda list of the visible month's events in the left 1/3. The
+  NavBar's coach-only "Availability" link was renamed "Calendar" and now
+  points here. `MonthGrid`/`WeekGrid`/`DayList`/`AgendaList`/`EventRow`
+  were pulled out of `CalendarCard.tsx` into `components/calendar/
+  CalendarViews.tsx` so both surfaces render from the same code, and
+  `BookingLinkControl` (generate/copy) is its own small component shared
+  by both the compact card and the expanded page.
+- **Public booking page: month calendar + slot cards**, replacing the
+  original 7-day list view. `BookingScheduler` now shows a month grid on
+  the left (days with any open slot are clickable, days without are
+  disabled) and that date's open times as selectable cards on the right
+  -- picking one leads into the same booker-info form as before.
+
+**vNext, not built**:
+
+- **Event type -> automatic video link.** Right now "add a video call
+  link" is a plain checkbox on every event, regardless of what kind of
+  event it is. A nicer flow: a type selector on the new-event modal
+  (e.g. Call / Session / Other), where picking "Call" or "Session"
+  automatically turns on the video link instead of asking separately.
+  Scoped out of this pass since it's a modal UX change, not a
+  data-model one -- `has_video_call` already covers the underlying
+  need.
+- **Reminders / booking-confirmation email.** `calendar_events.
+  reminder_minutes_before` is currently just stored data -- nothing
+  reads it and sends anything. Two different pieces, if this gets
+  built: (1) a booking-confirmation email, sent once at booking time --
+  simple, since `create_booking`/`submitBooking` already run
+  synchronously, so this is just an API call to an email provider (e.g.
+  Resend -- API-key based, no SMTP setup needed) right after the
+  insert; (2) time-based reminders (X minutes before an event) -- needs
+  an actual scheduled job, which this app has none of today (everything
+  is lazy/pull-based, no cron/worker anywhere in this codebase). Options
+  for that piece: Supabase's `pg_cron` extension, or a Vercel Cron
+  hitting a route handler on a schedule. Supabase's own built-in email
+  (used today only for magic-link auth) is not meant for this -- it's
+  not transactional-email infrastructure.
 
 ## Standing product decisions
 

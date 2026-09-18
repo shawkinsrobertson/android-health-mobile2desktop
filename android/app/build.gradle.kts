@@ -87,9 +87,18 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Local key/value store for sync cursors (per-record-type changes tokens)
+    // and non-sensitive session mirror state (see auth/SessionStore.kt).
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // Networking (direct PostgREST calls to Supabase)
+    // Encrypted at-rest storage for the Supabase session's access/refresh
+    // tokens (see auth/SessionStore.kt) -- these are real credentials,
+    // unlike the sync_code they replace, which was never encrypted.
+    implementation("androidx.security:security-crypto:1.1.0")
+
+    // Login -> VerifyCode -> Home navigation graph (see ui/nav/).
+    implementation("androidx.navigation:navigation-compose:2.8.0")
+
+    // Networking (direct PostgREST + Supabase Auth REST calls)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Coroutines

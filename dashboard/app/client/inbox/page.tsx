@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getClientProfile, getCurrentProfile } from "@/lib/profile";
 import { getOrCreateThread, fetchThreadMessages } from "@/lib/chat";
+import { getActiveCall } from "@/lib/calls";
 import { ThreadView } from "@/components/chat/ThreadView";
+import { CallProvider } from "@/components/calls/CallProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -31,19 +33,24 @@ export default async function ClientInboxPage() {
     .single();
 
   const thread = await getOrCreateThread(supabase, clientProfile.coachId, profile.id);
-  const { messages, reactions } = await fetchThreadMessages(supabase, thread.id);
+  const [{ messages, reactions }, activeCall] = await Promise.all([
+    fetchThreadMessages(supabase, thread.id),
+    getActiveCall(supabase, thread.id),
+  ]);
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4">
       <h1 className="text-lg font-semibold text-ink-primary">Inbox</h1>
-      <ThreadView
-        threadId={thread.id}
-        clientId={profile.id}
-        myProfileId={profile.id}
-        counterpartName={coachRow?.full_name || coachRow?.email || "Your coach"}
-        initialMessages={messages}
-        initialReactions={reactions}
-      />
+      <CallProvider threadId={thread.id} myProfileId={profile.id} initialCall={activeCall}>
+        <ThreadView
+          threadId={thread.id}
+          clientId={profile.id}
+          myProfileId={profile.id}
+          counterpartName={coachRow?.full_name || coachRow?.email || "Your coach"}
+          initialMessages={messages}
+          initialReactions={reactions}
+        />
+      </CallProvider>
     </div>
   );
 }

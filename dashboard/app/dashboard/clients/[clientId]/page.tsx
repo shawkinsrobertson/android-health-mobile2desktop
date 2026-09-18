@@ -4,11 +4,18 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights } from "@/lib/queries";
 import { getThreadReadOnly, isThreadUnread } from "@/lib/chat";
-import { labelFor } from "@/app/client/data-points";
+import { getPersonalRecords } from "@/lib/personal-records";
+import { listEvents } from "@/lib/calendar";
+import { rangeForView } from "@/lib/calendar-grid";
+import { DATA_POINTS, labelFor } from "@/app/client/data-points";
 import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
 import { SleepChart } from "@/components/SleepChart";
+import { PersonalRecordsList } from "@/components/PersonalRecordsList";
+import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
+import { CoachNotes } from "@/components/CoachNotes";
+import type { CoachNoteRow } from "./notes-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,46 +60,87 @@ export default async function ClientDetailPage({
         Promise.all(
           clientProfile.topDataPoints.map(async (key) => ({
             key,
-            summary: await getDataPointSummary(key, clientProfile.syncCode).catch(
+            summary: await getDataPointSummary(supabase, key, params.clientId).catch(
               () => "Couldn't load this right now",
             ),
           })),
         ),
-        getOverviewStats(clientProfile.syncCode).catch(() => null),
-        getDailySteps(14, clientProfile.syncCode).catch(() => []),
-        getSleepNights(14, clientProfile.syncCode).catch(() => []),
+        getOverviewStats(supabase, params.clientId).catch(() => null),
+        getDailySteps(supabase, 14, params.clientId).catch(() => []),
+        getSleepNights(supabase, 14, params.clientId).catch(() => []),
       ])
     : [[], null, [], []];
 
-  const [libraryWorkoutsRes, libraryProgramsRes, libraryDocumentsRes, assignedWorkoutsRes, assignedProgramsRes, assignedDocumentsRes] =
-    await Promise.all([
-      supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
-      supabase
-        .from("assigned_workouts")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .is("assigned_program_id", null)
-        .order("assigned_at", { ascending: false }),
-      supabase
-        .from("assigned_programs")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .order("assigned_at", { ascending: false }),
-      supabase
-        .from("assigned_documents")
-        .select("id, name, assigned_at")
-        .eq("client_id", params.clientId)
-        .order("assigned_at", { ascending: false }),
-    ]);
+  const [
+    libraryWorkoutsRes,
+    libraryProgramsRes,
+    libraryDocumentsRes,
+    assignedWorkoutsRes,
+    assignedProgramsRes,
+    assignedDocumentsRes,
+    coachNotesRes,
+    coachNotesCountRes,
+    coachGoogleConnectionRes,
+  ] = await Promise.all([
+    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
+    supabase
+      .from("assigned_workouts")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .is("assigned_program_id", null)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("assigned_programs")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("assigned_documents")
+      .select("id, name, assigned_at")
+      .eq("client_id", params.clientId)
+      .order("assigned_at", { ascending: false }),
+    supabase
+      .from("coach_notes")
+      .select("id, body, is_private, created_at")
+      .eq("coach_id", coach.id)
+      .eq("client_id", params.clientId)
+      .order("created_at", { ascending: false })
+      .limit(3),
+    supabase
+      .from("coach_notes")
+      .select("id", { count: "exact", head: true })
+      .eq("coach_id", coach.id)
+      .eq("client_id", params.clientId),
+    supabase
+      .from("calendar_connections")
+      .select("id")
+      .eq("profile_id", coach.id)
+      .eq("provider", "google")
+      .maybeSingle(),
+  ]);
 
   const libraryWorkouts = (libraryWorkoutsRes.data ?? []) as { id: string; name: string }[];
   const libraryPrograms = (libraryProgramsRes.data ?? []) as { id: string; name: string }[];
   const libraryDocuments = (libraryDocumentsRes.data ?? []) as { id: string; name: string }[];
   const assignedWorkouts = (assignedWorkoutsRes.data ?? []) as AssignedRow[];
+  const coachNotes = (coachNotesRes.data ?? []) as CoachNoteRow[];
+  const coachNotesCount = coachNotesCountRes.count ?? coachNotes.length;
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
+
+  const [personalRecords, { data: consentRows }, calendarEvents] = clientProfile.onboardedAt
+    ? await Promise.all([
+        getPersonalRecords(supabase, params.clientId),
+        supabase
+          .from("client_data_consent")
+          .select("data_type, consented")
+          .eq("client_id", params.clientId),
+        listEvents(supabase, { clientId: params.clientId }, rangeForView("month", new Date())),
+      ])
+    : [[], { data: [] as { data_type: string; consented: boolean }[] }, []];
+  const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
 
   return (
     <div className="flex flex-col gap-8">
@@ -169,6 +217,71 @@ export default async function ClientDetailPage({
                 <dd className="text-ink-primary">{clientProfile.limitations || "—"}</dd>
               </div>
             </dl>
+          </section>
+
+          <CalendarCard
+            scope={{ clientId: params.clientId }}
+            initialEvents={calendarEvents}
+            fixedClientId={params.clientId}
+            title="Shared calendar"
+            googleSync={{ targetProfileId: params.clientId }}
+            creatorHasGoogleConnection={!!coachGoogleConnectionRes.data}
+          />
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">Data sharing</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              What this client has chosen to share with you. Read-only -- they set this from their
+              own dashboard.
+            </p>
+            <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+              {DATA_POINTS.map((d) => {
+                const consented = consentByType[d.key] !== false;
+                return (
+                  <li key={d.key} className="flex items-center gap-2 text-ink-primary">
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        consented ? "bg-[color:var(--series-steps)]" : "bg-ink-muted"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span className={consented ? "" : "text-ink-muted"}>{d.label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">Coach notes</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              Only you see these. Mark a note private to keep it out of the AI assistant&apos;s context too.
+            </p>
+            <CoachNotes
+              clientId={params.clientId}
+              initialNotes={coachNotes}
+              seeAllHref={`/dashboard/clients/${params.clientId}/notes`}
+              totalCount={coachNotesCount}
+            />
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink-primary">Personal records</h2>
+              {personalRecords.length > 3 && (
+                <Link
+                  href={`/dashboard/clients/${params.clientId}/personal-records`}
+                  className="text-xs text-[color:var(--series-steps)] hover:underline"
+                >
+                  See all
+                </Link>
+              )}
+            </div>
+            <PersonalRecordsList
+              records={personalRecords}
+              weightUnit={clientProfile.preferredWeightUnit}
+              limit={3}
+            />
           </section>
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

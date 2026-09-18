@@ -6,22 +6,34 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.healthconnect.HealthConnectManager
 import com.healthsync.app.sync.MANUAL_SYNC_WORK_NAME
 import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncScheduler
 import com.healthsync.app.sync.SyncStateStore
 import com.healthsync.app.sync.SyncWorker
-import com.healthsync.app.ui.MainScreen
+import com.healthsync.app.ui.HomeScreen
+import com.healthsync.app.ui.nav.AuthNavHost
+import com.healthsync.app.ui.nav.ROUTE_HOME
+import com.healthsync.app.ui.nav.ROUTE_LOGIN
 import com.healthsync.app.ui.theme.HealthSyncTheme
+import kotlinx.coroutines.launch
 
 /** Maps a finished manual-sync [WorkInfo] to the [SyncResult] shape the UI already knows how to render. */
 private fun WorkInfo.toSyncResult(): SyncResult? = when (state) {
@@ -42,56 +54,103 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var healthConnectManager: HealthConnectManager
     private lateinit var syncStateStore: SyncStateStore
+    private lateinit var authRepository: AuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         healthConnectManager = HealthConnectManager(this)
         syncStateStore = SyncStateStore(this)
+        authRepository = AuthRepository(this)
 
         setContent {
             HealthSyncTheme {
-                var hasPermissions by remember { mutableStateOf<Boolean?>(null) }
+                // null while the session store's first read hasn't landed
+                // yet -- same "loading, then resolve" shape as
+                // hasPermissions below. Captured into a local val (not
+                // read again inline) so the compiler can actually smart-cast
+                // it to non-null Boolean past the null check -- a delegated
+                // `by collectAsState()` property can't be smart-cast at its
+                // use site otherwise.
+                val loggedIn = authRepository.isLoggedInFlow.collectAsState(initial = null).value
 
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    contract = healthConnectManager.permissionRequestContract(),
-                ) { granted ->
-                    hasPermissions = granted.containsAll(healthConnectManager.requiredPermissions)
+                if (loggedIn == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                    return@HealthSyncTheme
                 }
 
-                LaunchedEffect(Unit) {
-                    hasPermissions = healthConnectManager.isAvailable &&
-                        healthConnectManager.hasAllPermissions()
+                val navController = rememberNavController()
+                val scope = rememberCoroutineScope()
+
+                AuthNavHost(
+                    navController = navController,
+                    startDestination = if (loggedIn) ROUTE_HOME else ROUTE_LOGIN,
+                    onRequestOtp = { email -> authRepository.login(email) },
+                    onVerifyCode = { email, code -> authRepository.verifyCode(email, code) },
+                ) {
+                    var hasPermissions by remember { mutableStateOf<Boolean?>(null) }
+
+                    val permissionLauncher = rememberLauncherForActivityResult(
+                        contract = healthConnectManager.permissionRequestContract(),
+                    ) { granted ->
+                        hasPermissions = granted.containsAll(healthConnectManager.requiredPermissions)
+                    }
+
+                    LaunchedEffect(Unit) {
+                        hasPermissions = healthConnectManager.isAvailable &&
+                            healthConnectManager.hasAllPermissions()
+                    }
+
+                    // Sync runs as a WorkManager job (see SyncScheduler.triggerManualSync)
+                    // rather than a coroutine on this Composable's scope, so it survives
+                    // this Activity being destroyed mid-run -- screen off, app
+                    // backgrounded, low memory -- instead of being silently cancelled.
+                    // The UI just observes the unique work's status/output.
+                    val workInfos by WorkManager.getInstance(this@MainActivity)
+                        .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
+                        .collectAsState(initial = emptyList())
+                    val activeWorkInfo = workInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
+                    val isSyncing = activeWorkInfo?.state == WorkInfo.State.ENQUEUED ||
+                        activeWorkInfo?.state == WorkInfo.State.RUNNING
+                    val lastResult = activeWorkInfo?.toSyncResult()
+
+                    val email by authRepository.emailFlow.collectAsState(initial = null)
+
+                    HomeScreen(
+                        healthConnectAvailable = healthConnectManager.isAvailable,
+                        hasPermissions = hasPermissions,
+                        isSyncing = isSyncing,
+                        lastResult = lastResult,
+                        syncStateStore = syncStateStore,
+                        email = email,
+                        onRequestPermissions = {
+                            permissionLauncher.launch(healthConnectManager.requiredPermissions)
+                        },
+                        onInstallHealthConnect = {
+                            val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
+                            startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        },
+                        onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
+                        onSignOut = {
+                            scope.launch {
+                                // Order matters: clear sync cursors before the
+                                // session is gone, and navigate last so the
+                                // Login screen only appears once both are
+                                // actually done -- see SyncStateStore
+                                // .clearAllChangesTokens()'s doc comment for
+                                // why a stale cursor under a new account would
+                                // silently skip that account's own backfill.
+                                authRepository.logout()
+                                syncStateStore.clearAllChangesTokens()
+                                navController.navigate(ROUTE_LOGIN) {
+                                    popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                                }
+                            }
+                        },
+                    )
                 }
-
-                // Sync runs as a WorkManager job (see SyncScheduler.triggerManualSync)
-                // rather than a coroutine on this Composable's scope, so it survives
-                // this Activity being destroyed mid-run -- screen off, app
-                // backgrounded, low memory -- instead of being silently cancelled.
-                // The UI just observes the unique work's status/output.
-                val workInfos by WorkManager.getInstance(this@MainActivity)
-                    .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
-                    .collectAsState(initial = emptyList())
-                val activeWorkInfo = workInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
-                val isSyncing = activeWorkInfo?.state == WorkInfo.State.ENQUEUED ||
-                    activeWorkInfo?.state == WorkInfo.State.RUNNING
-                val lastResult = activeWorkInfo?.toSyncResult()
-
-                MainScreen(
-                    healthConnectAvailable = healthConnectManager.isAvailable,
-                    hasPermissions = hasPermissions,
-                    isSyncing = isSyncing,
-                    lastResult = lastResult,
-                    syncStateStore = syncStateStore,
-                    onRequestPermissions = {
-                        permissionLauncher.launch(healthConnectManager.requiredPermissions)
-                    },
-                    onInstallHealthConnect = {
-                        val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
-                        startActivity(Intent(Intent.ACTION_VIEW, uri))
-                    },
-                    onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
-                )
             }
         }
     }

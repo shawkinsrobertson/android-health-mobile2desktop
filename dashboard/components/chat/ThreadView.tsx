@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/browser";
 import { sendChatMessage, toggleReaction, togglePin, markThreadRead } from "@/lib/chat-actions";
 import { MessageBubble } from "./MessageBubble";
 import { Composer } from "./Composer";
+import { CallButton } from "@/components/calls/CallButton";
+import { CallSurface } from "@/components/calls/CallSurface";
 import type { ChatMessageRow, ChatReactionRow } from "@/lib/chat";
 
 export function ThreadView({
@@ -123,16 +125,21 @@ export function ThreadView({
     <div className="flex h-[75vh] flex-col rounded-xl border border-[color:var(--border-hairline)] bg-surface">
       <div className="flex items-center justify-between border-b border-[color:var(--border-hairline)] px-4 py-3">
         <h2 className="text-sm font-semibold text-ink-primary">{counterpartName}</h2>
-        {pinned.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setPinnedOpen((v) => !v)}
-            className="text-xs text-ink-secondary hover:text-ink-primary"
-          >
-            📌 {pinned.length} pinned
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {pinned.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPinnedOpen((v) => !v)}
+              className="text-xs text-ink-secondary hover:text-ink-primary"
+            >
+              📌 {pinned.length} pinned
+            </button>
+          )}
+          <CallButton />
+        </div>
       </div>
+
+      <CallSurface counterpartName={counterpartName} />
 
       {pinnedOpen && (
         <div className="flex flex-col gap-1 border-b border-[color:var(--border-hairline)] bg-[color:var(--page-plane)] p-2">

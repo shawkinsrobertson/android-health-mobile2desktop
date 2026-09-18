@@ -30,6 +30,11 @@ export async function NavBar() {
             </Link>
           )}
           {profile?.role === "coach" && (
+            <Link href="/dashboard/calendar" className="hover:text-ink-primary">
+              Calendar
+            </Link>
+          )}
+          {profile?.role === "coach" && (
             <InboxNavLink href="/dashboard/inbox" role="coach" profileId={profile.id} initialThreads={initialThreads} />
           )}
           {profile?.role === "client" && (

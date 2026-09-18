@@ -1,12 +1,14 @@
-import { supabase } from "./supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Every query here takes an optional `userId` to scope results to one
-// synced device (client_profiles.sync_code -- see supabase/migrations/
-// 0003_sync_code.sql). Omitted, they read everything unscoped, which is
-// what the single-user Overview page (`/`) and the /coach chat still
-// want -- the health-data tables don't have real per-user RLS yet, so
-// this filter is what the client dashboard (`/client`) uses to show only
-// its own synced rows among what is, today, still one shared pool.
+// Every query here takes the caller's own per-request `supabase` client
+// (never a static anon-key singleton) plus an optional `clientId` --
+// profiles.id / auth.uid() for the client whose data this is, *not* the
+// old sync_code text. Health-data tables now carry a real `client_id`
+// column with auth.uid()-scoped RLS (see supabase/migrations/
+// 0015_health_data_auth.sql) -- a coach's session can see every one of
+// their clients' rows via the coach-select policy, so the explicit
+// `clientId` filter here is still required to scope down to *one*
+// client's data on a given page, not a correctness-optional nicety.
 
 const PAGE_SIZE = 1000;
 
@@ -213,7 +215,11 @@ function accumulateStepsByDay(
   }
 }
 
-export async function getDailySteps(days = 14, userId?: string): Promise<DailySteps[]> {
+export async function getDailySteps(
+  supabase: SupabaseClient,
+  days = 14,
+  clientId?: string,
+): Promise<DailySteps[]> {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
@@ -228,7 +234,7 @@ export async function getDailySteps(days = 14, userId?: string): Promise<DailySt
       .order("start_time", { ascending: true })
       .order("id", { ascending: true })
       .range(from, to);
-    if (userId) query = query.eq("user_id", userId);
+    if (clientId) query = query.eq("client_id", clientId);
     return query;
   });
 
@@ -245,7 +251,11 @@ export interface SleepNight {
   hours: number;
 }
 
-export async function getSleepNights(days = 14, userId?: string): Promise<SleepNight[]> {
+export async function getSleepNights(
+  supabase: SupabaseClient,
+  days = 14,
+  clientId?: string,
+): Promise<SleepNight[]> {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
@@ -254,7 +264,7 @@ export async function getSleepNights(days = 14, userId?: string): Promise<SleepN
     .select("start_time, end_time")
     .gte("start_time", since.toISOString())
     .order("start_time", { ascending: true });
-  if (userId) query = query.eq("user_id", userId);
+  if (clientId) query = query.eq("client_id", clientId);
 
   const { data, error } = await query;
 
@@ -275,7 +285,10 @@ export interface OverviewStats {
   exerciseSessions7d: number;
 }
 
-export async function getOverviewStats(userId?: string): Promise<OverviewStats> {
+export async function getOverviewStats(
+  supabase: SupabaseClient,
+  clientId?: string,
+): Promise<OverviewStats> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const sevenDaysAgo = new Date();
@@ -291,9 +304,9 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
     .select("id", { count: "exact", head: true })
     .gte("start_time", sevenDaysAgo.toISOString());
 
-  if (userId) {
-    sleepQuery = sleepQuery.eq("user_id", userId);
-    exerciseQuery = exerciseQuery.eq("user_id", userId);
+  if (clientId) {
+    sleepQuery = sleepQuery.eq("client_id", clientId);
+    exerciseQuery = exerciseQuery.eq("client_id", clientId);
   }
 
   const [stepsRows, hrSamples, sleepRes, exerciseRes] = await Promise.all([
@@ -304,7 +317,7 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
         .gte("start_time", todayStart.toISOString())
         .order("start_time", { ascending: true })
         .range(from, to);
-      if (userId) q = q.eq("user_id", userId);
+      if (clientId) q = q.eq("client_id", clientId);
       return q;
     }),
     fetchAllRows<{ bpm: number }>((from, to) => {
@@ -314,7 +327,7 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
         .gte("sample_time", sevenDaysAgo.toISOString())
         .order("sample_time", { ascending: true })
         .range(from, to);
-      if (userId) q = q.eq("user_id", userId);
+      if (clientId) q = q.eq("client_id", clientId);
       return q;
     }),
     sleepQuery,
@@ -351,17 +364,21 @@ export async function getOverviewStats(userId?: string): Promise<OverviewStats> 
 }
 
 // One-line summary for a single data-point card on /client, scoped to one
-// synced device via sync_code. Deliberately simple (a 7-day aggregate or
-// most-recent reading per type) rather than a full chart -- this is the
-// "top 3 data points" glance view, not the Overview page.
-export async function getDataPointSummary(dataPointKey: string, userId: string): Promise<string> {
+// client. Deliberately simple (a 7-day aggregate or most-recent reading
+// per type) rather than a full chart -- this is the "top 3 data points"
+// glance view, not the Overview page.
+export async function getDataPointSummary(
+  supabase: SupabaseClient,
+  dataPointKey: string,
+  clientId: string,
+): Promise<string> {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const since = sevenDaysAgo.toISOString();
 
   switch (dataPointKey) {
     case "steps": {
-      const steps = await getDailySteps(7, userId);
+      const steps = await getDailySteps(supabase, 7, clientId);
       const total = steps.reduce((sum, d) => sum + d.count, 0);
       return steps.length ? `${total.toLocaleString()} steps this week` : "No steps synced yet";
     }
@@ -370,7 +387,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
         supabase
           .from("heart_rate_samples")
           .select("bpm")
-          .eq("user_id", userId)
+          .eq("client_id", clientId)
           .gte("sample_time", since)
           .range(from, to),
       );
@@ -380,7 +397,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       return `${avg} bpm avg this week`;
     }
     case "sleep_sessions": {
-      const nights = await getSleepNights(7, userId);
+      const nights = await getSleepNights(supabase, 7, clientId);
       if (!nights.length) return "No sleep data synced yet";
       const last = nights[nights.length - 1];
       return `${last.hours}h last night`;
@@ -389,7 +406,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       const { count } = await supabase
         .from("exercise_sessions")
         .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
+        .eq("client_id", clientId)
         .gte("start_time", since);
       return `${count ?? 0} workout${count === 1 ? "" : "s"} this week`;
     }
@@ -398,7 +415,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
         supabase
           .from("blood_oxygen")
           .select("percentage")
-          .eq("user_id", userId)
+          .eq("client_id", clientId)
           .gte("sample_time", since)
           .range(from, to),
       );
@@ -411,7 +428,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
       const { data } = await supabase
         .from("blood_pressure")
         .select("systolic_mmhg, diastolic_mmhg, sample_time")
-        .eq("user_id", userId)
+        .eq("client_id", clientId)
         .order("sample_time", { ascending: false })
         .limit(1);
       const last = data?.[0];
@@ -422,7 +439,7 @@ export async function getDataPointSummary(dataPointKey: string, userId: string):
         supabase
           .from("respiratory_rate")
           .select("breaths_per_minute")
-          .eq("user_id", userId)
+          .eq("client_id", clientId)
           .gte("sample_time", since)
           .range(from, to),
       );

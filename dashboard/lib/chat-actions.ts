@@ -13,8 +13,12 @@ import type { ChatMessageRow, ChatThreadRow } from "@/lib/chat";
 // from the return value, and every other participant's view is kept live
 // by the Supabase Realtime subscription in ThreadView/InboxNavLink instead
 // (see components/chat/ThreadView.tsx).
-
-async function requireParticipant(supabase: Awaited<ReturnType<typeof createClient>>, threadId: string) {
+//
+// Exported (not local to this file) so call-actions.ts can reuse the exact
+// same "am I a participant, and which role" check -- lib/chat.ts itself
+// can't hold this, since it's imported by client components too
+// (InboxNavLink) and this needs next/headers via getCurrentProfile.
+export async function requireParticipant(supabase: Awaited<ReturnType<typeof createClient>>, threadId: string) {
   const profile = await getCurrentProfile(supabase);
   if (!profile) redirect("/login");
 
