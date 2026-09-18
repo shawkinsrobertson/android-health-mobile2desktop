@@ -30,8 +30,8 @@ export async function NavBar() {
             </Link>
           )}
           {profile?.role === "coach" && (
-            <Link href="/dashboard/availability" className="hover:text-ink-primary">
-              Availability
+            <Link href="/dashboard/calendar" className="hover:text-ink-primary">
+              Calendar
             </Link>
           )}
           {profile?.role === "coach" && (

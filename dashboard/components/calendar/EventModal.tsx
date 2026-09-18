@@ -32,7 +32,17 @@ function combineLocal(date: string, time: string): string {
   return new Date(`${date}T${time}`).toISOString();
 }
 
-function defaultStart(): string {
+// With no day pre-picked (the plain "New event" button), default to an
+// hour from now. With one (a day clicked on a month grid), keep that
+// day but default to a reasonable mid-morning start instead of
+// "whatever hour it happens to be right now," which wouldn't make sense
+// once the day itself has already changed.
+function defaultStart(day?: Date): string {
+  if (day) {
+    const d = new Date(day);
+    d.setHours(9, 0, 0, 0);
+    return d.toISOString();
+  }
   const d = new Date();
   d.setMinutes(0, 0, 0);
   d.setHours(d.getHours() + 1);
@@ -48,6 +58,7 @@ export function EventModal({
   assignableClients,
   fixedClientId,
   hasGoogleConnection,
+  initialDate,
   onClose,
   onSaved,
   onDeleted,
@@ -65,12 +76,15 @@ export function EventModal({
   // can offer "also add to Google Calendar," since it writes through
   // their own token.
   hasGoogleConnection?: boolean;
+  // New event only -- the day clicked on a month grid, so the modal opens
+  // pre-set to that day instead of always defaulting to today.
+  initialDate?: Date;
   onClose: () => void;
   onSaved: (event: CalendarEventRow) => void;
   onDeleted?: (eventId: string) => void;
 }) {
   const isEdit = !!event;
-  const initialStart = event?.start_time ?? defaultStart();
+  const initialStart = event?.start_time ?? defaultStart(initialDate);
   const initialEnd = event?.end_time ?? defaultEnd(initialStart);
 
   const initialStartSplit = splitLocal(initialStart);

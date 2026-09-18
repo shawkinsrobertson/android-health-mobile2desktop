@@ -324,7 +324,8 @@ template: one row per coach/day-of-week, a `time_blocks` jsonb list so a
 split day doesn't need a second row, a per-day `is_available` toggle that
 preserves configured hours when re-enabled, one stored IANA timezone),
 edited via a plain weekly editor (`AvailabilityEditor`, reusing pass 2's
-`TimeCombobox` for each block's start/end) at `/dashboard/availability`.
+`TimeCombobox` for each block's start/end), embedded in the expanded
+calendar page below rather than a standalone route.
 `profiles.booking_token` -- lazily generated (same `randomBytes(24)
 base64url` shape as `invite_links.token`) the first time a coach clicks
 "Generate booking link" on their dashboard, not eagerly at signup, since
@@ -346,6 +347,58 @@ with `client_id`/`created_by` left null and `booker_name`/`booker_email`/
 reserved for exactly this back in pass 1. Linking a booking to an
 existing client after the fact (if the booker's email matches one) is a
 nice-to-have follow-up, not built.
+
+**Post-pass-3 UI rework (shipped)**: testing surfaced that booking
+link/availability didn't belong on their own dashboard sections, and
+that the public booking page's week-list-of-times didn't scale well.
+Changes:
+
+- **Compact vs. expanded calendar surfaces.** The dashboard's
+  `CalendarCard` (quick glance, also used on the client's own dashboard
+  and a coach's per-client page) now just shows a booking-link row
+  (generate/copy) and a "Manage availability →" link, instead of owning
+  full sections of its own. The actual editing UI lives on a new
+  `/dashboard/calendar` page (`CalendarWorkspace`) -- a permanently
+  expanded, two-pane layout: a month grid in the right 2/3 (clicking a
+  day opens "new event" pre-set to that day; clicking an event opens it
+  for editing), and the booking link, a collapsible availability editor,
+  and an agenda list of the visible month's events in the left 1/3. The
+  NavBar's coach-only "Availability" link was renamed "Calendar" and now
+  points here. `MonthGrid`/`WeekGrid`/`DayList`/`AgendaList`/`EventRow`
+  were pulled out of `CalendarCard.tsx` into `components/calendar/
+  CalendarViews.tsx` so both surfaces render from the same code, and
+  `BookingLinkControl` (generate/copy) is its own small component shared
+  by both the compact card and the expanded page.
+- **Public booking page: month calendar + slot cards**, replacing the
+  original 7-day list view. `BookingScheduler` now shows a month grid on
+  the left (days with any open slot are clickable, days without are
+  disabled) and that date's open times as selectable cards on the right
+  -- picking one leads into the same booker-info form as before.
+
+**vNext, not built**:
+
+- **Event type -> automatic video link.** Right now "add a video call
+  link" is a plain checkbox on every event, regardless of what kind of
+  event it is. A nicer flow: a type selector on the new-event modal
+  (e.g. Call / Session / Other), where picking "Call" or "Session"
+  automatically turns on the video link instead of asking separately.
+  Scoped out of this pass since it's a modal UX change, not a
+  data-model one -- `has_video_call` already covers the underlying
+  need.
+- **Reminders / booking-confirmation email.** `calendar_events.
+  reminder_minutes_before` is currently just stored data -- nothing
+  reads it and sends anything. Two different pieces, if this gets
+  built: (1) a booking-confirmation email, sent once at booking time --
+  simple, since `create_booking`/`submitBooking` already run
+  synchronously, so this is just an API call to an email provider (e.g.
+  Resend -- API-key based, no SMTP setup needed) right after the
+  insert; (2) time-based reminders (X minutes before an event) -- needs
+  an actual scheduled job, which this app has none of today (everything
+  is lazy/pull-based, no cron/worker anywhere in this codebase). Options
+  for that piece: Supabase's `pg_cron` extension, or a Vercel Cron
+  hitting a route handler on a schedule. Supabase's own built-in email
+  (used today only for magic-link auth) is not meant for this -- it's
+  not transactional-email infrastructure.
 
 ## Standing product decisions
 

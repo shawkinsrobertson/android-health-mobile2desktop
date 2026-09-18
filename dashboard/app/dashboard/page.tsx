@@ -6,7 +6,6 @@ import { listEvents } from "@/lib/calendar";
 import { rangeForView } from "@/lib/calendar-grid";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
-import { getOrCreateBookingLink } from "@/lib/booking-actions";
 import { createInviteLink } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +84,10 @@ export default async function DashboardPage() {
           lastSyncedAt: googleConnectionRes.data?.last_synced_at ?? null,
         }}
         creatorHasGoogleConnection={!!googleConnectionRes.data}
+        booking={{
+          bookingUrl: bookingToken ? `${siteUrl}/book/${bookingToken}` : null,
+          availabilityHref: "/dashboard/calendar",
+        }}
       />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
@@ -130,41 +133,6 @@ export default async function DashboardPage() {
               );
             })}
           </ul>
-        )}
-      </section>
-
-      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink-primary">Booking link</h2>
-          <Link href="/dashboard/availability" className="text-xs text-[color:var(--series-steps)] hover:underline">
-            Set your availability
-          </Link>
-        </div>
-        {bookingToken ? (
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm text-ink-secondary">
-              {`${siteUrl}/book/${bookingToken}`}
-            </code>
-            <CopyLinkButton url={`${siteUrl}/book/${bookingToken}`} />
-          </div>
-        ) : (
-          <form
-            action={async () => {
-              "use server";
-              await getOrCreateBookingLink();
-            }}
-            className="flex items-center justify-between"
-          >
-            <p className="text-sm text-ink-secondary">
-              Generate a link you can send to anyone to book time with you.
-            </p>
-            <button
-              type="submit"
-              className="shrink-0 rounded-lg bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
-            >
-              Generate booking link
-            </button>
-          </form>
         )}
       </section>
 

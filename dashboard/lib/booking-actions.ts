@@ -59,5 +59,5 @@ export async function saveAvailability(timezone: string, days: AvailabilityDay[]
     .upsert(rows, { onConflict: "coach_id,day_of_week" });
   if (error) throw new Error(error.message);
 
-  revalidatePath("/dashboard/availability");
+  revalidatePath("/dashboard/calendar");
 }

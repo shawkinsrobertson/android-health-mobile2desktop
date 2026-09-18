@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { saveAvailability } from "@/lib/booking-actions";
 import { TimeCombobox } from "@/components/calendar/TimeCombobox";
 import type { AvailabilityDay, CoachAvailability, TimeBlock } from "@/lib/booking";
@@ -12,8 +11,17 @@ function defaultBlock(): TimeBlock {
   return { start: "09:00", end: "17:00" };
 }
 
-export function AvailabilityEditor({ initial }: { initial: CoachAvailability }) {
-  const router = useRouter();
+// Embedded in CalendarWorkspace's left column, not a standalone page --
+// onSaved is how the caller reacts to a successful save (e.g. collapsing
+// the editor back down), since there's no separate page to navigate away
+// from anymore.
+export function AvailabilityEditor({
+  initial,
+  onSaved,
+}: {
+  initial: CoachAvailability;
+  onSaved: () => void;
+}) {
   const [timezone, setTimezone] = useState(initial.timezone);
   const [days, setDays] = useState<AvailabilityDay[]>(initial.days);
   const [saving, setSaving] = useState(false);
@@ -54,7 +62,7 @@ export function AvailabilityEditor({ initial }: { initial: CoachAvailability }) 
     setError(null);
     try {
       await saveAvailability(timezone, days);
-      router.push("/dashboard");
+      onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save.");
       setSaving(false);
