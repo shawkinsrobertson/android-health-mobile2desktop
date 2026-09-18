@@ -223,6 +223,70 @@ data-type surface in one phase. Worth tiering the implementation itself
 tracking/mindfulness last) rather than one single PR, but that's an
 implementation-sequencing call for whenever this phase actually starts.
 
+## Phase 7 -- shared coach-client calendar (in progress)
+
+A shared calendar per coach-client pair: clients flag personal events
+that could affect training (visible to the coach in full, to any AI
+assistant only as an opaque busy block -- no per-event privacy flag,
+that split is enforced by which query a caller uses), a booking link the
+coach can send to *anyone* (not just an existing client) to grab open
+time, and both a client's and the coach's own connected Google Calendar
+feeding into the same view. Full design/decisions in the planning
+session that scoped this -- summarized here for anyone picking it up
+later:
+
+- **Booking is native, not Cal.com** -- no second external system to
+  reconcile against `calendar_events`, and Cal.com's real value (staff
+  round-robin, multi-organizer conflict resolution) doesn't fit a
+  1-coach-to-many-clients shape.
+- **Google Calendar sync is lazy-pull**, refreshed on the token owner's
+  own visit, plus a coach-triggered refresh via one narrow `security
+  definer` function -- not push webhooks, not a standing background job,
+  not a blanket service-role key. The one deliberate exception to this
+  app's "RLS is the real boundary, no service-role bypass" rule, scoped
+  to a single function/purpose.
+- **CalDAV is deferred to vNext** (Apple/iCloud, Fastmail, self-hosted
+  Nextcloud, etc., via `tsdav` when it lands -- the same library Cal.com
+  itself uses internally). The sync-engine shape (one connection row per
+  provider per user, a sync-cursor equivalent, one shared
+  `calendar_events` target) is designed so this is a bolt-on later, not
+  a rewrite.
+- **Coach availability is a weekly template** (`coach_availability`:
+  one row per day-of-week, a list of time blocks, a per-day
+  available/unavailable toggle that preserves configured hours when
+  toggled back on). A one-off exception (a single vacation day) is just
+  an ordinary `calendar_events` block on that date.
+- **The booking link isn't scoped to an existing client** -- the coach
+  sends it to anyone, so a booked appointment can have no client
+  relationship at all (`calendar_events.client_id`/`created_by` are
+  nullable; `booker_name`/`booker_email`/`booker_phone` carry contact
+  info instead). The public booking page has no session at all, so its
+  read (open slots) and write (create the booking) go through two
+  `security definer` RPCs (`get_open_slots`/`create_booking`) rather
+  than table RLS -- same idea as `invite_status`'s narrow public view
+  and `handle_new_user()`'s trigger, just as RPCs.
+
+**Pass 1 (shipped)**: `calendar_events` + dual-ownership RLS, CRUD
+actions, the collapsible `CalendarCard` (agenda/day/week/month views,
+hand-rolled date-grid math, no new dependency) on the coach's dashboard,
+the client's dashboard, and the coach's per-client detail page, and
+lazy Daily.co video-call room creation (anchored to the event's own
+`end_time`, not to whenever the event was created -- see `lib/daily.ts`'s
+`createDailyRoom`/`createMeetingToken`, now taking an optional
+`expEpochSeconds`). The AI-context privacy boundary
+(`lib/calendar.ts`'s `getBusyBlocks`) exists from day one but has no
+consumer yet -- that's Phase 5's per-client AI assistant, not built.
+
+**Pass 2 (not started)**: Google Calendar OAuth + sync --
+`calendar_connections` (tokens encrypted at rest via `pgcrypto`, new
+ground for this schema), the connect flow, `get_calendar_sync_token`,
+incremental sync via `syncToken`, the "also add to Google Calendar"
+modal checkbox.
+
+**Pass 3 (not started)**: native booking -- `coach_availability` + its
+UI, `profiles.booking_token`, the public `/book/[token]` page,
+`get_open_slots`/`create_booking`.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a
