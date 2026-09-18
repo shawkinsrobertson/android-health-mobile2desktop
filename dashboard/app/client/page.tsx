@@ -93,10 +93,16 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
-  const [personalRecords, { data: consentRows }, initialEvents] = await Promise.all([
+  const [personalRecords, { data: consentRows }, initialEvents, googleConnectionRes] = await Promise.all([
     getPersonalRecords(supabase, profile.id),
     supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
     listEvents(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
+    supabase
+      .from("calendar_connections")
+      .select("external_account_email, last_synced_at")
+      .eq("profile_id", profile.id)
+      .eq("provider", "google")
+      .maybeSingle(),
   ]);
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
 
@@ -195,7 +201,16 @@ export default async function ClientDashboardPage() {
         />
       </section>
 
-      <CalendarCard scope={{ clientId: profile.id }} initialEvents={initialEvents} />
+      <CalendarCard
+        scope={{ clientId: profile.id }}
+        initialEvents={initialEvents}
+        googleSync={{
+          targetProfileId: profile.id,
+          ownAccountEmail: googleConnectionRes.data?.external_account_email ?? null,
+          lastSyncedAt: googleConnectionRes.data?.last_synced_at ?? null,
+        }}
+        creatorHasGoogleConnection={!!googleConnectionRes.data}
+      />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>

@@ -80,6 +80,7 @@ export default async function ClientDetailPage({
     assignedDocumentsRes,
     coachNotesRes,
     coachNotesCountRes,
+    coachGoogleConnectionRes,
   ] = await Promise.all([
     supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
     supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
@@ -112,6 +113,12 @@ export default async function ClientDetailPage({
       .select("id", { count: "exact", head: true })
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId),
+    supabase
+      .from("calendar_connections")
+      .select("id")
+      .eq("profile_id", coach.id)
+      .eq("provider", "google")
+      .maybeSingle(),
   ]);
 
   const libraryWorkouts = (libraryWorkoutsRes.data ?? []) as { id: string; name: string }[];
@@ -217,6 +224,8 @@ export default async function ClientDetailPage({
             initialEvents={calendarEvents}
             fixedClientId={params.clientId}
             title="Shared calendar"
+            googleSync={{ targetProfileId: params.clientId }}
+            creatorHasGoogleConnection={!!coachGoogleConnectionRes.data}
           />
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

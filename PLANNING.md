@@ -223,7 +223,7 @@ data-type surface in one phase. Worth tiering the implementation itself
 tracking/mindfulness last) rather than one single PR, but that's an
 implementation-sequencing call for whenever this phase actually starts.
 
-## Phase 7 -- shared coach-client calendar (in progress)
+## Phase 7 -- shared coach-client calendar (pass 3 remaining)
 
 A shared calendar per coach-client pair: clients flag personal events
 that could affect training (visible to the coach in full, to any AI
@@ -277,37 +277,47 @@ lazy Daily.co video-call room creation (anchored to the event's own
 (`lib/calendar.ts`'s `getBusyBlocks`) exists from day one but has no
 consumer yet -- that's Phase 5's per-client AI assistant, not built.
 
-**Pass 2 (not started)**: Google Calendar OAuth + sync --
-`calendar_connections` (tokens encrypted at rest via `pgcrypto`, new
-ground for this schema), the connect flow, `get_calendar_sync_token`,
-incremental sync via `syncToken`, the "also add to Google Calendar"
-modal checkbox. Also folds in three UX fixes from testing pass 1's
+**Pass 2 (shipped)**: Google Calendar OAuth + sync --
+`calendar_connections` (tokens encrypted at rest via Node's own
+`crypto`, AES-256-GCM, in `lib/calendar-crypto.ts` -- a deliberate
+simplification over the originally-planned `pgcrypto` approach, so the
+encryption key only ever needs configuring in one place, the app's own
+`CALENDAR_TOKEN_ENC_KEY` env var, not kept in sync between the app and a
+Postgres setting too), the connect flow (`/api/calendar/google/{start,
+callback}`), `get_calendar_sync_token`/`update_calendar_sync_state`,
+incremental sync via `syncToken` (falls back to a full resync on a 410,
+same shape as the Android app's Health Connect changes-token fallback),
+and the "also add to Google Calendar" modal checkbox (shown only when
+the signed-in user has their own connection, since it writes through
+their own token). Also folded in three UX fixes from testing pass 1's
 `EventModal`/video-call flow:
 
-- **End-time auto-fill**: changing the start time on a *new* (not
-  editing an existing) event should bump the end time to 30 minutes
+- **End-time auto-fill** (done): changing the start time (or date) on a
+  *new* (not editing an existing) event bumps the end time to 30 minutes
   after it, instead of the end field sitting still until manually
   touched.
-- **Video call link populated at save, not first "Join".** Pass 1
+- **Video call link populated at save, not first "Join"** (done). Pass 1
   deliberately deferred Daily.co room creation to whoever clicked
   "Join" first, specifically to anchor the room's `exp` to the event's
   real `end_time` instead of "2 hours from whenever this was created"
   (see pass 1 above). Testing surfaced that the room/link should already
   be visible and clickable right after saving, not after a first join --
-  fix is to create the room *at save time* when `has_video_call` is set
-  (still using the same `end_time + 30min` expiry `createDailyRoom`
-  already supports), and simplify `joinCalendarEvent` down to "mint a
-  fresh per-participant token against the already-existing room" --
-  `startCall`/`joinCall`'s split, just collapsed since there's no
-  "first join creates it" case left. Known follow-up, not blocking:
-  rescheduling an event with an already-created room doesn't currently
-  regenerate the room's expiry to match the new end_time.
+  fixed by creating the room *at save time* in `createEvent`/`updateEvent`
+  when `has_video_call` is set (still using the same `end_time + 30min`
+  expiry `createDailyRoom` already supports), and simplifying
+  `joinCalendarEvent` down to "mint a fresh per-participant token against
+  the already-existing room" -- `startCall`/`joinCall`'s split, just
+  collapsed since there's no "first join creates it" case left. Known
+  follow-up, not blocking: rescheduling an event with an already-created
+  room doesn't currently regenerate the room's expiry to match the new
+  end_time.
 - **Time inputs: scrollable *and* typeable, typing filters to matching
-  times.** The plain `<input type="datetime-local">` in pass 1 supports
-  typing digits but not a filtered dropdown of times: this needs a
-  small custom time-combobox (text input + a scrollable list of times
-  that narrows as you type) alongside a normal date input, replacing
-  the combined datetime-local field.
+  times** (done). The plain `<input type="datetime-local">` in pass 1
+  supported typing digits but not a filtered dropdown of times --
+  replaced with a plain date input plus a small custom
+  `TimeCombobox` (30-minute increments, text input + a scrollable list
+  that narrows by substring match as you type; picking an option or an
+  exact label match commits it, otherwise the field reverts).
 
 **Pass 3 (not started)**: native booking -- `coach_availability` + its
 UI, `profiles.booking_token`, the public `/book/[token]` page,

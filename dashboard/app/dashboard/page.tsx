@@ -32,7 +32,7 @@ export default async function DashboardPage() {
 
   const supabase = await createClient();
 
-  const [invitesRes, clientsRes] = await Promise.all([
+  const [invitesRes, clientsRes, googleConnectionRes] = await Promise.all([
     supabase
       .from("invite_links")
       .select("token, status, expires_at, used_by")
@@ -45,6 +45,12 @@ export default async function DashboardPage() {
       // rather than guessing. Naming the FK explicitly picks profile_id.
       .select("profile_id, onboarded_at, profiles!client_profiles_profile_id_fkey(full_name, email)")
       .eq("coach_id", profile.id),
+    supabase
+      .from("calendar_connections")
+      .select("external_account_email, last_synced_at")
+      .eq("profile_id", profile.id)
+      .eq("provider", "google")
+      .maybeSingle(),
   ]);
 
   const invites = (invitesRes.data ?? []) as InviteRow[];
@@ -70,6 +76,12 @@ export default async function DashboardPage() {
         scope={{ coachId: profile.id }}
         initialEvents={initialEvents}
         assignableClients={assignableClients}
+        googleSync={{
+          targetProfileId: profile.id,
+          ownAccountEmail: googleConnectionRes.data?.external_account_email ?? null,
+          lastSyncedAt: googleConnectionRes.data?.last_synced_at ?? null,
+        }}
+        creatorHasGoogleConnection={!!googleConnectionRes.data}
       />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

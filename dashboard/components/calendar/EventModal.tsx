@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createEvent, deleteEvent, updateEvent, type EventInput } from "@/lib/calendar-actions";
 import type { CalendarEventRow } from "@/lib/calendar";
+import { TimeCombobox } from "./TimeCombobox";
 
 const REMINDER_OPTIONS = [
   { label: "No reminder", value: "" },
@@ -12,18 +13,23 @@ const REMINDER_OPTIONS = [
   { label: "1 day before", value: "1440" },
 ];
 
-// Local <-> UTC conversion for <input type="datetime-local">, which
-// wants/returns "YYYY-MM-DDTHH:mm" in the browser's own local time, not
-// UTC -- the round-trip through Date here is what keeps the picker
-// showing (and submitting) times in the viewer's own timezone.
-function toLocalInputValue(iso: string): string {
+// Local-date and local-time-of-day split for the separate <input
+// type="date"> + TimeCombobox pair below (datetime-local's combined
+// picker doesn't support typing to filter times, which is a big part of
+// why this is two fields now) -- the round-trip through Date here is
+// what keeps both showing (and submitting) values in the viewer's own
+// timezone, same as the old combined picker did.
+function splitLocal(iso: string): { date: string; time: string } {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
 }
 
-function fromLocalInputValue(value: string): string {
-  return new Date(value).toISOString();
+function combineLocal(date: string, time: string): string {
+  return new Date(`${date}T${time}`).toISOString();
 }
 
 function defaultStart(): string {
@@ -34,13 +40,14 @@ function defaultStart(): string {
 }
 
 function defaultEnd(startIso: string): string {
-  return new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
+  return new Date(new Date(startIso).getTime() + 30 * 60 * 1000).toISOString();
 }
 
 export function EventModal({
   event,
   assignableClients,
   fixedClientId,
+  hasGoogleConnection,
   onClose,
   onSaved,
   onDeleted,
@@ -53,6 +60,11 @@ export function EventModal({
   // only one relevant client), but a new event still has to be shared
   // with *that* client, not silently become a personal block.
   fixedClientId?: string;
+  // Whether the signed-in user (the creator, not whichever calendar this
+  // event lives on) has their own Google Calendar connected -- only they
+  // can offer "also add to Google Calendar," since it writes through
+  // their own token.
+  hasGoogleConnection?: boolean;
   onClose: () => void;
   onSaved: (event: CalendarEventRow) => void;
   onDeleted?: (eventId: string) => void;
@@ -61,28 +73,49 @@ export function EventModal({
   const initialStart = event?.start_time ?? defaultStart();
   const initialEnd = event?.end_time ?? defaultEnd(initialStart);
 
+  const initialStartSplit = splitLocal(initialStart);
+  const initialEndSplit = splitLocal(initialEnd);
+
   const [title, setTitle] = useState(event?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
   const [location, setLocation] = useState(event?.location ?? "");
-  const [startLocal, setStartLocal] = useState(toLocalInputValue(initialStart));
-  const [endLocal, setEndLocal] = useState(toLocalInputValue(initialEnd));
+  const [startDate, setStartDate] = useState(initialStartSplit.date);
+  const [startTimeOfDay, setStartTimeOfDay] = useState(initialStartSplit.time);
+  const [endDate, setEndDate] = useState(initialEndSplit.date);
+  const [endTimeOfDay, setEndTimeOfDay] = useState(initialEndSplit.time);
   const [allDay, setAllDay] = useState(event?.all_day ?? false);
   const [reminder, setReminder] = useState(
     event?.reminder_minutes_before != null ? String(event.reminder_minutes_before) : "",
   );
   const [hasVideoCall, setHasVideoCall] = useState(event?.has_video_call ?? false);
   const [clientId, setClientId] = useState(event?.client_id ?? "");
+  const [alsoAddToGoogleCalendar, setAlsoAddToGoogleCalendar] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // On a new event only -- editing an existing one leaves whatever gap
+  // the event already had alone. Bumping the end time to 30 minutes past
+  // whatever start the user just entered means someone doesn't have to
+  // separately go set an end time for the common case of a short call or
+  // session.
+  function handleStartChange(newDate: string, newTime: string) {
+    setStartDate(newDate);
+    setStartTimeOfDay(newTime);
+    if (!isEdit) {
+      const newEnd = splitLocal(defaultEnd(combineLocal(newDate, newTime)));
+      setEndDate(newEnd.date);
+      setEndTimeOfDay(newEnd.time);
+    }
+  }
 
   async function handleSave() {
     if (!title.trim()) {
       setError("Give it a title.");
       return;
     }
-    const startTime = fromLocalInputValue(startLocal);
-    const endTime = fromLocalInputValue(endLocal);
+    const startTime = combineLocal(startDate, startTimeOfDay);
+    const endTime = combineLocal(endDate, endTimeOfDay);
     if (new Date(endTime) <= new Date(startTime)) {
       setError("End time has to be after the start time.");
       return;
@@ -98,6 +131,7 @@ export function EventModal({
       reminderMinutesBefore: reminder ? Number(reminder) : null,
       hasVideoCall,
       clientId: fixedClientId ?? (assignableClients ? clientId || null : undefined),
+      alsoAddToGoogleCalendar: isEdit ? undefined : alsoAddToGoogleCalendar,
     };
 
     setSubmitting(true);
@@ -169,21 +203,35 @@ export function EventModal({
               <div className="flex gap-2">
                 <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
                   Starts
-                  <input
-                    type="datetime-local"
-                    value={startLocal}
-                    onChange={(e) => setStartLocal(e.target.value)}
-                    className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => handleStartChange(e.target.value, startTimeOfDay)}
+                      className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                    />
+                    <TimeCombobox
+                      value={startTimeOfDay}
+                      onChange={(t) => handleStartChange(startDate, t)}
+                      className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                    />
+                  </div>
                 </label>
                 <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
                   Ends
-                  <input
-                    type="datetime-local"
-                    value={endLocal}
-                    onChange={(e) => setEndLocal(e.target.value)}
-                    className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                    />
+                    <TimeCombobox
+                      value={endTimeOfDay}
+                      onChange={setEndTimeOfDay}
+                      className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                    />
+                  </div>
                 </label>
               </div>
 
@@ -248,6 +296,17 @@ export function EventModal({
                 />
                 Add a video call link
               </label>
+
+              {!isEdit && hasGoogleConnection && (
+                <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={alsoAddToGoogleCalendar}
+                    onChange={(e) => setAlsoAddToGoogleCalendar(e.target.checked)}
+                  />
+                  Also add to Google Calendar
+                </label>
+              )}
             </div>
 
             {error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}

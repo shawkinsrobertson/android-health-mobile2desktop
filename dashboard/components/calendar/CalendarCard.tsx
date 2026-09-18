@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchEvents } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
+import { disconnectGoogleCalendar, syncGoogleCalendar } from "@/lib/calendar-sync-actions";
 import type { CalendarEventRow } from "@/lib/calendar";
 import {
   addDays,
@@ -19,18 +20,35 @@ type View = "agenda" | "day" | "week" | "month";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// `ownAccountEmail` (even if null) marks "this is the signed-in user's own
+// calendar" mode, which shows Connect/Disconnect; its absence means "viewing
+// someone else's calendar" (a coach on a client's page), which only ever
+// offers a plain "Sync now" against that client's own connection.
+export interface GoogleSyncProps {
+  targetProfileId: string;
+  ownAccountEmail?: string | null;
+  lastSyncedAt?: string | null;
+}
+
 export function CalendarCard({
   scope,
   initialEvents,
   assignableClients,
   fixedClientId,
   title = "Calendar",
+  googleSync,
+  creatorHasGoogleConnection,
 }: {
   scope: { coachId: string } | { clientId: string };
   initialEvents: CalendarEventRow[];
   assignableClients?: { id: string; name: string }[];
   fixedClientId?: string;
   title?: string;
+  googleSync?: GoogleSyncProps;
+  // Whether the signed-in user (not necessarily this calendar's owner --
+  // see EventModal's own prop of the same shape) has their own Google
+  // Calendar connected, for the "also add to Google Calendar" checkbox.
+  creatorHasGoogleConnection?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [view, setView] = useState<View>("month");
@@ -40,6 +58,8 @@ export function CalendarCard({
   const [editingEvent, setEditingEvent] = useState<CalendarEventRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const range = useMemo(() => rangeForView(view, anchorDate), [view, anchorDate]);
 
@@ -87,6 +107,34 @@ export function CalendarCard({
       window.open(`${roomUrl}?t=${token}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       setJoinError(err instanceof Error ? err.message : "Couldn't start the call.");
+    }
+  }
+
+  async function handleSync() {
+    if (!googleSync) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const { syncedCount } = await syncGoogleCalendar(googleSync.targetProfileId);
+      const rows = await fetchEvents(scope, range);
+      setEvents(rows);
+      setSyncMessage(`Synced ${syncedCount} event${syncedCount === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setSyncMessage(err instanceof Error ? err.message : "Sync failed.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      await disconnectGoogleCalendar();
+    } catch (err) {
+      setSyncMessage(err instanceof Error ? err.message : "Couldn't disconnect.");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -156,6 +204,57 @@ export function CalendarCard({
         </button>
       </div>
 
+      {googleSync && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+          {googleSync.ownAccountEmail !== undefined ? (
+            googleSync.ownAccountEmail ? (
+              <>
+                <span className="text-ink-muted">
+                  Connected as {googleSync.ownAccountEmail}
+                  {googleSync.lastSyncedAt &&
+                    ` · last synced ${new Date(googleSync.lastSyncedAt).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="text-[color:var(--series-steps)] hover:underline disabled:opacity-50"
+                >
+                  {syncing ? "Syncing…" : "Sync now"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  disabled={syncing}
+                  className="text-ink-muted hover:underline disabled:opacity-50"
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <a href="/api/calendar/google/start" className="text-[color:var(--series-steps)] hover:underline">
+                Connect Google Calendar
+              </a>
+            )
+          ) : (
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncing}
+              className="text-[color:var(--series-steps)] hover:underline disabled:opacity-50"
+            >
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+          )}
+          {syncMessage && <span className="text-ink-muted">{syncMessage}</span>}
+        </div>
+      )}
+
       <div className="mb-3 flex items-center justify-between">
         <div className="flex gap-1">
           {(["agenda", "day", "week", "month"] as View[]).map((v) => (
@@ -213,6 +312,7 @@ export function CalendarCard({
           event={editingEvent}
           assignableClients={assignableClients}
           fixedClientId={fixedClientId}
+          hasGoogleConnection={creatorHasGoogleConnection}
           onClose={() => {
             setCreating(false);
             setEditingEvent(null);
