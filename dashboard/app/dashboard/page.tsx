@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
+import { listEvents } from "@/lib/calendar";
+import { rangeForView } from "@/lib/calendar-grid";
+import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { createInviteLink } from "./actions";
 
@@ -47,6 +50,12 @@ export default async function DashboardPage() {
   const invites = (invitesRes.data ?? []) as InviteRow[];
   const clients = (clientsRes.data ?? []) as unknown as ClientRow[];
 
+  const initialEvents = await listEvents(supabase, { coachId: profile.id }, rangeForView("month", new Date()));
+  const assignableClients = clients.map((c) => ({
+    id: c.profile_id,
+    name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
+  }));
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -56,6 +65,12 @@ export default async function DashboardPage() {
           they can create their account.
         </p>
       </div>
+
+      <CalendarCard
+        scope={{ coachId: profile.id }}
+        initialEvents={initialEvents}
+        assignableClients={assignableClients}
+      />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <div className="mb-3 flex items-center justify-between">

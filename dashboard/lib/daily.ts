@@ -31,9 +31,16 @@ async function dailyFetch(path: string, init: RequestInit) {
 
 // One fresh, private room per call attempt (see 0012_chat_calls.sql) --
 // `exp` is a safety net so an abandoned room (crashed tab, missed endCall)
-// cleans itself up rather than lingering forever.
-export async function createDailyRoom(roomName: string): Promise<{ url: string }> {
-  const exp = Math.floor(Date.now() / 1000) + 2 * 60 * 60; // 2 hours out
+// cleans itself up rather than lingering forever. Defaults to 2 hours
+// out (a chat call starting right now); pass expEpochSeconds explicitly
+// for a calendar event's video call, anchored to the event's own
+// end_time instead -- see calendar-call-actions.ts's joinCalendarEvent,
+// which is why this isn't just a hardcoded constant anymore.
+export async function createDailyRoom(
+  roomName: string,
+  expEpochSeconds?: number,
+): Promise<{ url: string }> {
+  const exp = expEpochSeconds ?? Math.floor(Date.now() / 1000) + 2 * 60 * 60;
   const data = await dailyFetch("/rooms", {
     method: "POST",
     body: JSON.stringify({
@@ -53,8 +60,12 @@ export async function createDailyRoom(roomName: string): Promise<{ url: string }
 
 // A short-lived, per-participant credential -- this is what actually goes
 // to the browser (via a server action's return value), never the API key.
-export async function createMeetingToken(roomName: string, userName: string): Promise<string> {
-  const exp = Math.floor(Date.now() / 1000) + 2 * 60 * 60;
+export async function createMeetingToken(
+  roomName: string,
+  userName: string,
+  expEpochSeconds?: number,
+): Promise<string> {
+  const exp = expEpochSeconds ?? Math.floor(Date.now() / 1000) + 2 * 60 * 60;
   const data = await dailyFetch("/meeting-tokens", {
     method: "POST",
     body: JSON.stringify({

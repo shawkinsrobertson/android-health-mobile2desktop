@@ -6,9 +6,12 @@ import { getDataPointSummary } from "@/lib/queries";
 import { resolveMediaPair } from "@/lib/media";
 import { formatClock, sessionDurationSeconds } from "@/lib/time-format";
 import { getPersonalRecords } from "@/lib/personal-records";
+import { listEvents } from "@/lib/calendar";
+import { rangeForView } from "@/lib/calendar-grid";
 import { DataPointPicker } from "@/components/DataPointPicker";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { PersonalRecordsList } from "@/components/PersonalRecordsList";
+import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DATA_POINTS, labelFor } from "./data-points";
 import { updateWeightUnit, updateDataConsent } from "./actions";
 
@@ -90,9 +93,10 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
-  const [personalRecords, { data: consentRows }] = await Promise.all([
+  const [personalRecords, { data: consentRows }, initialEvents] = await Promise.all([
     getPersonalRecords(supabase, profile.id),
     supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
+    listEvents(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
   ]);
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
 
@@ -190,6 +194,8 @@ export default async function ClientDashboardPage() {
           limit={3}
         />
       </section>
+
+      <CalendarCard scope={{ clientId: profile.id }} initialEvents={initialEvents} />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>

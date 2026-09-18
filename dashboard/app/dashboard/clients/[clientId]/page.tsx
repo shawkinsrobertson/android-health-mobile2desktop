@@ -5,11 +5,14 @@ import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights } from "@/lib/queries";
 import { getThreadReadOnly, isThreadUnread } from "@/lib/chat";
 import { getPersonalRecords } from "@/lib/personal-records";
+import { listEvents } from "@/lib/calendar";
+import { rangeForView } from "@/lib/calendar-grid";
 import { DATA_POINTS, labelFor } from "@/app/client/data-points";
 import { StatCard } from "@/components/StatCard";
 import { StepsChart } from "@/components/StepsChart";
 import { SleepChart } from "@/components/SleepChart";
 import { PersonalRecordsList } from "@/components/PersonalRecordsList";
+import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
 import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
@@ -120,15 +123,16 @@ export default async function ClientDetailPage({
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
-  const [personalRecords, { data: consentRows }] = clientProfile.onboardedAt
+  const [personalRecords, { data: consentRows }, calendarEvents] = clientProfile.onboardedAt
     ? await Promise.all([
         getPersonalRecords(supabase, params.clientId),
         supabase
           .from("client_data_consent")
           .select("data_type, consented")
           .eq("client_id", params.clientId),
+        listEvents(supabase, { clientId: params.clientId }, rangeForView("month", new Date())),
       ])
-    : [[], { data: [] as { data_type: string; consented: boolean }[] }];
+    : [[], { data: [] as { data_type: string; consented: boolean }[] }, []];
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
 
   return (
@@ -207,6 +211,13 @@ export default async function ClientDetailPage({
               </div>
             </dl>
           </section>
+
+          <CalendarCard
+            scope={{ clientId: params.clientId }}
+            initialEvents={calendarEvents}
+            fixedClientId={params.clientId}
+            title="Shared calendar"
+          />
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
             <h2 className="mb-1 text-sm font-semibold text-ink-primary">Data sharing</h2>
