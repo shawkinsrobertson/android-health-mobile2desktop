@@ -223,7 +223,7 @@ data-type surface in one phase. Worth tiering the implementation itself
 tracking/mindfulness last) rather than one single PR, but that's an
 implementation-sequencing call for whenever this phase actually starts.
 
-## Phase 7 -- shared coach-client calendar (pass 3 remaining)
+## Phase 7 -- shared coach-client calendar (shipped)
 
 A shared calendar per coach-client pair: clients flag personal events
 that could affect training (visible to the coach in full, to any AI
@@ -319,9 +319,33 @@ their own token). Also folded in three UX fixes from testing pass 1's
   that narrows by substring match as you type; picking an option or an
   exact label match commits it, otherwise the field reverts).
 
-**Pass 3 (not started)**: native booking -- `coach_availability` + its
-UI, `profiles.booking_token`, the public `/book/[token]` page,
-`get_open_slots`/`create_booking`.
+**Pass 3 (shipped)**: native booking. `coach_availability` (weekly
+template: one row per coach/day-of-week, a `time_blocks` jsonb list so a
+split day doesn't need a second row, a per-day `is_available` toggle that
+preserves configured hours when re-enabled, one stored IANA timezone),
+edited via a plain weekly editor (`AvailabilityEditor`, reusing pass 2's
+`TimeCombobox` for each block's start/end) at `/dashboard/availability`.
+`profiles.booking_token` -- lazily generated (same `randomBytes(24)
+base64url` shape as `invite_links.token`) the first time a coach clicks
+"Generate booking link" on their dashboard, not eagerly at signup, since
+not every coach uses public booking. The public `/book/[token]` page has
+no session at all (added to `middleware.ts`'s `PUBLIC_PATHS`), so it
+goes through the same two precedents `0002_accounts.sql` established for
+exactly this situation: `booking_profile`, a narrow public view mirroring
+`invite_status` (token -> coach_id/full_name, nothing else), and
+`get_open_slots`/`create_booking`, a `security definer` RPC pair
+(callable by `anon`) that does the actual slot math and insert entirely
+in PL/pgSQL -- expanding the weekly template into concrete UTC slots in
+the coach's own stored timezone, subtracting conflicting
+`calendar_events` (covers real bookings *and* an ad-hoc vacation block
+placed directly on the calendar), and re-validating a slot is still open
+immediately before inserting (race protection against two visitors
+booking the same slot). A booked appointment writes into `calendar_events`
+with `client_id`/`created_by` left null and `booker_name`/`booker_email`/
+`booker_phone` populated instead -- the shape `0016_calendar_events.sql`
+reserved for exactly this back in pass 1. Linking a booking to an
+existing client after the fact (if the booker's email matches one) is a
+nice-to-have follow-up, not built.
 
 ## Standing product decisions
 
