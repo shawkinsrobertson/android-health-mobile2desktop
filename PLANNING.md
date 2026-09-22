@@ -274,6 +274,22 @@ instructions to include both the link (still required for the web) and
 template edit, not a code change, and one every environment running
 both the web dashboard and the Android app needs to apply once.
 
+**Also found in that pass: sync itself 403'd with an RLS violation once
+signed in.** `SyncRepository`'s own doc comment claimed row ownership
+"comes from the access token" via RLS resolving `client_id` -- that's
+not how RLS works. `0015_health_data_auth.sql` adds `client_id` with no
+column default and a policy checking `client_id = auth.uid()`; nothing
+was actually putting `client_id` in the row payload `SyncSpec.kt`
+builds, so every insert sent `client_id = null`, which never equals
+`auth.uid()`. Fixed by having `SyncRepository` take a `clientId`
+constructor param (from `AuthRepository.getUserId()`, already added
+alongside the dashboards above) and stamp it onto every row in
+`pushRecords` -- same idea as the old sync-code stamping this replaced,
+just the real id instead of a substitute for it. A real backend-auth gap
+that had nothing to do with being untested Kotlin -- the earlier "no
+Android SDK to compile against" caveat wouldn't have caught this either
+way, since it's a runtime/RLS mismatch, not a type error.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

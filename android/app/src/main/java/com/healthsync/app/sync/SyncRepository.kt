@@ -43,17 +43,20 @@ data class SyncResult(
  * One record type failing (e.g. a permission was revoked) doesn't stop the
  * others — errors are collected and returned rather than thrown.
  *
- * Every pushed row's ownership comes from [supabase]'s access token (RLS
- * resolves `client_id` via `auth.uid()` on the Supabase side -- see
- * `supabase/migrations/0015_health_data_auth.sql`), not from anything
- * this class adds to the row payload -- unlike before real per-client
- * auth existed, when this repository stamped a `user_id` value (the
- * manually-entered sync code) onto every row itself.
+ * Every pushed row is stamped with [clientId] (the signed-in user's own
+ * id) in [pushRecords] -- RLS on the health-data tables (see
+ * `supabase/migrations/0015_health_data_auth.sql`) checks `client_id =
+ * auth.uid()`, but the `client_id` column itself has no default, so the
+ * value has to actually be in the row we send, same as this repository
+ * used to stamp a `user_id` value (the manually-entered sync code) onto
+ * every row before real per-client auth existed -- just the real id now,
+ * not a substitute for it.
  */
 class SyncRepository(
     private val healthConnectManager: HealthConnectManager,
     private val supabase: SupabaseRestClient,
     private val syncState: SyncStateStore,
+    private val clientId: String,
 ) {
     suspend fun syncAll(): SyncResult {
         var upserted = 0
@@ -182,7 +185,8 @@ class SyncRepository(
         for (record in records) {
             for ((table, rows) in spec.toTableRows(record)) {
                 if (rows.isEmpty()) continue
-                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(rows)
+                rowsByTable.getOrPut(table) { mutableListOf() }
+                    .addAll(rows.map { row -> row + ("client_id" to clientId) })
             }
         }
 
