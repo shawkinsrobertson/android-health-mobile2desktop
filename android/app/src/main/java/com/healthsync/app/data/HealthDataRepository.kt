@@ -4,7 +4,7 @@ import com.healthsync.app.supabase.SupabaseRestClient
 import org.json.JSONArray
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 data class DailySteps(val date: String, val count: Long)
@@ -42,7 +42,13 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
     suspend fun loadDashboard(clientId: String, days: Int = 14): DashboardData {
         val sinceIso = ISO_INSTANT.format(Instant.now().minusSeconds(days * 86_400L))
         val sevenDaysAgoIso = ISO_INSTANT.format(Instant.now().minusSeconds(7 * 86_400L))
-        val todayIso = LocalDate.now(ZoneOffset.UTC).toString()
+        // Bucketing below uses the *device's* local date, not UTC -- a
+        // step/sleep row's start_time is an absolute instant, but "today"
+        // is a local-calendar concept. Getting this wrong doesn't just
+        // shift dates by a day; in the evening in a timezone behind UTC,
+        // it can make an entire day of real, synced data compare unequal
+        // to "today" and look like zero.
+        val todayIso = LocalDate.now(ZoneId.systemDefault()).toString()
 
         val stepsRows = supabase.select(
             "steps",
@@ -103,11 +109,17 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         )
     }
 
+    // The device's local date for the instant a row's start_time
+    // represents -- not a substring of the stored UTC string. See the
+    // note on todayIso in loadDashboard for why this matters.
+    private fun localDateOf(isoInstant: String): String =
+        Instant.parse(isoInstant).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
     private fun bucketStepsByDay(rows: JSONArray): List<DailySteps> {
         val byDay = LinkedHashMap<String, Long>()
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
-            val day = row.getString("start_time").substring(0, 10)
+            val day = localDateOf(row.getString("start_time"))
             val count = row.optLong("count", 0)
             byDay[day] = (byDay[day] ?: 0L) + count
         }
@@ -121,7 +133,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
             val start = Instant.parse(row.getString("start_time"))
             val end = Instant.parse(row.getString("end_time"))
             val hours = (end.epochSecond - start.epochSecond) / 3600.0
-            val date = row.getString("start_time").substring(0, 10)
+            val date = localDateOf(row.getString("start_time"))
             nights.add(SleepNight(date = date, hours = Math.round(hours * 10) / 10.0))
         }
         return nights
