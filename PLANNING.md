@@ -290,6 +290,31 @@ that had nothing to do with being untested Kotlin -- the earlier "no
 Android SDK to compile against" caveat wouldn't have caught this either
 way, since it's a runtime/RLS mismatch, not a type error.
 
+**One more found in the same pass, after the `client_id` fix above:**
+syncing the same physical test device (a Garmin, reconnected to Health
+Connect mid-testing) still 403'd, this time with the error explicitly
+naming "USING expression" rather than the generic message above --
+that's Postgres's tell for an `ON CONFLICT DO UPDATE` hitting a row it
+isn't allowed to *touch*, not one it isn't allowed to *insert*.
+`health_connect_id` was `unique` per table since `0001_init.sql`, back
+when this was a single-user app -- once multiple accounts can share one
+device's Health Connect history (this exact device had pre-multi-tenant
+test data still sitting in these tables, `client_id` left `null` by
+0015's backfill), re-syncing it under a *different* account hits the
+same `health_connect_id` values, and `on_conflict=health_connect_id`
+tried to `UPDATE` a row that null-`client_id` (nobody's, under current
+RLS) row -- which RLS correctly refused. Fixed properly rather than
+just deleting the colliding rows: `0022_per_client_health_data_conflict_key.sql`
+drops the orphaned rows *and* swaps every health-data table's unique
+constraint from `(health_connect_id)` to `(client_id, health_connect_id)`
+-- `health_connect_id` only ever needs to be unique within one client's
+own data, and the old global constraint would have made this exact
+collision inevitable again the next time a device gets reused across
+accounts (a real risk on a project still mid-testing, not just a
+one-off). `SyncRepository`'s `on_conflict` target was updated to match
+(`client_id,health_connect_id`). Needs this migration run before the
+Android app can sync again.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

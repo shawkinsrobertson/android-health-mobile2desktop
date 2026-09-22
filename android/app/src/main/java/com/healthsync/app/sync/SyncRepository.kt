@@ -207,7 +207,12 @@ class SyncRepository(
         var count = 0
         for ((table, rows) in rowsByTable) {
             for (batch in rows.chunked(UPSERT_BATCH_SIZE)) {
-                supabase.upsert(table = table, rows = batch, onConflict = "health_connect_id")
+                // client_id,health_connect_id -- matches the composite unique
+                // constraint from supabase/migrations/
+                // 0022_per_client_health_data_conflict_key.sql. A plain
+                // health_connect_id conflict target would upsert against
+                // whichever row (any client's) happens to hold that id.
+                supabase.upsert(table = table, rows = batch, onConflict = "client_id,health_connect_id")
                 count += batch.size
             }
         }
