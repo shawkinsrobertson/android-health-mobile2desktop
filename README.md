@@ -161,22 +161,37 @@ read for access control.)
 4. Once SMTP is connected, edit **both** of these templates -- Supabase
    sends **"Confirm signup"** for a brand-new account's first-ever sign-in,
    and **"Magic Link"** for every sign-in after that, so both need the same
-   treatment or only returning users get the fix:
-   - **Confirm signup**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup`
-   - **Magic Link**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`
+   treatment or only returning users get the fix. Each template needs
+   **both** a link (for the web dashboard) **and** the raw `{{ .Token }}`
+   (for the Android app -- see below), e.g.:
 
-   This is required, not optional -- the default `{{ .ConfirmationURL }}`
-   link uses Supabase's PKCE `code` flow, which needs a secret stored on
-   the browser that *requested* the link. Email links routinely get opened
-   somewhere else (a mail app's in-app browser, a different device), which
-   fails with "PKCE code verifier not found in storage." The `token_hash`
-   link verifies the token itself server-side instead, so it works
-   regardless of what opens it -- see `app/auth/confirm/route.ts`. Using
-   `{{ .RedirectTo }}` (which reflects whatever `SITE_URL` the *requesting*
-   environment sent, as long as it matched the allowlist in step 2) instead
-   of `{{ .SiteURL }}` (a single project-wide setting) is what lets local
-   dev and a deployed demo share one Supabase project without their magic
-   links stepping on each other.
+   ```html
+   <p>Enter this code in the Health Sync app: <strong>{{ .Token }}</strong></p>
+   <p>Or, on this device: <a href="{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink">click here to sign in</a>.</p>
+   ```
+   (swap `type=magiclink` for `type=signup` in the "Confirm signup" template)
+
+   The link half is required, not optional -- the default
+   `{{ .ConfirmationURL }}` link uses Supabase's PKCE `code` flow, which
+   needs a secret stored on the browser that *requested* the link. Email
+   links routinely get opened somewhere else (a mail app's in-app browser,
+   a different device), which fails with "PKCE code verifier not found in
+   storage." The `token_hash` link verifies the token itself server-side
+   instead, so it works regardless of what opens it -- see
+   `app/auth/confirm/route.ts`. Using `{{ .RedirectTo }}` (which reflects
+   whatever `SITE_URL` the *requesting* environment sent, as long as it
+   matched the allowlist in step 2) instead of `{{ .SiteURL }}` (a single
+   project-wide setting) is what lets local dev and a deployed demo share
+   one Supabase project without their magic links stepping on each other.
+
+   The `{{ .Token }}` half is what the **Android app** needs -- see
+   `android/app/src/main/java/com/healthsync/app/auth/SupabaseAuthClient.kt`.
+   It calls this exact same `/auth/v1/otp` endpoint and shows the user a
+   type-in-the-6-digit-code screen (`VerifyCodeScreen`), not a link -- if
+   `{{ .Token }}` isn't in the template, an Android sign-in attempt gets
+   the web's link instead of a code, with nothing to type in. Both
+   consumers share the one template per email type, so it has to serve
+   both at once rather than picking one.
 5. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
    environment variables, if you're running a deployed copy too) to that
    environment's own origin.

@@ -258,6 +258,22 @@ review against the existing code's exact conventions rather than a
 build -- needs a real compile + on-device pass before trusting it
 further.
 
+**Found in that on-device pass (2026-09-23): the email template gap.**
+The app built and the login screen worked, but the email that arrived
+was the web dashboard's magic-link email, with no code to type in --
+`VerifyCodeScreen` had nothing to show for. Root cause: README.md
+section 4's "Confirm signup"/"Magic Link" template instructions
+(written for the web-only PKCE-avoidance problem, before the Android
+app's OTP flow existed) only ever put `{{ .TokenHash }}` in a link, never
+`{{ .Token }}` -- and Android's `SupabaseAuthClient.requestOtp()` hits
+the exact same `/auth/v1/otp` endpoint and the exact same one
+template-per-email-type as the web flow, so there was no code path that
+could have produced a code. Fixed by updating README.md's template
+instructions to include both the link (still required for the web) and
+`{{ .Token }}` (for Android) in the same email -- a Supabase Dashboard
+template edit, not a code change, and one every environment running
+both the web dashboard and the Android app needs to apply once.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes
