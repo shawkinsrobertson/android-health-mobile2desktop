@@ -103,19 +103,47 @@ class SupabaseRestClient(
         execute(request)
     }
 
+    /**
+     * Read-only PostgREST select against [table] -- [params] become query
+     * parameters verbatim, e.g. `mapOf("select" to "start_time,count",
+     * "client_id" to "eq.<uuid>", "order" to "start_time.asc")`. RLS on
+     * the target table does the actual per-user/per-coach scoping via
+     * this client's [accessToken], same as every write this class makes
+     * -- see supabase/migrations/0015_health_data_auth.sql for the
+     * coach-can-also-select-their-clients'-rows policies this relies on.
+     * No pagination -- only used for small, bounded dashboard summaries
+     * (a couple weeks of data), not a general-purpose query layer.
+     */
+    suspend fun select(table: String, params: Map<String, String>): JSONArray {
+        var urlBuilder = restUrl(table)
+        params.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        return JSONArray(executeReturningBody(request))
+    }
+
     // OkHttp's call.execute() is blocking I/O; run it on Dispatchers.IO so
     // callers never have to know or care what thread/dispatcher they were
     // invoked from. Without this, a caller on the main thread (e.g. the
     // Compose "Sync now" button, whose rememberCoroutineScope() runs on the
     // UI dispatcher) crashes with NetworkOnMainThreadException.
     private suspend fun execute(request: Request) {
-        withContext(Dispatchers.IO) {
-            http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val bodyText = response.body?.string().orEmpty()
-                    throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
-                }
+        executeReturningBody(request)
+    }
+
+    // Same as execute() but hands back the response body -- select() needs
+    // the JSON payload, the write methods above just need success/failure.
+    private suspend fun executeReturningBody(request: Request): String = withContext(Dispatchers.IO) {
+        http.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
             }
+            bodyText
         }
     }
 }

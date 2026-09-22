@@ -21,6 +21,7 @@ data class StoredTokens(
     val accessToken: String,
     val refreshToken: String,
     val expiresAt: Instant,
+    val userId: String,
 )
 
 /**
@@ -62,6 +63,7 @@ class SessionStore(context: Context) {
                 .putString(KEY_ACCESS_TOKEN, session.accessToken)
                 .putString(KEY_REFRESH_TOKEN, session.refreshToken)
                 .putLong(KEY_EXPIRES_AT, session.expiresAt.epochSecond)
+                .putString(KEY_USER_ID, session.userId)
                 .apply()
         }
         dataStore.edit { prefs ->
@@ -70,12 +72,20 @@ class SessionStore(context: Context) {
         }
     }
 
+    // userId was added alongside the basic login/coach dashboards work --
+    // a session saved before this change has no stored userId, so it's
+    // treated as "no session" here (same as a missing access token) and
+    // the app falls back to Login. A one-time re-login for anyone
+    // upgrading mid-session, not an ongoing concern.
     suspend fun readTokens(): StoredTokens? = withContext(Dispatchers.IO) {
         val accessToken = encryptedPrefs.getString(KEY_ACCESS_TOKEN, null)
         val refreshToken = encryptedPrefs.getString(KEY_REFRESH_TOKEN, null)
         val expiresAtEpoch = encryptedPrefs.getLong(KEY_EXPIRES_AT, -1)
-        if (accessToken == null || refreshToken == null || expiresAtEpoch < 0) return@withContext null
-        StoredTokens(accessToken, refreshToken, Instant.ofEpochSecond(expiresAtEpoch))
+        val userId = encryptedPrefs.getString(KEY_USER_ID, null)
+        if (accessToken == null || refreshToken == null || expiresAtEpoch < 0 || userId == null) {
+            return@withContext null
+        }
+        StoredTokens(accessToken, refreshToken, Instant.ofEpochSecond(expiresAtEpoch), userId)
     }
 
     suspend fun clear() {
@@ -89,5 +99,6 @@ class SessionStore(context: Context) {
         const val KEY_ACCESS_TOKEN = "access_token"
         const val KEY_REFRESH_TOKEN = "refresh_token"
         const val KEY_EXPIRES_AT = "expires_at_epoch_seconds"
+        const val KEY_USER_ID = "user_id"
     }
 }

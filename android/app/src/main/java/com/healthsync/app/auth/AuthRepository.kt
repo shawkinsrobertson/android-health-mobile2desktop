@@ -41,6 +41,14 @@ class AuthRepository(
     }
 
     /**
+     * The signed-in user's Supabase id (profiles.id / auth.uid()), or
+     * null if there's no session. Unlike [getValidAccessToken] this never
+     * refreshes -- the id itself doesn't expire with the token, so a
+     * plain stored-session read is enough.
+     */
+    suspend fun getUserId(): String? = sessionStore.readTokens()?.userId
+
+    /**
      * Returns a currently-valid access token, refreshing first if it's
      * expired or expiring within [REFRESH_MARGIN_SECONDS] -- the
      * refreshed session's rotated refresh_token is persisted on success

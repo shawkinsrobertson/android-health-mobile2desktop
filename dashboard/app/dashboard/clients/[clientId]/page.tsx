@@ -207,10 +207,6 @@ export default async function ClientDetailPage({
                 <dt className="text-ink-muted">Phone</dt>
                 <dd className="text-ink-primary">{clientProfile.phone || "—"}</dd>
               </div>
-              <div>
-                <dt className="text-ink-muted">Sync code</dt>
-                <dd className="font-mono text-ink-primary">{clientProfile.syncCode}</dd>
-              </div>
               <div className="sm:col-span-2">
                 <dt className="text-ink-muted">Goals</dt>
                 <dd className="text-ink-primary">{clientProfile.goals || "—"}</dd>

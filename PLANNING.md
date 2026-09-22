@@ -214,6 +214,50 @@ real work is elsewhere:
 - **One-time data migration** of existing `sync_code`-tagged rows to real
   per-user ids once auth lands.
 
+**Auth + basic dashboards (shipped 2026-09-22).** The auth rearchitecture
+above (email OTP, `SupabaseRestClient` on a per-session JWT, `SyncWorker`
+gated on `AuthRepository.getValidAccessToken()`) had already landed in an
+earlier pass, but nobody was actually syncing -- diagnosed to a real gap:
+the dashboard's own onboarding UI (`/client`'s "Connect your phone"
+section, and the coach's client-detail page's "Sync code" field) still
+told people to "enter this code in Settings," a screen the Android app
+no longer has. Fixed by replacing that copy with the real flow (open the
+app, sign in with your account email, enter the 6-digit code you're
+sent) and dropping the now-dead sync-code display -- `sync_code` stays
+in the schema (nothing currently depends on removing the column) but
+nothing surfaces it anymore.
+
+Also added, since sync alone gives no feedback that it's actually
+working: a basic role-aware dashboard screen.
+`SupabaseRestClient` gained a `select()` method (it was write-only
+before -- upsert/delete only); `SessionStore`/`AuthRepository` now also
+persist and expose the signed-in user's id, not just their tokens/email.
+`data/ProfileRepository.kt` reads the signed-in user's `profiles.role`
+and, for a coach, their client roster (`client_profiles` + `profiles`,
+relying on the coach-select RLS policies `0002_accounts.sql` already
+grants for the web dashboard). `data/HealthDataRepository.kt` is a
+deliberately simplified Kotlin counterpart to `dashboard/lib/queries.ts`
+-- steps/sleep/heart-rate/workout summaries scoped to one `clientId`,
+documented as skipping that file's overlap-dedup and cross-day prorating
+(good enough to see sync is working and spot rough trends, not a second
+source of truth). `ui/DashboardScreen.kt` renders it (stat rows + a
+plain Compose-native bar chart, no charting dependency added) and is
+shared by both a client viewing their own data (a new "View my data"
+button on the existing `HomeScreen`) and a coach viewing one client's
+(`ui/CoachHomeScreen.kt`, the coach's whole landing screen -- no Health
+Connect/sync UI at all there, since coaches don't sync their own device
+data through this app). `AuthNavHost` gained one new parameterized route
+(`dashboard/{clientId}`) to carry either case.
+
+Explicitly a basic pass, not a rebuild of the web dashboard's data
+views: no pagination, no date-range picker, no per-data-point drill-down
+beyond steps/sleep/HR/workouts, no offline caching. Flagged rather than
+claimed tested: this environment had no Android SDK or committed Gradle
+wrapper to actually compile against, so this shipped on careful manual
+review against the existing code's exact conventions rather than a
+build -- needs a real compile + on-device pass before trusting it
+further.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

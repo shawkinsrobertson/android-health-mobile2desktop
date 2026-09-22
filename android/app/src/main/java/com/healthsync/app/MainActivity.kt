@@ -22,12 +22,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.healthsync.app.auth.AuthRepository
+import com.healthsync.app.data.ProfileRepository
 import com.healthsync.app.healthconnect.HealthConnectManager
+import com.healthsync.app.supabase.SupabaseRestClient
 import com.healthsync.app.sync.MANUAL_SYNC_WORK_NAME
 import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncScheduler
 import com.healthsync.app.sync.SyncStateStore
 import com.healthsync.app.sync.SyncWorker
+import com.healthsync.app.ui.CoachHomeScreen
+import com.healthsync.app.ui.DashboardScreen
 import com.healthsync.app.ui.HomeScreen
 import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.ROUTE_HOME
@@ -84,12 +88,32 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val scope = rememberCoroutineScope()
 
+                val onSignOut: () -> Unit = {
+                    scope.launch {
+                        // Order matters: clear sync cursors before the
+                        // session is gone, and navigate last so the
+                        // Login screen only appears once both are
+                        // actually done -- see SyncStateStore
+                        // .clearAllChangesTokens()'s doc comment for
+                        // why a stale cursor under a new account would
+                        // silently skip that account's own backfill.
+                        authRepository.logout()
+                        syncStateStore.clearAllChangesTokens()
+                        navController.navigate(ROUTE_LOGIN) {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                        }
+                    }
+                }
+
                 AuthNavHost(
                     navController = navController,
                     startDestination = if (loggedIn) ROUTE_HOME else ROUTE_LOGIN,
                     onRequestOtp = { email -> authRepository.login(email) },
                     onVerifyCode = { email, code -> authRepository.verifyCode(email, code) },
-                ) {
+                    dashboardContent = { clientId, onBack ->
+                        DashboardScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                ) { onOpenDashboard ->
                     var hasPermissions by remember { mutableStateOf<Boolean?>(null) }
 
                     val permissionLauncher = rememberLauncherForActivityResult(
@@ -118,38 +142,53 @@ class MainActivity : ComponentActivity() {
 
                     val email by authRepository.emailFlow.collectAsState(initial = null)
 
-                    HomeScreen(
-                        healthConnectAvailable = healthConnectManager.isAvailable,
-                        hasPermissions = hasPermissions,
-                        isSyncing = isSyncing,
-                        lastResult = lastResult,
-                        syncStateStore = syncStateStore,
-                        email = email,
-                        onRequestPermissions = {
-                            permissionLauncher.launch(healthConnectManager.requiredPermissions)
-                        },
-                        onInstallHealthConnect = {
-                            val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
-                            startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        },
-                        onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
-                        onSignOut = {
-                            scope.launch {
-                                // Order matters: clear sync cursors before the
-                                // session is gone, and navigate last so the
-                                // Login screen only appears once both are
-                                // actually done -- see SyncStateStore
-                                // .clearAllChangesTokens()'s doc comment for
-                                // why a stale cursor under a new account would
-                                // silently skip that account's own backfill.
-                                authRepository.logout()
-                                syncStateStore.clearAllChangesTokens()
-                                navController.navigate(ROUTE_LOGIN) {
-                                    popUpTo(navController.graph.startDestinationId) { inclusive = true }
-                                }
-                            }
-                        },
-                    )
+                    // Fetched once per Home composition, purely to decide
+                    // what this screen shows -- a coach sees their client
+                    // roster instead of the Health Connect/sync UI, since
+                    // coaches don't sync their own device data through
+                    // this app. Defaults to "client" on any failure (no
+                    // network, RLS surprise, etc.) so a signed-in client
+                    // is never stuck on a blank screen over this.
+                    var userId by remember { mutableStateOf<String?>(null) }
+                    var role by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(Unit) {
+                        val token = authRepository.getValidAccessToken() ?: return@LaunchedEffect
+                        val id = authRepository.getUserId() ?: return@LaunchedEffect
+                        userId = id
+                        role = try {
+                            ProfileRepository(SupabaseRestClient(token)).loadRole(id)
+                        } catch (e: Exception) {
+                            "client"
+                        }
+                    }
+
+                    if (role == "coach") {
+                        CoachHomeScreen(
+                            authRepository = authRepository,
+                            email = email,
+                            onOpenClient = onOpenDashboard,
+                            onSignOut = onSignOut,
+                        )
+                    } else {
+                        HomeScreen(
+                            healthConnectAvailable = healthConnectManager.isAvailable,
+                            hasPermissions = hasPermissions,
+                            isSyncing = isSyncing,
+                            lastResult = lastResult,
+                            syncStateStore = syncStateStore,
+                            email = email,
+                            onRequestPermissions = {
+                                permissionLauncher.launch(healthConnectManager.requiredPermissions)
+                            },
+                            onInstallHealthConnect = {
+                                val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
+                                startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            },
+                            onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
+                            onViewMyData = { userId?.let { onOpenDashboard(it) } },
+                            onSignOut = onSignOut,
+                        )
+                    }
                 }
             }
         }

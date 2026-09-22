@@ -215,14 +215,15 @@ export default async function ClientDashboardPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>
         <p className="mb-3 text-sm text-ink-secondary">
-          Open the Health Sync app, enter this code once in Settings, and your synced Health
-          Connect data will show up below.
+          Open the Health Sync app and sign in with this email. You&apos;ll get a 6-digit code
+          by email each time -- no password, and nothing to type in on the phone beyond that
+          code. Your synced Health Connect data will show up below once it&apos;s connected.
         </p>
         <div className="flex items-center gap-2">
-          <code className="rounded-lg bg-[color:var(--page-plane)] px-3 py-2 font-mono text-lg tracking-widest text-ink-primary">
-            {clientProfile.syncCode}
+          <code className="rounded-lg bg-[color:var(--page-plane)] px-3 py-2 font-mono text-sm text-ink-primary">
+            {profile.email}
           </code>
-          <CopyLinkButton url={clientProfile.syncCode} />
+          <CopyLinkButton url={profile.email} />
         </div>
       </section>
 

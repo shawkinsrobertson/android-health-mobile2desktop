@@ -40,6 +40,7 @@ fun HomeScreen(
     onRequestPermissions: () -> Unit,
     onInstallHealthConnect: () -> Unit,
     onSyncNow: () -> Unit,
+    onViewMyData: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("Health Sync") }) }) { padding ->
@@ -73,6 +74,10 @@ fun HomeScreen(
                 else -> {
                     Button(onClick = onSyncNow, enabled = !isSyncing) {
                         Text(if (isSyncing) "Syncing…" else "Sync now")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onViewMyData) {
+                        Text("View my data")
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
