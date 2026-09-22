@@ -375,6 +375,24 @@ Changes:
   disabled) and that date's open times as selectable cards on the right
   -- picking one leads into the same booker-info form as before.
 
+**Booking confirmation emails (shipped)**: `create_booking`
+(`0020_booking_confirmation.sql`, replacing the function `0019` defined
+-- the return type changes shape, which needs a `drop function` first,
+not just `create or replace`) now returns the coach's name/email/stored
+timezone alongside the booking details, so `submitBooking`
+(`lib/booking-public-actions.ts`) can send email straight after the
+insert with no second round-trip. `lib/email.ts` wraps Resend
+(`RESEND_API_KEY`, `BOOKING_EMAIL_FROM` -- defaults to Resend's own
+sandbox sender, which only delivers to the account's own verified email
+until a real domain is verified) and sends two emails: the coach gets
+notified a booking came in, and the booker gets a confirmation if they
+gave an email. Both best-effort, same posture as `createEvent`'s "also
+add to Google Calendar" write-out -- an email-provider hiccup never
+fails the booking itself. Times are formatted in the coach's own stored
+timezone (pulled from any one of their `coach_availability` rows), not
+the server's default, so the email shows the time the booker actually
+picked.
+
 **vNext, not built**:
 
 - **Event type -> automatic video link.** Right now "add a video call
@@ -385,20 +403,13 @@ Changes:
   Scoped out of this pass since it's a modal UX change, not a
   data-model one -- `has_video_call` already covers the underlying
   need.
-- **Reminders / booking-confirmation email.** `calendar_events.
-  reminder_minutes_before` is currently just stored data -- nothing
-  reads it and sends anything. Two different pieces, if this gets
-  built: (1) a booking-confirmation email, sent once at booking time --
-  simple, since `create_booking`/`submitBooking` already run
-  synchronously, so this is just an API call to an email provider (e.g.
-  Resend -- API-key based, no SMTP setup needed) right after the
-  insert; (2) time-based reminders (X minutes before an event) -- needs
-  an actual scheduled job, which this app has none of today (everything
-  is lazy/pull-based, no cron/worker anywhere in this codebase). Options
-  for that piece: Supabase's `pg_cron` extension, or a Vercel Cron
-  hitting a route handler on a schedule. Supabase's own built-in email
-  (used today only for magic-link auth) is not meant for this -- it's
-  not transactional-email infrastructure.
+- **Time-based reminders.** `calendar_events.reminder_minutes_before`
+  is still just stored data -- nothing reads it and sends anything yet.
+  Unlike booking confirmation (below), a reminder fired X minutes
+  *before* an event needs an actual scheduled job, which this app has
+  none of today (everything is lazy/pull-based, no cron/worker anywhere
+  in this codebase). Options: Supabase's `pg_cron` extension, or a
+  Vercel Cron hitting a route handler on a schedule.
 
 ## Standing product decisions
 
