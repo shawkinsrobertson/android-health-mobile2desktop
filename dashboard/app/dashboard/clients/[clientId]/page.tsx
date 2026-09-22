@@ -16,6 +16,8 @@ import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
 import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
+import { AssistantChat } from "@/components/AssistantChat";
+import { getAssistantMessages } from "@/lib/assistant";
 
 export const dynamic = "force-dynamic";
 
@@ -130,7 +132,7 @@ export default async function ClientDetailPage({
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
-  const [personalRecords, { data: consentRows }, calendarEvents] = clientProfile.onboardedAt
+  const [personalRecords, { data: consentRows }, calendarEvents, assistantMessages] = clientProfile.onboardedAt
     ? await Promise.all([
         getPersonalRecords(supabase, params.clientId),
         supabase
@@ -138,8 +140,9 @@ export default async function ClientDetailPage({
           .select("data_type, consented")
           .eq("client_id", params.clientId),
         listEvents(supabase, { clientId: params.clientId }, rangeForView("month", new Date())),
+        getAssistantMessages(supabase, coach.id, params.clientId),
       ])
-    : [[], { data: [] as { data_type: string; consented: boolean }[] }, []];
+    : [[], { data: [] as { data_type: string; consented: boolean }[] }, [], []];
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
 
   return (
@@ -262,6 +265,18 @@ export default async function ClientDetailPage({
               initialNotes={coachNotes}
               seeAllHref={`/dashboard/clients/${params.clientId}/notes`}
               totalCount={coachNotesCount}
+            />
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">AI assistant</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              Grounded in this client&apos;s synced data and your non-private notes. Only you see this
+              conversation.
+            </p>
+            <AssistantChat
+              clientId={params.clientId}
+              initialMessages={assistantMessages.map((m) => ({ role: m.role, content: m.content }))}
             />
           </section>
 

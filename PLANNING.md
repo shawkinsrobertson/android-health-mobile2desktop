@@ -128,13 +128,45 @@ Still open:
   Phase 6 below for the concrete list and the two decisions it needed
   (cycle-tracking's consent default, nutrition's field scope).
 
-## Phase 5 -- AI assistant coach v2 (not started)
+## Phase 5 -- AI assistant coach v2 (shipped)
 
-Move off "stuff everything into one system prompt" (today's `/coach`
-design, fine for one user) to tool-calling -- Claude queries a specific
-client's data/notes on demand -- so it scales across a full roster. Also
-adds the coach↔AI "chat about a specific client" surface as its own
-persisted thread, separate from coach↔client chat.
+Moved off "stuff everything into one system prompt" (the old `/coach`
+chat, deleted in the Phase 6 auth rearchitecture) to tool-calling scoped
+to one client at a time, via the Claude API's beta Tool Runner
+(`betaZodTool` + `client.beta.messages.toolRunner`, streaming). Lives as
+its own surface -- a new "AI assistant" section on the coach's per-client
+detail page, backed by `ai_assistant_messages`
+(`0021_ai_assistant_messages.sql`, same single-owner RLS shape as
+`coach_notes`) -- deliberately separate from coach↔client chat.
+
+**The core design constraint**: the model never receives any
+client-identifying information, not even an anonymized id. Every tool
+the model can call (`lib/assistant-tools.ts`) is a server-side closure
+already scoped to one client's uuid, established after the route handler
+(`app/api/clients/[clientId]/assistant/route.ts`) verifies the coach
+owns that client -- no tool's input schema has an identifier-shaped
+field, so there's no code path for the model to even attempt addressing
+a different client. Seven tools: overview stats, daily steps, sleep
+nights, personal records, coach notes, busy calendar blocks, and a
+catch-all data-point summary (heart rate/exercise/SpO2/BP/respiratory
+rate) -- `lib/assistant.ts` is the one place responsible for shaping
+every byte the model can see.
+
+This is the first real enforcement of two privacy flags that existed
+before this phase but had nothing checking them: `coach_notes.is_private`
+(promised "excluded from AI assistant context" since it shipped) and
+`client_data_consent` (a data type the client declined now makes its
+tool return `{ shared: false }` instead of silently omitting or
+zeroing the data). `lib/calendar.ts`'s `getBusyBlocks` -- built in Phase
+7 specifically anticipating this -- gets its first real caller here too.
+
+**Residual, documented risk, not engineered away**: a non-private coach
+note's free-text body, or the coach's own typed question, could still
+contain the client's name -- the system prompt asks the model not to
+repeat such details back, but that's a best-effort mitigation, not a
+guarantee. Needs a real `ANTHROPIC_API_KEY` (console.anthropic.com) to
+run -- same pattern as `DAILY_API_KEY`/Google OAuth/`RESEND_API_KEY`
+earlier in this project.
 
 ## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
@@ -274,8 +306,9 @@ lazy Daily.co video-call room creation (anchored to the event's own
 `end_time`, not to whenever the event was created -- see `lib/daily.ts`'s
 `createDailyRoom`/`createMeetingToken`, now taking an optional
 `expEpochSeconds`). The AI-context privacy boundary
-(`lib/calendar.ts`'s `getBusyBlocks`) exists from day one but has no
-consumer yet -- that's Phase 5's per-client AI assistant, not built.
+(`lib/calendar.ts`'s `getBusyBlocks`) existed from day one anticipating
+Phase 5's per-client AI assistant, which now consumes it (shipped, see
+Phase 5 below).
 
 **Pass 2 (shipped)**: Google Calendar OAuth + sync --
 `calendar_connections` (tokens encrypted at rest via Node's own
@@ -375,6 +408,24 @@ Changes:
   disabled) and that date's open times as selectable cards on the right
   -- picking one leads into the same booker-info form as before.
 
+**Booking confirmation emails (shipped)**: `create_booking`
+(`0020_booking_confirmation.sql`, replacing the function `0019` defined
+-- the return type changes shape, which needs a `drop function` first,
+not just `create or replace`) now returns the coach's name/email/stored
+timezone alongside the booking details, so `submitBooking`
+(`lib/booking-public-actions.ts`) can send email straight after the
+insert with no second round-trip. `lib/email.ts` wraps Resend
+(`RESEND_API_KEY`, `BOOKING_EMAIL_FROM` -- defaults to Resend's own
+sandbox sender, which only delivers to the account's own verified email
+until a real domain is verified) and sends two emails: the coach gets
+notified a booking came in, and the booker gets a confirmation if they
+gave an email. Both best-effort, same posture as `createEvent`'s "also
+add to Google Calendar" write-out -- an email-provider hiccup never
+fails the booking itself. Times are formatted in the coach's own stored
+timezone (pulled from any one of their `coach_availability` rows), not
+the server's default, so the email shows the time the booker actually
+picked.
+
 **vNext, not built**:
 
 - **Event type -> automatic video link.** Right now "add a video call
@@ -385,20 +436,13 @@ Changes:
   Scoped out of this pass since it's a modal UX change, not a
   data-model one -- `has_video_call` already covers the underlying
   need.
-- **Reminders / booking-confirmation email.** `calendar_events.
-  reminder_minutes_before` is currently just stored data -- nothing
-  reads it and sends anything. Two different pieces, if this gets
-  built: (1) a booking-confirmation email, sent once at booking time --
-  simple, since `create_booking`/`submitBooking` already run
-  synchronously, so this is just an API call to an email provider (e.g.
-  Resend -- API-key based, no SMTP setup needed) right after the
-  insert; (2) time-based reminders (X minutes before an event) -- needs
-  an actual scheduled job, which this app has none of today (everything
-  is lazy/pull-based, no cron/worker anywhere in this codebase). Options
-  for that piece: Supabase's `pg_cron` extension, or a Vercel Cron
-  hitting a route handler on a schedule. Supabase's own built-in email
-  (used today only for magic-link auth) is not meant for this -- it's
-  not transactional-email infrastructure.
+- **Time-based reminders.** `calendar_events.reminder_minutes_before`
+  is still just stored data -- nothing reads it and sends anything yet.
+  Unlike booking confirmation (below), a reminder fired X minutes
+  *before* an event needs an actual scheduled job, which this app has
+  none of today (everything is lazy/pull-based, no cron/worker anywhere
+  in this codebase). Options: Supabase's `pg_cron` extension, or a
+  Vercel Cron hitting a route handler on a schedule.
 
 ## Standing product decisions
 

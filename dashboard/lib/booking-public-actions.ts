@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { sendBookingEmails } from "@/lib/email";
 import type { OpenSlot } from "./booking";
 
 // No session, no getCurrentProfile() check anywhere in this file --
@@ -45,6 +46,16 @@ export interface BookingInput {
   title?: string;
 }
 
+interface CreateBookingRow {
+  booking_id: string;
+  title: string;
+  start_time: string;
+  end_time: string;
+  coach_name: string | null;
+  coach_email: string;
+  coach_timezone: string | null;
+}
+
 export async function submitBooking(input: BookingInput): Promise<string> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("create_booking", {
@@ -58,5 +69,26 @@ export async function submitBooking(input: BookingInput): Promise<string> {
   });
   if (error) throw new Error(error.message);
 
-  return data as string;
+  const row = (data as CreateBookingRow[])[0];
+
+  // Best-effort -- the booking itself is already saved either way, so an
+  // email-provider hiccup shouldn't fail the booking, just silently skip
+  // sending it. Same posture as createEvent's "also add to Google
+  // Calendar" write-out.
+  try {
+    await sendBookingEmails({
+      bookerName: input.bookerName,
+      bookerEmail: input.bookerEmail,
+      coachName: row.coach_name,
+      coachEmail: row.coach_email,
+      coachTimezone: row.coach_timezone,
+      title: row.title,
+      startTime: row.start_time,
+      endTime: row.end_time,
+    });
+  } catch {
+    // See above -- not surfaced to the caller.
+  }
+
+  return row.booking_id;
 }
