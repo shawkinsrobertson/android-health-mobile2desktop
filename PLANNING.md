@@ -128,13 +128,45 @@ Still open:
   Phase 6 below for the concrete list and the two decisions it needed
   (cycle-tracking's consent default, nutrition's field scope).
 
-## Phase 5 -- AI assistant coach v2 (not started)
+## Phase 5 -- AI assistant coach v2 (shipped)
 
-Move off "stuff everything into one system prompt" (today's `/coach`
-design, fine for one user) to tool-calling -- Claude queries a specific
-client's data/notes on demand -- so it scales across a full roster. Also
-adds the coach↔AI "chat about a specific client" surface as its own
-persisted thread, separate from coach↔client chat.
+Moved off "stuff everything into one system prompt" (the old `/coach`
+chat, deleted in the Phase 6 auth rearchitecture) to tool-calling scoped
+to one client at a time, via the Claude API's beta Tool Runner
+(`betaZodTool` + `client.beta.messages.toolRunner`, streaming). Lives as
+its own surface -- a new "AI assistant" section on the coach's per-client
+detail page, backed by `ai_assistant_messages`
+(`0021_ai_assistant_messages.sql`, same single-owner RLS shape as
+`coach_notes`) -- deliberately separate from coach↔client chat.
+
+**The core design constraint**: the model never receives any
+client-identifying information, not even an anonymized id. Every tool
+the model can call (`lib/assistant-tools.ts`) is a server-side closure
+already scoped to one client's uuid, established after the route handler
+(`app/api/clients/[clientId]/assistant/route.ts`) verifies the coach
+owns that client -- no tool's input schema has an identifier-shaped
+field, so there's no code path for the model to even attempt addressing
+a different client. Seven tools: overview stats, daily steps, sleep
+nights, personal records, coach notes, busy calendar blocks, and a
+catch-all data-point summary (heart rate/exercise/SpO2/BP/respiratory
+rate) -- `lib/assistant.ts` is the one place responsible for shaping
+every byte the model can see.
+
+This is the first real enforcement of two privacy flags that existed
+before this phase but had nothing checking them: `coach_notes.is_private`
+(promised "excluded from AI assistant context" since it shipped) and
+`client_data_consent` (a data type the client declined now makes its
+tool return `{ shared: false }` instead of silently omitting or
+zeroing the data). `lib/calendar.ts`'s `getBusyBlocks` -- built in Phase
+7 specifically anticipating this -- gets its first real caller here too.
+
+**Residual, documented risk, not engineered away**: a non-private coach
+note's free-text body, or the coach's own typed question, could still
+contain the client's name -- the system prompt asks the model not to
+repeat such details back, but that's a best-effort mitigation, not a
+guarantee. Needs a real `ANTHROPIC_API_KEY` (console.anthropic.com) to
+run -- same pattern as `DAILY_API_KEY`/Google OAuth/`RESEND_API_KEY`
+earlier in this project.
 
 ## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
@@ -274,8 +306,9 @@ lazy Daily.co video-call room creation (anchored to the event's own
 `end_time`, not to whenever the event was created -- see `lib/daily.ts`'s
 `createDailyRoom`/`createMeetingToken`, now taking an optional
 `expEpochSeconds`). The AI-context privacy boundary
-(`lib/calendar.ts`'s `getBusyBlocks`) exists from day one but has no
-consumer yet -- that's Phase 5's per-client AI assistant, not built.
+(`lib/calendar.ts`'s `getBusyBlocks`) existed from day one anticipating
+Phase 5's per-client AI assistant, which now consumes it (shipped, see
+Phase 5 below).
 
 **Pass 2 (shipped)**: Google Calendar OAuth + sync --
 `calendar_connections` (tokens encrypted at rest via Node's own
