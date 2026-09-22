@@ -168,6 +168,12 @@ guarantee. Needs a real `ANTHROPIC_API_KEY` (console.anthropic.com) to
 run -- same pattern as `DAILY_API_KEY`/Google OAuth/`RESEND_API_KEY`
 earlier in this project.
 
+**vNext, not built**: a response-quality refining pass. First live test
+(2026-09-22) confirmed the tool-calling loop actually pulls real client
+data end-to-end, but tone/length/formatting of the model's answers
+hasn't been tuned at all yet -- flagged for a dedicated session later
+this week rather than iterating blind.
+
 ## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
 Android app needs real per-client login instead of one shared anon key
