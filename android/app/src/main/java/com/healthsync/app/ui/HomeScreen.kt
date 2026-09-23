@@ -41,6 +41,7 @@ fun HomeScreen(
     onInstallHealthConnect: () -> Unit,
     onSyncNow: () -> Unit,
     onViewMyData: () -> Unit,
+    onForceResync: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("Health Sync") }) }) { padding ->
@@ -101,6 +102,16 @@ fun HomeScreen(
 
                     Spacer(Modifier.height(20.dp))
                     Text("Data types", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = onForceResync, enabled = !isSyncing) {
+                        Text("Force full re-sync")
+                    }
+                    Text(
+                        "Re-checks full history for every type below instead of trusting Health " +
+                            "Connect's \"what changed\" cursor -- slower than a normal sync, use if " +
+                            "a type looks stuck even though the data exists in Health Connect.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Spacer(Modifier.height(8.dp))
 
                     allSyncSpecs.forEach { spec ->

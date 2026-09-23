@@ -201,6 +201,18 @@ class MainActivity : ComponentActivity() {
                             },
                             onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
                             onViewMyData = { userId?.let { onOpenDashboard(it) } },
+                            onForceResync = {
+                                scope.launch {
+                                    // Clearing every stored changes-API
+                                    // token makes the next sync treat
+                                    // every type as first-time, re-running
+                                    // SyncRepository.backfill()'s
+                                    // time-range read instead of trusting
+                                    // a possibly-stuck changes cursor.
+                                    syncStateStore.clearAllChangesTokens()
+                                    SyncScheduler.triggerManualSync(this@MainActivity)
+                                }
+                            },
                             onSignOut = onSignOut,
                         )
                     }

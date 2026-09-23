@@ -361,6 +361,28 @@ screen alone), null means `getValidAccessToken()` itself already
 cleared it, so the effect calls the same `onSignOut()` a manual tap
 would, routing back to Login without anyone needing to find a button.
 
+**Steps still stuck past a fixed date even after everything else works
+(2026-09-23, unresolved).** With RLS/composite-key/timezone-bucketing
+all fixed and confirmed working for sleep, steps still capped at an old
+date -- and this time confirmed *not* a data-availability problem: the
+device's own Health Connect app shows current step data. The one thing
+that can't be inspected from here is Health Connect's per-type changes-
+API cursor (`SyncStateStore`'s stored token for `"steps"`) -- if that's
+stuck (established before Garmin caught up, or a platform quirk on this
+LineageOS install with a freshly-reinstalled Health Connect), every
+`drainChanges()` call keeps asking "what changed since X" against a
+baseline that may not be behaving as documented, and there's no way to
+tell from outside Health Connect whether it's answering correctly.
+Rather than guess further, added a **"Force full re-sync"** action on
+`HomeScreen` (`SyncStateStore.clearAllChangesTokens()` + a manual sync)
+-- already-existing plumbing, just not previously exposed in the UI --
+so every type falls back to `SyncRepository.backfill()`'s plain time-
+range read instead of trusting the changes cursor. This is a genuine
+diagnostic step (confirms whether the cursor specifically was the
+problem) as much as a workaround; if it doesn't fix steps either, the
+bug is somewhere else entirely and this rules out the cursor as a
+suspect.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes
