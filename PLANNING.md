@@ -421,6 +421,17 @@ trusting one request (skipped when a caller's own `params` already
 specifies `limit`, e.g. the "5 most recent workouts" query, which is a
 deliberate bounded top-N, not something to page past).
 
+**Confirmed fixed (2026-09-23).** Steps now render through the current
+day, gaps and spikes intact, matching real activity -- closing out what
+turned out to be three unrelated bugs surfacing as the same symptom in
+sequence: missing `client_id` on every pushed row, a globally-unique
+`health_connect_id` colliding across accounts on a reused device, and
+finally this pagination gap on the read side. Known follow-up, not
+blocking: `bucketSleepByNight` doesn't merge multiple sleep sessions
+landing on the same local day (unlike `bucketStepsByDay`'s per-day sum),
+so a day with two recorded sessions shows two separate bars instead of
+one combined entry.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes
