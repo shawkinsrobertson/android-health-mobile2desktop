@@ -152,7 +152,22 @@ class MainActivity : ComponentActivity() {
                     var userId by remember { mutableStateOf<String?>(null) }
                     var role by remember { mutableStateOf<String?>(null) }
                     LaunchedEffect(Unit) {
-                        val token = authRepository.getValidAccessToken() ?: return@LaunchedEffect
+                        val token = authRepository.getValidAccessToken()
+                        if (token == null) {
+                            // getValidAccessToken() clears the stored
+                            // session itself when it was GoTrue that
+                            // explicitly rejected the refresh token (see
+                            // its own doc comment) -- getUserId() still
+                            // returning something means this failure was
+                            // just a transient one (network, a 5xx) and
+                            // the session is fine, so leave the screen
+                            // alone rather than sign someone out over a
+                            // momentary connectivity blip.
+                            if (authRepository.getUserId() == null) {
+                                onSignOut()
+                            }
+                            return@LaunchedEffect
+                        }
                         val id = authRepository.getUserId() ?: return@LaunchedEffect
                         userId = id
                         role = try {

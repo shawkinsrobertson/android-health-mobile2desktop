@@ -340,6 +340,27 @@ would silently sign someone out over a momentary connectivity blip --
 worse than the bug it would fix. Left as an explicit follow-up decision
 rather than shipped half-differentiated.
 
+**Built as a follow-up, same day**: the differentiation above, so the
+app can now tell those two cases apart and auto-recover from the real
+one. `SupabaseAuthClient`'s `execute()` used to throw a plain
+`IOException` for both a real (non-2xx) GoTrue response and a
+network-level failure -- indistinguishable to any caller. It now throws
+a new `SupabaseAuthHttpException(statusCode, message)` specifically for
+the former; a genuine network failure still throws OkHttp's own
+`IOException` naturally, before a `Response` is ever received, so the
+two are structurally different exception types rather than needing
+message-string parsing. `AuthRepository.getValidAccessToken()` only
+clears the stored session when refresh fails with a 4xx (GoTrue
+explicitly rejected the token -- expired, revoked, already used); a 5xx
+or a plain `IOException` leaves the session in place and just fails
+that one attempt, same as before. `MainActivity`'s role-fetch effect
+(the thing that runs every time Home is reached, for either role) now
+checks `getUserId()` after a failed `getValidAccessToken()` -- still
+non-null means the session survived (transient failure, leave the
+screen alone), null means `getValidAccessToken()` itself already
+cleared it, so the effect calls the same `onSignOut()` a manual tap
+would, routing back to Login without anyone needing to find a button.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

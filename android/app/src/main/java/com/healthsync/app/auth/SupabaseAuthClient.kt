@@ -22,6 +22,19 @@ data class Session(
 )
 
 /**
+ * Thrown when GoTrue itself responds with a non-2xx status -- as
+ * opposed to a network-level failure (no connectivity, timeout, DNS),
+ * which throws a plain [IOException] straight from OkHttp before any
+ * response is ever received. [statusCode] lets [AuthRepository] tell "the
+ * server explicitly rejected this" (4xx -- the refresh token is
+ * genuinely invalid, expired, or already used) apart from "the server
+ * had a problem" (5xx) or "we couldn't even reach it" (plain
+ * [IOException]) -- only the first of those three should ever be treated
+ * as "this session is dead, sign out."
+ */
+class SupabaseAuthHttpException(val statusCode: Int, message: String) : IOException(message)
+
+/**
  * Hand-rolled client for Supabase's Auth (GoTrue) REST API -- same
  * approach as [com.healthsync.app.supabase.SupabaseRestClient] takes for
  * PostgREST, and for the same reason: this app only ever needs three
@@ -38,8 +51,10 @@ data class Session(
  * talks to it through the official JS SDK.
  *
  * No `Result<T>` wrapping, matching `SupabaseRestClient`'s convention:
- * failures throw [IOException], callers ([AuthRepository]) decide how to
- * surface that to the UI.
+ * failures throw [IOException] -- a [SupabaseAuthHttpException] for a
+ * real (non-2xx) GoTrue response, a plain [IOException] straight from
+ * OkHttp for a network-level failure -- callers ([AuthRepository])
+ * decide how to surface that to the UI.
  */
 class SupabaseAuthClient(
     private val baseUrl: String = BuildConfig.SUPABASE_URL,
@@ -148,15 +163,20 @@ class SupabaseAuthClient(
     }
 
     // Mirrors SupabaseRestClient.execute(): blocking OkHttp call (caller
-    // already on Dispatchers.IO here), non-2xx becomes an IOException
-    // carrying the response body so callers see the real GoTrue error
-    // message (e.g. "Token has expired or is invalid") instead of a bare
-    // status code.
+    // already on Dispatchers.IO here). Non-2xx becomes a
+    // SupabaseAuthHttpException carrying both the status code and the
+    // response body, so callers see the real GoTrue error message (e.g.
+    // "Token has expired or is invalid") and can tell a rejected token
+    // apart from a network-level failure -- the latter throws OkHttp's
+    // own IOException naturally, before we ever get a Response to check.
     private fun execute(request: Request): String {
         http.newCall(request).execute().use { response ->
             val bodyText = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IOException("Supabase auth request failed (${response.code} ${request.method} ${request.url}): $bodyText")
+                throw SupabaseAuthHttpException(
+                    response.code,
+                    "Supabase auth request failed (${response.code} ${request.method} ${request.url}): $bodyText",
+                )
             }
             return bodyText
         }
