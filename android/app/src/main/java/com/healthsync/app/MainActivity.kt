@@ -45,6 +45,7 @@ private fun WorkInfo.toSyncResult(): SyncResult? = when (state) {
         upsertedRows = outputData.getInt(SyncWorker.KEY_UPSERTED_ROWS, 0),
         deletedRows = outputData.getInt(SyncWorker.KEY_DELETED_ROWS, 0),
         errors = outputData.getStringArray(SyncWorker.KEY_ERRORS)?.toList().orEmpty(),
+        readSummary = outputData.getString(SyncWorker.KEY_READ_SUMMARY) ?: "",
     )
     WorkInfo.State.FAILED -> SyncResult(
         upsertedRows = 0,

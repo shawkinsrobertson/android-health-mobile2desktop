@@ -98,6 +98,16 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
+                        if (result.readSummary.isNotBlank()) {
+                            Text(
+                                // Records Health Connect actually returned
+                                // per type this run, before any of our own
+                                // filtering -- if a type reads 0 here, the
+                                // problem is upstream of this app entirely.
+                                "Read from Health Connect: ${result.readSummary}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(20.dp))

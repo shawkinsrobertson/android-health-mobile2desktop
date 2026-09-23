@@ -383,6 +383,24 @@ problem) as much as a workaround; if it doesn't fix steps either, the
 bug is somewhere else entirely and this rules out the cursor as a
 suspect.
 
+**Force full re-sync didn't fix it either -- cursor ruled out.** A
+backfill doesn't touch the changes-API cursor at all (it's a plain
+time-range read), and steps still stopped at the same date, so whatever
+this is, it isn't the changes token. That narrows it to two
+possibilities this app genuinely can't tell apart without more
+visibility: Health Connect isn't handing this app steps records past
+that date at all (a permission or platform-implementation issue on this
+LineageOS install, outside anything fixable in this codebase), or
+records are coming back from Health Connect but getting dropped
+somewhere in `SyncRepository`'s own pipeline before they reach Supabase.
+Added instrumentation rather than guessing further:
+`SyncResult.readSummary` (`"steps=0, heart_rate=12, ..."`) reports how
+many raw records Health Connect actually returned per type *before* any
+of this app's own filtering/dedup/push logic runs, surfaced directly on
+`HomeScreen` under "Last sync." A `0` for steps there points squarely at
+Health Connect/permissions, outside this codebase; a nonzero read with
+nothing written points back at `pushRecords` or the Postgres side.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

@@ -30,6 +30,14 @@ data class SyncResult(
     val upsertedRows: Int,
     val deletedRows: Int,
     val errors: List<String>,
+    // "steps=0, heart_rate=12, sleep=1, ..." -- how many raw records
+    // Health Connect actually handed back per type this run, *before*
+    // any of our own filtering/dedup/push logic touches them. Lets the
+    // UI show whether a type looks stuck because Health Connect itself
+    // has nothing newer to give us, or because something on our side is
+    // dropping records it did receive -- see SyncRepository's read vs
+    // upserted counts.
+    val readSummary: String = "",
 ) {
     val success: Boolean get() = errors.isEmpty()
 }
@@ -62,22 +70,27 @@ class SyncRepository(
         var upserted = 0
         var deleted = 0
         val errors = mutableListOf<String>()
+        val readCounts = mutableMapOf<String, Int>()
 
         for (spec in allSyncSpecs) {
             try {
-                val (u, d) = syncOne(spec)
-                upserted += u
-                deleted += d
+                val outcome = syncOne(spec)
+                upserted += outcome.upserted
+                deleted += outcome.deleted
+                readCounts[spec.key] = outcome.read
             } catch (e: Exception) {
                 Log.e(TAG, "Sync failed for ${spec.key}", e)
                 errors += "${spec.key}: ${e.message ?: e::class.simpleName}"
             }
         }
 
-        return SyncResult(upserted, deleted, errors)
+        val readSummary = readCounts.entries.joinToString(", ") { (key, count) -> "$key=$count" }
+        return SyncResult(upserted, deleted, errors, readSummary)
     }
 
-    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): Pair<Int, Int> {
+    private data class SyncOutcome(val read: Int, val upserted: Int, val deleted: Int)
+
+    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): SyncOutcome {
         val existingToken = syncState.getChangesToken(spec.key)
         return if (existingToken == null) {
             backfill(spec)
@@ -87,7 +100,7 @@ class SyncRepository(
     }
 
     /** First-time sync for a record type: pull recent history by time range, then mint a token. */
-    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): Pair<Int, Int> {
+    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): SyncOutcome {
         val client = healthConnectManager.client
         val start = Instant.now().minus(spec.initialBackfillDays, ChronoUnit.DAYS)
         val records = readAllPages(spec, TimeRangeFilter.after(start))
@@ -97,7 +110,7 @@ class SyncRepository(
         val token = client.getChangesToken(ChangesTokenRequest(recordTypes = setOf(spec.recordType)))
         syncState.saveChangesToken(spec.key, token)
         Log.i(TAG, "Backfilled ${spec.key}: ${records.size} record(s), $upserted row(s)")
-        return upserted to 0
+        return SyncOutcome(read = records.size, upserted = upserted, deleted = 0)
     }
 
     private suspend fun <T : Record> readAllPages(spec: SyncSpec<T>, filter: TimeRangeFilter): List<T> {
@@ -129,10 +142,11 @@ class SyncRepository(
     private suspend fun <T : Record> drainChanges(
         spec: SyncSpec<T>,
         startToken: String,
-    ): Pair<Int, Int> {
+    ): SyncOutcome {
         val client = healthConnectManager.client
         var upserted = 0
         var deleted = 0
+        var read = 0
         var token = startToken
 
         while (true) {
@@ -141,8 +155,12 @@ class SyncRepository(
             if (response.changesTokenExpired) {
                 Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill")
                 syncState.clearChangesToken(spec.key)
-                val (u, d) = backfill(spec)
-                return (upserted + u) to (deleted + d)
+                val fallback = backfill(spec)
+                return SyncOutcome(
+                    read = read + fallback.read,
+                    upserted = upserted + fallback.upserted,
+                    deleted = deleted + fallback.deleted,
+                )
             }
 
             val upsertedRecords = mutableListOf<T>()
@@ -158,6 +176,7 @@ class SyncRepository(
                     }
                 }
             }
+            read += upsertedRecords.size
             upserted += pushRecords(spec, upsertedRecords)
 
             token = response.nextChangesToken
@@ -168,7 +187,7 @@ class SyncRepository(
         if (upserted > 0 || deleted > 0) {
             Log.i(TAG, "Synced ${spec.key}: +$upserted / -$deleted row(s)")
         }
-        return upserted to deleted
+        return SyncOutcome(read = read, upserted = upserted, deleted = deleted)
     }
 
     /**

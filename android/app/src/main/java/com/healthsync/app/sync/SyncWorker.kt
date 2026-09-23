@@ -65,6 +65,7 @@ class SyncWorker(
             .putInt(KEY_UPSERTED_ROWS, result.upsertedRows)
             .putInt(KEY_DELETED_ROWS, result.deletedRows)
             .putStringArray(KEY_ERRORS, result.errors.toTypedArray())
+            .putString(KEY_READ_SUMMARY, result.readSummary)
             .build()
         return Result.success(output)
     }
@@ -73,6 +74,7 @@ class SyncWorker(
         const val KEY_UPSERTED_ROWS = "upsertedRows"
         const val KEY_DELETED_ROWS = "deletedRows"
         const val KEY_ERRORS = "errors"
+        const val KEY_READ_SUMMARY = "readSummary"
         const val KEY_FAILURE_REASON = "failureReason"
     }
 }
