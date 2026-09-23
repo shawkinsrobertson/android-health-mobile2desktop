@@ -84,7 +84,7 @@ class SupabaseAuthClient(
             .build()
 
     /**
-     * Emails a 6-digit one-time code to [email]. `create_user = false`
+     * Emails an 8-digit one-time code to [email]. `create_user = false`
      * deliberately -- a returning client's login should never silently
      * create a new account for a stranger's typed-in email; only the
      * dashboard's coach-issued invite flow (`/join/[token]`) creates new
@@ -111,7 +111,7 @@ class SupabaseAuthClient(
     }
 
     /**
-     * Exchanges the 6-digit code the user typed in for a session.
+     * Exchanges the 8-digit code the user typed in for a session.
      * `type = "email"` is the discriminator for a typed-code
      * verification specifically -- distinct from `"signup"`/`"magiclink"`,
      * which are `token_hash`-based (what the dashboard's own

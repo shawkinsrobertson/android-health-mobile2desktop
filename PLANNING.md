@@ -205,7 +205,7 @@ real work is elsewhere:
 - **Email OTP, not magic-link deep-linking.** There's no deep-link
   infrastructure in the app today (no registered URI scheme, no callback
   activity), and magic-link assumes an interactive foreground moment
-  anyway. A typed-in-app 6-digit email OTP sidesteps both problems and
+  anyway. A typed-in-app 8-digit email OTP sidesteps both problems and
   fits a background-sync app better.
 - **Headless session refresh for WorkManager.** Periodic background sync
   (no user present) needs a persisted, silently-refreshable session --
@@ -222,7 +222,7 @@ the dashboard's own onboarding UI (`/client`'s "Connect your phone"
 section, and the coach's client-detail page's "Sync code" field) still
 told people to "enter this code in Settings," a screen the Android app
 no longer has. Fixed by replacing that copy with the real flow (open the
-app, sign in with your account email, enter the 6-digit code you're
+app, sign in with your account email, enter the 8-digit code you're
 sent) and dropping the now-dead sync-code display -- `sync_code` stays
 in the schema (nothing currently depends on removing the column) but
 nothing surfaces it anymore.

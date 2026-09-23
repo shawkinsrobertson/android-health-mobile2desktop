@@ -44,7 +44,7 @@ fun LoginScreen(
                 .fillMaxSize(),
         ) {
             Text(
-                "Enter the email your coach used to invite you. We'll send a 6-digit code.",
+                "Enter the email your coach used to invite you. We'll send an 8-digit code.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))

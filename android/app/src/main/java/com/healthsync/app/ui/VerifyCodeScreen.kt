@@ -47,7 +47,7 @@ fun VerifyCodeScreen(
                 .padding(16.dp)
                 .fillMaxSize(),
         ) {
-            Text("We sent a 6-digit code to $email.", style = MaterialTheme.typography.bodyMedium)
+            Text("We sent an 8-digit code to $email.", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = code,
@@ -55,7 +55,7 @@ fun VerifyCodeScreen(
                     code = it
                     error = null
                 },
-                label = { Text("6-digit code") },
+                label = { Text("8-digit code") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 modifier = Modifier.fillMaxWidth(),

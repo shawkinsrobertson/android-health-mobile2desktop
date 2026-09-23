@@ -66,7 +66,7 @@ installable from Play Store on 9–13).
    - **Sign in**: enter the same email you (or the client) used to join
      on the dashboard (see section 4 below -- an account has to exist
      there first, via a coach's invite link, before the app can sign
-     into it), then enter the 6-digit code emailed to that address. Sync
+     into it), then enter the 8-digit code emailed to that address. Sync
      won't run at all until this step is done -- see `AuthRepository
      .getValidAccessToken()`.
    - If Health Connect isn't installed, the app prompts you to install it.
@@ -116,7 +116,7 @@ the header comment in
 for the full reasoning.
 
 The Android app now authenticates as the specific client it's syncing
-for, via Supabase Auth email OTP (a 6-digit code typed in-app, not a
+for, via Supabase Auth email OTP (an 8-digit code typed in-app, not a
 magic-link tap-through -- there's no deep-link handling in the app). A
 client signs in on their phone with the same email they used to join on
 the dashboard; `handle_new_user()` (see `0002_accounts.sql`) already
@@ -187,7 +187,7 @@ read for access control.)
    The `{{ .Token }}` half is what the **Android app** needs -- see
    `android/app/src/main/java/com/healthsync/app/auth/SupabaseAuthClient.kt`.
    It calls this exact same `/auth/v1/otp` endpoint and shows the user a
-   type-in-the-6-digit-code screen (`VerifyCodeScreen`), not a link -- if
+   type-in-the-8-digit-code screen (`VerifyCodeScreen`), not a link -- if
    `{{ .Token }}` isn't in the template, an Android sign-in attempt gets
    the web's link instead of a code, with nothing to type in. Both
    consumers share the one template per email type, so it has to serve
