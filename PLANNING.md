@@ -315,6 +315,31 @@ one-off). `SyncRepository`'s `on_conflict` target was updated to match
 (`client_id,health_connect_id`). Needs this migration run before the
 Android app can sync again.
 
+**Also found (2026-09-23): a genuinely unreachable Sign Out button.**
+After a session went stale (refresh failed for some reason -- an
+overnight token expiry with background sync not running, or a device
+system update, weren't pinned down and don't matter for the fix), the
+only way back to Login is tapping Sign Out on `HomeScreen` -- but that
+screen's `Column` had no scroll modifier, and its "Data types" list
+(one row per synced record type, seven of them once Health Connect was
+actually configured right) was a `LazyColumn`, which greedily fills all
+remaining space in a bounded parent. With enough data types listed, that
+pushed "Account"/"Sign out" completely off the bottom of the screen with
+no way to reach them. Fixed by making the whole screen scroll
+(`verticalScroll`) and swapping the data-types `LazyColumn` for a plain
+`Column` + `forEach` (a `LazyColumn` inside a now-scrollable `Column`
+would crash outright, not just misbehave -- same pattern already used in
+`DashboardScreen.kt`/`CoachHomeScreen.kt`, which were written with a
+scroll modifier from the start for exactly this reason).
+**Deliberately not fixed alongside this**: automatically detecting a
+dead session and routing back to Login on its own, without anyone
+needing to find Sign Out at all. `getValidAccessToken()` returns null
+for both "the session is genuinely dead" and "the network was briefly
+unreachable right when the screen opened," and treating both the same
+would silently sign someone out over a momentary connectivity blip --
+worse than the bug it would fix. Left as an explicit follow-up decision
+rather than shipped half-differentiated.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

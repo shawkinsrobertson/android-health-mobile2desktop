@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,7 +48,8 @@ fun HomeScreen(
             modifier = Modifier
                 .padding(padding)
                 .padding(16.dp)
-                .fillMaxSize(),
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
         ) {
             when {
                 !healthConnectAvailable -> {
@@ -102,25 +103,23 @@ fun HomeScreen(
                     Text("Data types", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
 
-                    LazyColumn {
-                        items(allSyncSpecs) { spec ->
-                            val lastSynced by syncStateStore.lastSyncedFlow(spec.key)
-                                .collectAsState(initial = null)
-                            ListItem(
-                                headlineContent = {
-                                    Text(spec.key.replace('_', ' ').replaceFirstChar { it.uppercase() })
-                                },
-                                supportingContent = {
-                                    Text(
-                                        lastSynced?.let { instant ->
-                                            DateTimeFormatter.ofPattern("MMM d, h:mm a")
-                                                .withZone(ZoneId.systemDefault())
-                                                .format(instant)
-                                        } ?: "Never synced yet"
-                                    )
-                                },
-                            )
-                        }
+                    allSyncSpecs.forEach { spec ->
+                        val lastSynced by syncStateStore.lastSyncedFlow(spec.key)
+                            .collectAsState(initial = null)
+                        ListItem(
+                            headlineContent = {
+                                Text(spec.key.replace('_', ' ').replaceFirstChar { it.uppercase() })
+                            },
+                            supportingContent = {
+                                Text(
+                                    lastSynced?.let { instant ->
+                                        DateTimeFormatter.ofPattern("MMM d, h:mm a")
+                                            .withZone(ZoneId.systemDefault())
+                                            .format(instant)
+                                    } ?: "Never synced yet"
+                                )
+                            },
+                        )
                     }
 
                     Spacer(Modifier.height(20.dp))
