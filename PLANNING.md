@@ -401,6 +401,26 @@ of this app's own filtering/dedup/push logic runs, surfaced directly on
 Health Connect/permissions, outside this codebase; a nonzero read with
 nothing written points back at `pushRecords` or the Postgres side.
 
+**The read count came back `steps=1761`, `+8853 row(s) written`, no
+errors -- neither of the two guesses above.** Health Connect *is*
+handing over steps records, and they *are* reaching Supabase; the sync
+pipeline was never the problem. What was never actually checked: the
+*dates* those rows carry, or whether the dashboard's own query could see
+all of them. It couldn't -- `HealthDataRepository`'s steps query is
+`order=start_time.asc` with no limit, and `SupabaseRestClient.select()`
+sent it as a single unbounded request. PostgREST caps an unbounded
+response at 1000 rows by default; an ascending sort past that cap
+returns the *oldest* 1000 and silently drops everything newer -- which
+looks exactly like "data stops at a fixed date," consistently, on every
+rebuild. This is the identical bug `dashboard/lib/queries.ts`'s
+`fetchAllRows()` already exists to work around on the web side, for this
+same steps data, documented in that function's own comment -- Android's
+`select()` never got the equivalent protection. Fixed by making
+`select()` page through the full result in 1000-row batches instead of
+trusting one request (skipped when a caller's own `params` already
+specifies `limit`, e.g. the "5 most recent workouts" query, which is a
+deliberate bounded top-N, not something to page past).
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes

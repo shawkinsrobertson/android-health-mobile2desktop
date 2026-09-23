@@ -13,6 +13,11 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+// PostgREST's own default cap on an unbounded response -- select()
+// pages past this rather than trusting a single request not to get
+// silently truncated at it.
+private const val SELECT_PAGE_SIZE = 1000
+
 /**
  * Minimal PostgREST client for pushing Health Connect data to Supabase.
  * Talks straight to `/rest/v1/<table>` rather than pulling in the full
@@ -111,19 +116,47 @@ class SupabaseRestClient(
      * this client's [accessToken], same as every write this class makes
      * -- see supabase/migrations/0015_health_data_auth.sql for the
      * coach-can-also-select-their-clients'-rows policies this relies on.
-     * No pagination -- only used for small, bounded dashboard summaries
-     * (a couple weeks of data), not a general-purpose query layer.
+     *
+     * Pages through the full result in batches of [SELECT_PAGE_SIZE]
+     * rather than trusting a single request not to get silently
+     * truncated -- PostgREST caps an unbounded response at 1000 rows by
+     * default, and this app's own health-data tables are exactly the
+     * shape that blows past that (the web dashboard hit this same issue
+     * with this same data first -- see dashboard/lib/queries.ts's
+     * fetchAllRows() and its comment). Skipped when [params] already
+     * carries its own "limit" -- that's a caller deliberately asking for
+     * a bounded top-N (e.g. "5 most recent workouts"), not something to
+     * page past.
      */
     suspend fun select(table: String, params: Map<String, String>): JSONArray {
+        if (params.containsKey("limit")) {
+            return JSONArray(executeReturningBody(selectRequest(table, params)))
+        }
+
+        val all = JSONArray()
+        var offset = 0
+        while (true) {
+            val pageParams = params + mapOf(
+                "limit" to SELECT_PAGE_SIZE.toString(),
+                "offset" to offset.toString(),
+            )
+            val page = JSONArray(executeReturningBody(selectRequest(table, pageParams)))
+            for (i in 0 until page.length()) all.put(page.get(i))
+            if (page.length() < SELECT_PAGE_SIZE) break
+            offset += SELECT_PAGE_SIZE
+        }
+        return all
+    }
+
+    private fun selectRequest(table: String, params: Map<String, String>): Request {
         var urlBuilder = restUrl(table)
         params.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
-        val request = Request.Builder()
+        return Request.Builder()
             .url(urlBuilder.build())
             .header("apikey", anonKey)
             .header("Authorization", "Bearer $accessToken")
             .get()
             .build()
-        return JSONArray(executeReturningBody(request))
     }
 
     // OkHttp's call.execute() is blocking I/O; run it on Dispatchers.IO so
