@@ -432,6 +432,91 @@ landing on the same local day (unlike `bucketStepsByDay`'s per-day sum),
 so a day with two recorded sessions shows two separate bars instead of
 one combined entry.
 
+**Designed 2026-09-23, not built yet: per-client preferred data source,
+plus porting proper overlap dedup/proration to Android.** Chasing the
+steps bug above surfaced the real reason `dashboard/lib/queries.ts`'s
+`resolveOverlappingSources` exists at all -- confirmed directly (both in
+Supabase and in Health Connect's own per-entry view on-device) that a
+single real client can have two apps (in this case Garmin Connect and
+the phone's own on-device step sensor) both writing overlapping
+`StepsRecord`s for the same walk. `resolveOverlappingSources` already
+handles this on the web today, but by a **per-day computed heuristic**
+(whichever source's daily total is highest becomes "primary" for that
+day, every other source only gap-fills the time primary didn't cover) --
+not a fixed, trusted source. That heuristic can pick the wrong source on
+a day it guesses wrong, and the Android dashboard (`HealthDataRepository`)
+was built with neither the heuristic nor real dedup at all -- its own
+doc comment says so plainly, a deliberate "rough trends, not exact
+totals" simplification for the basic pass.
+
+Two related pieces of work, scoped together since they touch the same
+data:
+
+1. **Per-client, per-data-type preferred source**, overriding the
+   heuristic when set. Extends `client_data_consent` (already the
+   per-`client_id`/per-`data_type` settings table matching the
+   `DATA_POINTS` taxonomy) with a nullable `preferred_source` column --
+   same shape of concept as consent, not a new table. When set for a
+   (client, data type), the resolution logic treats that source as
+   primary outright and skips the highest-total computation; every other
+   source still gap-fills exactly like today, so non-preferred data
+   isn't discarded, just deprioritized. No preference set -> today's
+   heuristic, unchanged. Client-owned, coach read-only, same as the rest
+   of `client_data_consent` -- a coach sees which source is trusted on
+   the client detail page's existing Data sharing display, but only the
+   client sets it, matching that table's existing ownership split.
+
+   **Detecting when to even offer a choice** (the "easy lift" part) --
+   nobody should have to think about this unless it's actually
+   ambiguous for them: a query per (client, data type) for distinct
+   `source_package` values contributing rows in that type's recent
+   window. Zero or one distinct source (the common case) -> nothing
+   shown, ever. Two or more -> that's the trigger, in two places:
+   - **On the client's own `/client` page's existing Data sharing
+     section**: for a data type with 2+ sources and no preference set
+     yet, that row gets an inline "we noticed steps are tracked by both
+     Garmin Connect and your phone -- which should we trust?" picker in
+     place of its normal display. Once set, the same slot becomes a
+     plain editable dropdown ("currently using Garmin Connect, change?")
+     instead of a first-time prompt -- one UI slot, two framings,
+     depending on whether `preferred_source` is already set. This is
+     also the ongoing safety net: a client detail page load re-runs the
+     cheap distinct-source check every time, so a data type that only
+     becomes ambiguous later (a client stops wearing their watch for a
+     stretch and the phone sensor starts contributing) still eventually
+     gets caught, no separate mechanism needed.
+   - **Right after the Android app's first successful sync for a data
+     type** -- specifically, a type that just ran through
+     `SyncRepository.backfill()` for the first time this run (the
+     `existingToken == null` branch in `syncOne`, already exactly the
+     "is this the first time we've ever synced this type" signal the
+     code needs, just not exposed outside `SyncRepository` yet -- would
+     need a small `SyncResult` addition, e.g. `firstSyncedTypes: Set<String>`,
+     mirroring how `readSummary` got added for the steps-truncation
+     diagnostic). After such a sync, for each type in that set, run the
+     same ambiguity check; if ambiguous, show a lightweight one-time
+     in-app prompt with the same "which should we trust?" framing right
+     on the device, while the client's already looking at it. Skipping
+     or dismissing it saves nothing (`preferred_source` stays null) --
+     no snooze state to build, the web-side check above just catches it
+     later regardless.
+   - Friendly source names for the picker (e.g. `com.garmin.android.apps
+     .connectmobile` -> "Garmin Connect") need a small lookup, duplicated
+     as a plain constant on both the web (TypeScript) and Android
+     (Kotlin) sides rather than a shared package for a handful of
+     entries -- falls back to the raw package name for anything not in
+     the list, so an unrecognized app never breaks the picker, just
+     looks less polished.
+
+2. **Port `resolveOverlappingSources`/`accumulateStepsByDay`-equivalent
+   dedup and cross-midnight proration to Android's
+   `HealthDataRepository`**, so its numbers stop being "rough trends
+   only" and actually match the web dashboard -- the same per-day
+   primary/gap-fill logic, reading the new `preferred_source` column
+   first and falling back to the per-day heuristic exactly like the web
+   side will. Held until the UI/interactivity pass on the dashboards, per
+   explicit direction -- not started.
+
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
 wearable's data" -- any app that writes to Health Connect contributes
