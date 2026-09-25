@@ -1,5 +1,6 @@
 package com.healthsync.app.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,153 +10,139 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.healthsync.app.healthconnect.allSyncSpecs
+import com.healthsync.app.data.HomeSummary
 import com.healthsync.app.sync.SyncResult
-import com.healthsync.app.sync.SyncStateStore
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import com.healthsync.app.ui.home.NotificationShade
+import com.healthsync.app.ui.home.ShadeContent
+import com.healthsync.app.ui.home.StreakHeatmap
+import com.healthsync.app.ui.nav.NavDestination
+import com.healthsync.app.ui.nav.SlideOutNav
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     healthConnectAvailable: Boolean,
     hasPermissions: Boolean?,
     isSyncing: Boolean,
     lastResult: SyncResult?,
-    syncStateStore: SyncStateStore,
+    homeSummary: HomeSummary?,
     email: String?,
     onRequestPermissions: () -> Unit,
     onInstallHealthConnect: () -> Unit,
     onSyncNow: () -> Unit,
     onViewMyData: () -> Unit,
-    onForceResync: () -> Unit,
-    onSignOut: () -> Unit,
+    onOpenWorkouts: () -> Unit,
+    onOpenCalendar: () -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenCheckIn: () -> Unit,
+    onOpenProfile: () -> Unit,
 ) {
-    Scaffold(topBar = { TopAppBar(title = { Text("Health Sync") }) }) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            when {
-                !healthConnectAvailable -> {
-                    Text("Health Connect isn't installed on this device, or needs an update.")
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onInstallHealthConnect) {
-                        Text("Install / update Health Connect")
-                    }
-                }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (homeSummary != null) {
+                NotificationShade(
+                    content = ShadeContent(
+                        hasUnreadMessages = homeSummary.hasUnreadMessages,
+                        upcomingEvents = homeSummary.upcomingEvents,
+                        checkInDue = homeSummary.checkInDue,
+                        onOpenInbox = onOpenInbox,
+                        onOpenCalendar = onOpenCalendar,
+                        onOpenCheckIn = onOpenCheckIn,
+                    ),
+                )
+            }
 
-                hasPermissions == null -> {
-                    CircularProgressIndicator()
-                }
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    email?.let { "Hey, $it" } ?: "Hey",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Spacer(Modifier.height(20.dp))
 
-                hasPermissions == false -> {
-                    Text("Health Sync needs permission to read your Health Connect data.")
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onRequestPermissions) {
-                        Text("Grant permissions")
-                    }
-                }
-
-                else -> {
-                    Button(onClick = onSyncNow, enabled = !isSyncing) {
-                        Text(if (isSyncing) "Syncing…" else "Sync now")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onViewMyData) {
-                        Text("View my data")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Background sync also runs automatically roughly every 15 minutes " +
-                            "while the device has network access.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-
-                    lastResult?.let { result ->
+                when {
+                    !healthConnectAvailable -> {
+                        Text("Health Connect isn't installed on this device, or needs an update.")
                         Spacer(Modifier.height(12.dp))
-                        if (result.success) {
-                            Text("Last sync: +${result.upsertedRows} row(s) written, -${result.deletedRows} removed")
+                        Button(onClick = onInstallHealthConnect) {
+                            Text("Install / update Health Connect")
+                        }
+                    }
+
+                    hasPermissions == null -> {
+                        CircularProgressIndicator()
+                    }
+
+                    hasPermissions == false -> {
+                        Text("Health Sync needs permission to read your Health Connect data.")
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onRequestPermissions) {
+                            Text("Grant permissions")
+                        }
+                    }
+
+                    else -> {
+                        Text("This week", style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.height(8.dp))
+                        if (homeSummary != null) {
+                            StreakHeatmap(weekDays = homeSummary.weekDays)
                         } else {
-                            Text(
-                                "Last sync had errors: ${result.errors.joinToString("; ")}",
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                            CircularProgressIndicator()
                         }
-                        if (result.readSummary.isNotBlank()) {
-                            Text(
-                                // Records Health Connect actually returned
-                                // per type this run, before any of our own
-                                // filtering -- if a type reads 0 here, the
-                                // problem is upstream of this app entirely.
-                                "Read from Health Connect: ${result.readSummary}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onSyncNow, enabled = !isSyncing) {
+                            Text(if (isSyncing) "Syncing…" else "Sync now")
                         }
-                    }
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = onViewMyData) {
+                            Text("View my data")
+                        }
 
-                    Spacer(Modifier.height(20.dp))
-                    Text("Data types", fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(onClick = onForceResync, enabled = !isSyncing) {
-                        Text("Force full re-sync")
-                    }
-                    Text(
-                        "Re-checks full history for every type below instead of trusting Health " +
-                            "Connect's \"what changed\" cursor -- slower than a normal sync, use if " +
-                            "a type looks stuck even though the data exists in Health Connect.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(8.dp))
-
-                    allSyncSpecs.forEach { spec ->
-                        val lastSynced by syncStateStore.lastSyncedFlow(spec.key)
-                            .collectAsState(initial = null)
-                        ListItem(
-                            headlineContent = {
-                                Text(spec.key.replace('_', ' ').replaceFirstChar { it.uppercase() })
-                            },
-                            supportingContent = {
+                        lastResult?.let { result ->
+                            Spacer(Modifier.height(12.dp))
+                            if (result.success) {
                                 Text(
-                                    lastSynced?.let { instant ->
-                                        DateTimeFormatter.ofPattern("MMM d, h:mm a")
-                                            .withZone(ZoneId.systemDefault())
-                                            .format(instant)
-                                    } ?: "Never synced yet"
+                                    "Last sync: +${result.upsertedRows} row(s) written, -${result.deletedRows} removed",
+                                    style = MaterialTheme.typography.bodySmall,
                                 )
-                            },
-                        )
-                    }
-
-                    Spacer(Modifier.height(20.dp))
-                    Text("Account", fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        email?.let { "Signed in as $it" } ?: "Signed in",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(onClick = onSignOut) {
-                        Text("Sign out")
+                            } else {
+                                Text(
+                                    "Last sync had errors: ${result.errors.joinToString("; ")}",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
                     }
                 }
+
+                // Bottom padding so the last item isn't hidden behind the
+                // slide-out nav anchored over this column.
+                Spacer(Modifier.height(72.dp))
             }
         }
+
+        SlideOutNav(
+            destinations = listOf(
+                NavDestination("Workouts", "🏋", onOpenWorkouts), // 🏋
+                NavDestination("Calendar", "📅", onOpenCalendar), // 📅
+                NavDestination("Inbox", "✉", onOpenInbox), // ✉
+                NavDestination("Profile", "👤", onOpenProfile), // 👤
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp),
+        )
     }
 }

@@ -178,7 +178,7 @@ function BookingMonthGrid({
               onClick={() => onSelectDate(day)}
               className={`aspect-square rounded-lg text-xs ${
                 selected
-                  ? "bg-[color:var(--series-steps)] text-white"
+                  ? "bg-[color:var(--accent)] text-white"
                   : disabled
                     ? "text-ink-muted opacity-40"
                     : "bg-[color:var(--page-plane)] text-ink-primary hover:bg-[color:var(--border-hairline)]"
@@ -304,7 +304,7 @@ function BookingForm({
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+          className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
         >
           {submitting ? "Booking…" : "Confirm booking"}
         </button>

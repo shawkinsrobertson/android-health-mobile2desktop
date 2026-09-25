@@ -22,6 +22,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.healthsync.app.auth.AuthRepository
+import com.healthsync.app.data.HomeSummary
+import com.healthsync.app.data.HomeSummaryRepository
 import com.healthsync.app.data.ProfileRepository
 import com.healthsync.app.healthconnect.HealthConnectManager
 import com.healthsync.app.supabase.SupabaseRestClient
@@ -33,6 +35,7 @@ import com.healthsync.app.sync.SyncWorker
 import com.healthsync.app.ui.CoachHomeScreen
 import com.healthsync.app.ui.DashboardScreen
 import com.healthsync.app.ui.HomeScreen
+import com.healthsync.app.ui.ProfileScreen
 import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.ROUTE_HOME
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
@@ -114,7 +117,39 @@ class MainActivity : ComponentActivity() {
                     dashboardContent = { clientId, onBack ->
                         DashboardScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
                     },
-                ) { onOpenDashboard ->
+                    profileContent = { onBack ->
+                        val email by authRepository.emailFlow.collectAsState(initial = null)
+                        val profileWorkInfos by WorkManager.getInstance(this@MainActivity)
+                            .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
+                            .collectAsState(initial = emptyList())
+                        val profileActiveWork = profileWorkInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
+                        val profileIsSyncing = profileActiveWork?.state == WorkInfo.State.ENQUEUED ||
+                            profileActiveWork?.state == WorkInfo.State.RUNNING
+                        val profileScope = rememberCoroutineScope()
+                        ProfileScreen(
+                            email = email,
+                            isSyncing = profileIsSyncing,
+                            syncStateStore = syncStateStore,
+                            onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
+                            onForceResync = {
+                                profileScope.launch {
+                                    syncStateStore.clearAllChangesTokens()
+                                    SyncScheduler.triggerManualSync(this@MainActivity)
+                                }
+                            },
+                            onSignOut = {
+                                profileScope.launch {
+                                    authRepository.logout()
+                                    syncStateStore.clearAllChangesTokens()
+                                    navController.navigate(ROUTE_LOGIN) {
+                                        popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                                    }
+                                }
+                            },
+                            onBack = onBack,
+                        )
+                    },
+                ) { nav ->
                     var hasPermissions by remember { mutableStateOf<Boolean?>(null) }
 
                     val permissionLauncher = rememberLauncherForActivityResult(
@@ -152,6 +187,7 @@ class MainActivity : ComponentActivity() {
                     // is never stuck on a blank screen over this.
                     var userId by remember { mutableStateOf<String?>(null) }
                     var role by remember { mutableStateOf<String?>(null) }
+                    var homeSummary by remember { mutableStateOf<HomeSummary?>(null) }
                     LaunchedEffect(Unit) {
                         val token = authRepository.getValidAccessToken()
                         if (token == null) {
@@ -176,13 +212,25 @@ class MainActivity : ComponentActivity() {
                         } catch (e: Exception) {
                             "client"
                         }
+                        if (role != "coach") {
+                            homeSummary = try {
+                                HomeSummaryRepository(SupabaseRestClient(token)).loadSummary(id)
+                            } catch (e: Exception) {
+                                // Notification shade/streak just render
+                                // empty rather than the whole Home screen
+                                // failing over one of four unrelated
+                                // queries (chat/calendar/check-ins/
+                                // sessions) hitting a transient error.
+                                null
+                            }
+                        }
                     }
 
                     if (role == "coach") {
                         CoachHomeScreen(
                             authRepository = authRepository,
                             email = email,
-                            onOpenClient = onOpenDashboard,
+                            onOpenClient = nav.onOpenDashboard,
                             onSignOut = onSignOut,
                         )
                     } else {
@@ -191,7 +239,7 @@ class MainActivity : ComponentActivity() {
                             hasPermissions = hasPermissions,
                             isSyncing = isSyncing,
                             lastResult = lastResult,
-                            syncStateStore = syncStateStore,
+                            homeSummary = homeSummary,
                             email = email,
                             onRequestPermissions = {
                                 permissionLauncher.launch(healthConnectManager.requiredPermissions)
@@ -201,20 +249,12 @@ class MainActivity : ComponentActivity() {
                                 startActivity(Intent(Intent.ACTION_VIEW, uri))
                             },
                             onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
-                            onViewMyData = { userId?.let { onOpenDashboard(it) } },
-                            onForceResync = {
-                                scope.launch {
-                                    // Clearing every stored changes-API
-                                    // token makes the next sync treat
-                                    // every type as first-time, re-running
-                                    // SyncRepository.backfill()'s
-                                    // time-range read instead of trusting
-                                    // a possibly-stuck changes cursor.
-                                    syncStateStore.clearAllChangesTokens()
-                                    SyncScheduler.triggerManualSync(this@MainActivity)
-                                }
-                            },
-                            onSignOut = onSignOut,
+                            onViewMyData = { userId?.let { nav.onOpenDashboard(it) } },
+                            onOpenWorkouts = { nav.onOpenComingSoon("Workouts") },
+                            onOpenCalendar = { nav.onOpenComingSoon("Calendar") },
+                            onOpenInbox = { nav.onOpenComingSoon("Inbox") },
+                            onOpenCheckIn = { nav.onOpenComingSoon("Weekly check-in") },
+                            onOpenProfile = nav.onOpenProfile,
                         )
                     }
                 }

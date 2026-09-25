@@ -753,6 +753,140 @@ picked.
   in this codebase). Options: Supabase's `pg_cron` extension, or a
   Vercel Cron hitting a route handler on a schedule.
 
+## Phase 8 -- design system + UI pass (shipped)
+
+Triggered by a set of mockups + a full color/typography reference the
+user provided for a redesigned client dashboard (pull-down notification
+shade, heatmap weekly streak, slide-out bottom-left nav) plus the
+instruction to apply the same dark/light theme throughout both the web
+dashboard and the Android app. Scoped up front via `AskUserQuestion`
+into four decisions: (1) this pass covers foundation + a new client home
+screen, not every screen; (2) the streak heatmap measures assigned
+workout *completion*; (3) the coach dashboard gets reskinned in place,
+no structural redesign (no coach mockup was provided); (4) the mockup's
+"Tasks" panel ("Tell me how it was! Fill out your weekly check-in")
+should be backed by a real, newly-built weekly check-in feature rather
+than left as a mock.
+
+**Design tokens.** Primary/secondary/accent + text-primary/secondary/
+tertiary, light and dark (`#FFFDFB`/`#F7F1E8`/`#C1573B` light,
+`#281E18`/`#675E59`/`#C1573B` dark). One documented assumption: the
+mockups only gave `text-tertiary` (text/icons drawn on an accent-colored
+surface) for dark mode; light mode reuses the same dark-brown
+(`#281E18`) rather than guessing a new value, since Accent itself is
+theme-invariant and dark text reads correctly on it either way. Web:
+`dashboard/app/globals.css`'s CSS variables were repointed to these
+values (kept the same variable *names* -- `--page-plane`, `--surface-1`,
+`--text-primary` etc. -- so every one of the ~600 existing call sites
+already using `bg-plane`/`bg-surface`/`text-ink-*` picked up the new
+palette automatically, no per-file edits needed) plus two new tokens,
+`--accent`/`--text-tertiary`, exposed via `tailwind.config.ts` as
+`accent`/`ink.tertiary`. Chart series colors (`--series-*`) were left
+alone -- they're a separate, already-validated dataviz palette, not
+part of this reskin. Typography: Archivo (Title/Header/Button) + Open
+Sans (Body/Links/Secondary) via `next/font/google` in `app/layout.tsx`,
+plus a `fontSize` scale in `tailwind.config.ts` (`text-title`, `text-h1`
+through `text-h3`, `text-button`, `text-body`, `text-link`,
+`text-body-sm`) matching the mockup's exact px/weight table. Android:
+new `ui/theme/Color.kt` (the same hex tokens) and a rewritten
+`Theme.kt` mapping them onto Material3's color-scheme roles (`primary`/
+`onPrimary` -> Accent/text-tertiary, since Material's "primary" role is
+the prominent-button color the mockup uses Accent for; `background`/
+`surface` -> the design system's own Primary/Secondary -- a real naming
+collision between the two systems' vocab, not a bug). Archivo
+(Medium/SemiBold/ExtraBold) and Open Sans (Regular/SemiBold) `.ttf`
+files were fetched from Google Fonts' CSS API directly (`fonts.gstatic.com`,
+the same static files `next/font/google` resolves to) into `res/font/`
+and wired into a new `Type.kt`'s `HealthSyncTypography`, since Android
+has no equivalent of `next/font` to fetch these at build time.
+
+**Weekly check-ins (new feature, not a mock).** Reuses the document
+library's dynamic form builder wholesale (`lib/forms.ts`'s
+`FormField`/`FormSchema`/`FormAnswers`, `FormBuilder.tsx`,
+`DynamicFormRenderer.tsx`) rather than inventing a second
+question-authoring format -- a check-in is exactly "a form, but assigned
+recurringly instead of once." `0023_check_ins.sql` adds
+`check_in_templates` (one per coach-client pair, `unique(coach_id,
+client_id)`, holds a `form_schema` + which day of the week it opens) and
+`check_in_responses` (one row per `(template_id, week_start)`, mirroring
+`assigned_documents`/`document_responses`'s "coach owns the shape,
+client owns the answers" RLS split). `lib/check-ins.ts`'s
+`currentWeekStart(dayOfWeek)` does the UTC, Sunday-anchored week
+bucketing both the web queries and Android's `HomeSummaryRepository`
+replicate identically, so a client's "is this due" state agrees between
+platforms. Coach side: a new "Weekly check-in" section on the client
+detail page (`components/CheckInEditor.tsx`) using `FormBuilder`
+directly. Client side: `/client/check-in` (new page + NavBar link) using
+`DynamicFormRenderer`, plus a "Tasks" card on the client home page that
+appears only when a check-in is due. `parseFormSchema` (previously
+private to the documents action) was promoted to a `lib/forms.ts` export
+since it now has two real callers.
+
+**Android client home screen redesign.** `ui/home/NotificationShade.kt`
+(closed state: three glyphs -- messages/calendar/tasks -- each with an
+unread dot; tap expands a panel with per-category detail, reading unread
+chat state, upcoming `calendar_events`, and check-in-due status via a
+new `data/HomeSummaryRepository.kt`), `ui/home/StreakHeatmap.kt` (seven
+day-cells, DONE/PARTIAL/NONE shading), and `ui/nav/SlideOutNav.kt`
+(bottom-left round button that expands into a pill row of destination
+glyphs) replace `HomeScreen`'s old flat list layout. Two things
+deliberately simplified from the mockup, stated plainly rather than
+discovered later:
+  - The mockup's pull-down *gesture* became a tap-to-expand chevron.
+    Same end state (an expanded panel with the same three categories)
+    without a hand-rolled drag gesture that has no way to be verified in
+    this environment (still no Android SDK/emulator here -- see Phase 6).
+  - The streak heatmap measures "did the client log *any* workout
+    activity that day" (a `workout_sessions` row with `completed_at` set
+    = DONE, one still in progress = PARTIAL), not "did they complete
+    what was assigned that day" -- this app has no concept of a workout
+    being scheduled for a specific day at all yet (the web dashboard's
+    own "Next up" card has the identical gap, already noted in its own
+    comment). A truer "assigned completion" streak needs real
+    scheduling built first, which is out of scope here.
+  Icons throughout (shade categories, streak markers, slide-out nav)
+  are plain emoji `Text`, matching how the rest of this Android app
+  already renders iconography (`MainActivity`'s chat "💬") -- there's no
+  `material-icons-extended` dependency in this project to draw a real
+  icon set from, and adding one to draw five icons wasn't worth it.
+  `SlideOutNav`'s Workouts/Calendar/Inbox destinations, and the shade's
+  tap-throughs to them, all land on a new `ComingSoonScreen` -- none of
+  those three exist as native Android screens yet (only "View my data",
+  Health Connect sync, and now Profile do). Building them for real is
+  future work, not silently faked. The sync/data-type/sign-out controls
+  that used to live on `HomeScreen` moved to a new `ProfileScreen`
+  (reachable from the slide-out nav), matching the mockup's "profile ->
+  settings" grouping -- weight units, data-sharing consent, and profile
+  photo (also mentioned in the mockup) are *not* editable from Android
+  yet, a real gap rather than an oversight.
+
+**Coach dashboard reskin.** No structural changes, per the user's
+explicit choice (no coach mockup existed to redesign from). Almost
+entirely automatic via the token repointing above; the one manual pass
+was swapping every UI-chrome usage of `var(--series-steps)` (the
+dataviz blue, which had been doing double duty as this app's de facto
+"primary button/link" color everywhere, coach and client side alike)
+over to the new `var(--accent)` token, across 46 files -- buttons,
+links, active-tab states, timer overlays, calendar event chips. Done as
+a scoped `sed` pass over exactly those two literal class-name patterns,
+*not* touching `StepsChart.tsx`'s actual data-bar fill color (caught and
+reverted after the first pass swept it up too -- that one genuinely
+needs to stay the dataviz blue, not become the brand accent).
+
+**Known gap, surfaced but not resolved this pass**: the mockup's "Your
+Top 3" stat cards reference an "Avg. BG" (blood glucose) stat. This app
+does not sync blood glucose anywhere -- `BloodGlucoseRecord` is listed
+only as a future Health Connect type in Phase 6. Not addressed here;
+whatever builds the "Your Top 3" cards for real needs to either add that
+sync path or pick a different third stat.
+
+**Verification**: `npx tsc --noEmit`, `npx next lint`, `npx next build`
+(dummy env) all clean on the web side. Android: manual review only, same
+posture as every other Android change in this project -- no SDK/Gradle
+wrapper in this environment to actually compile against (see Phase 6's
+opening note). Not opened in a browser or on a device -- flagged
+plainly rather than claimed as tested.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

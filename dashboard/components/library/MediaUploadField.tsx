@@ -64,7 +64,7 @@ export function MediaUploadField({
             href={previewUrl}
             target="_blank"
             rel="noreferrer"
-            className="w-fit text-sm text-[color:var(--series-steps)] underline"
+            className="w-fit text-sm text-[color:var(--accent)] underline"
           >
             View current file
           </a>

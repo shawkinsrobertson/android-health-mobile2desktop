@@ -112,7 +112,7 @@ export function CalendarWorkspace({
           <button
             type="button"
             onClick={() => setEditingAvailability((v) => !v)}
-            className="mt-3 text-xs text-[color:var(--series-steps)] hover:underline"
+            className="mt-3 text-xs text-[color:var(--accent)] hover:underline"
           >
             {editingAvailability ? "Hide availability settings" : "Edit availability"}
           </button>
@@ -151,7 +151,7 @@ export function CalendarWorkspace({
               setCreateDate(undefined);
               setCreating(true);
             }}
-            className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+            className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
             New event
           </button>

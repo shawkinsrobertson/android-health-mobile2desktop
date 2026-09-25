@@ -39,7 +39,7 @@ export function DataPointPicker({ initialSelected }: { initialSelected: string[]
               key={d.key}
               className={`cursor-pointer rounded-full border px-3 py-1.5 text-sm transition ${
                 checked
-                  ? "border-[color:var(--series-steps)] bg-[color:var(--series-steps)] text-white"
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white"
                   : disabled
                     ? "cursor-not-allowed border-[color:var(--border-hairline)] text-ink-muted"
                     : "border-[color:var(--border-hairline)] text-ink-secondary hover:text-ink-primary"
@@ -62,7 +62,7 @@ export function DataPointPicker({ initialSelected }: { initialSelected: string[]
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          className="w-fit rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+          className="w-fit rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
         >
           Save
         </button>

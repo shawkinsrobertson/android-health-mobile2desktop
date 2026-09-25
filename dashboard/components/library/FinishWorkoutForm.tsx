@@ -43,7 +43,7 @@ export function FinishWorkoutForm({
           type="button"
           onClick={() => setConfirming(true)}
           disabled={isPending}
-          className="w-full rounded-lg bg-[color:var(--series-steps)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+          className="w-full rounded-lg bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
         >
           Finish Workout
         </button>
@@ -70,7 +70,7 @@ export function FinishWorkoutForm({
                 type="button"
                 onClick={finish}
                 disabled={isPending}
-                className="rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
               >
                 Finish
               </button>

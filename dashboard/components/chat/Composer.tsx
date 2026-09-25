@@ -166,7 +166,7 @@ export function Composer({
           type="button"
           onClick={submit}
           disabled={isPending || (!text.trim() && !pendingFile)}
-          className="rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           Send
         </button>

@@ -100,7 +100,7 @@ export function AvailabilityEditor({
                 <button
                   type="button"
                   onClick={() => addBlock(day.dayOfWeek)}
-                  className="text-xs text-[color:var(--series-steps)] hover:underline"
+                  className="text-xs text-[color:var(--accent)] hover:underline"
                 >
                   + Add time block
                 </button>
@@ -147,7 +147,7 @@ export function AvailabilityEditor({
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="w-fit rounded-md bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        className="w-fit rounded-md bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
         {saving ? "Saving…" : "Save availability"}
       </button>

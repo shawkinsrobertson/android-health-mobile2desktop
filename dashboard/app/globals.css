@@ -3,21 +3,33 @@
 @tailwind utilities;
 
 /*
- * Chart / UI color tokens. Values from the validated default palette
- * (see the dataviz skill's references/palette.md) — swap these for your
- * brand's palette if you rebrand later; nothing else in the charts needs
- * to change.
+ * Brand design-system tokens (2026 UI pass) — primary/secondary/accent +
+ * text-primary/secondary/tertiary, light and dark. --text-tertiary is
+ * the color used for text/icons drawn on top of an --accent-colored
+ * surface (buttons, badges); the mockups only gave that value for dark
+ * mode, so light mode reuses the same dark-brown (#281e18) rather than
+ * guessing a new one — the accent color itself doesn't change between
+ * themes, so the same dark text reads correctly on it either way.
+ *
+ * Chart series/gridline tokens are unchanged (validated dataviz palette,
+ * see the dataviz skill's references/palette.md) — this pass reskins
+ * chrome/typography, not chart rendering.
  */
 :root {
   color-scheme: light;
-  --page-plane: #f9f9f7;
-  --surface-1: #fcfcfb;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
+  --primary: #fffdfb;
+  --secondary: #f7f1e8;
+  --accent: #c1573b;
+  --text-primary: #3a2e27;
+  --text-secondary: #675e59;
+  --text-tertiary: #281e18;
+  --text-muted: color-mix(in srgb, var(--text-secondary) 70%, var(--primary) 30%);
+
+  --page-plane: var(--primary);
+  --surface-1: var(--secondary);
   --gridline: #e1e0d9;
   --baseline: #c3c2b7;
-  --border-hairline: rgba(11, 11, 11, 0.1);
+  --border-hairline: rgba(58, 46, 39, 0.12);
 
   --series-steps: #2a78d6; /* categorical slot 1 (blue) */
   --series-sleep: #1baf7a; /* categorical slot 3 (aqua) */
@@ -28,14 +40,19 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page-plane: #0d0d0d;
-    --surface-1: #1a1a19;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
-    --border-hairline: rgba(255, 255, 255, 0.1);
+    --primary: #281e18;
+    --secondary: #675e59;
+    --accent: #c1573b;
+    --text-primary: #fffdfb;
+    --text-secondary: #f7f1e8;
+    --text-tertiary: #281e18;
+    --text-muted: color-mix(in srgb, var(--text-secondary) 70%, var(--primary) 30%);
+
+    --page-plane: var(--primary);
+    --surface-1: var(--secondary);
+    --gridline: #3a332e;
+    --baseline: #4a423c;
+    --border-hairline: rgba(255, 253, 251, 0.14);
 
     --series-steps: #3987e5;
     --series-sleep: #199e70;

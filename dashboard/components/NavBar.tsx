@@ -43,6 +43,11 @@ export async function NavBar() {
             </Link>
           )}
           {profile?.role === "client" && (
+            <Link href="/client/check-in" className="hover:text-ink-primary">
+              Check-in
+            </Link>
+          )}
+          {profile?.role === "client" && (
             <InboxNavLink href="/client/inbox" role="client" profileId={profile.id} initialThreads={initialThreads} />
           )}
         </nav>

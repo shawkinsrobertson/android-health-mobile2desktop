@@ -98,7 +98,7 @@ export function TimeCombobox({
                 type="button"
                 onClick={() => commit(o.value)}
                 className={`block w-full px-3 py-1 text-left hover:bg-[color:var(--page-plane)] ${
-                  o.value === value ? "font-semibold text-[color:var(--series-steps)]" : "text-ink-primary"
+                  o.value === value ? "font-semibold text-[color:var(--accent)]" : "text-ink-primary"
                 }`}
               >
                 {o.label}

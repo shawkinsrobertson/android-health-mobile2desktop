@@ -19,7 +19,7 @@ export function CallSurface({ counterpartName }: { counterpartName: string }) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-6">
         <div className="w-full max-w-sm rounded-xl bg-surface p-6 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--series-steps)]/20 text-3xl">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent)]/20 text-3xl">
             📞
           </div>
           <h2 className="text-base font-semibold text-ink-primary">
@@ -52,7 +52,7 @@ export function CallSurface({ counterpartName }: { counterpartName: string }) {
                   type="button"
                   onClick={acceptCall}
                   disabled={isBusy}
-                  className="rounded-lg bg-[color:var(--series-steps)] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                  className="rounded-lg bg-[color:var(--accent)] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
                 >
                   Accept
                 </button>
@@ -96,7 +96,7 @@ function CallScreenGate({ counterpartName, onHangUp }: { counterpartName: string
         <button
           type="button"
           onClick={onHangUp}
-          className="rounded-lg bg-[color:var(--series-steps)] px-5 py-2.5 text-sm font-medium text-white"
+          className="rounded-lg bg-[color:var(--accent)] px-5 py-2.5 text-sm font-medium text-white"
         >
           Close
         </button>

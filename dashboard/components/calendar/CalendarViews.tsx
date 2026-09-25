@@ -38,7 +38,7 @@ export function EventRow({
         <button
           type="button"
           onClick={(e) => onJoin(event.id, e)}
-          className="shrink-0 rounded-md bg-[color:var(--series-steps)] px-2 py-1 text-xs font-medium text-white"
+          className="shrink-0 rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs font-medium text-white"
         >
           Join
         </button>
@@ -118,7 +118,7 @@ export function WeekGrid({
                   key={ev.id}
                   type="button"
                   onClick={() => onSelectEvent(ev)}
-                  className="truncate rounded bg-[color:var(--series-steps)]/20 px-1 py-0.5 text-left text-[11px] text-ink-primary"
+                  className="truncate rounded bg-[color:var(--accent)]/20 px-1 py-0.5 text-left text-[11px] text-ink-primary"
                 >
                   {ev.title}
                 </button>
@@ -168,7 +168,7 @@ export function MonthGrid({
                 type="button"
                 onClick={() => onSelectDay(day)}
                 className={`mb-1 text-xs ${
-                  isSameDay(day, today) ? "font-bold text-[color:var(--series-steps)]" : "text-ink-secondary"
+                  isSameDay(day, today) ? "font-bold text-[color:var(--accent)]" : "text-ink-secondary"
                 }`}
               >
                 {day.getDate()}
@@ -179,7 +179,7 @@ export function MonthGrid({
                     key={ev.id}
                     type="button"
                     onClick={() => onSelectEvent(ev)}
-                    className="truncate rounded bg-[color:var(--series-steps)]/20 px-1 text-left text-[10px] text-ink-primary"
+                    className="truncate rounded bg-[color:var(--accent)]/20 px-1 text-left text-[10px] text-ink-primary"
                   >
                     {ev.title}
                   </button>

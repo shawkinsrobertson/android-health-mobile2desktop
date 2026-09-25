@@ -95,7 +95,7 @@ export default async function ClientAssignedWorkoutPage({
       <form action={startWorkoutSession.bind(null, workout.id)}>
         <button
           type="submit"
-          className="w-full rounded-lg bg-[color:var(--series-steps)] px-4 py-3 text-sm font-medium text-white"
+          className="w-full rounded-lg bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white"
         >
           Log this workout
         </button>

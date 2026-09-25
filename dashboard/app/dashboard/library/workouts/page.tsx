@@ -41,7 +41,7 @@ export default async function WorkoutLibraryPage() {
         </div>
         <Link
           href="/dashboard/library/workouts/new"
-          className="rounded-lg bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+          className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
         >
           New workout
         </Link>

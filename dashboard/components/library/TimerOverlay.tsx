@@ -52,7 +52,7 @@ export function TimerOverlay() {
         <button
           type="button"
           onClick={finish}
-          className="rounded-lg bg-[color:var(--series-steps)] px-6 py-2 text-sm font-medium text-white"
+          className="rounded-lg bg-[color:var(--accent)] px-6 py-2 text-sm font-medium text-white"
         >
           {isWork ? "Done" : "Skip"}
         </button>
