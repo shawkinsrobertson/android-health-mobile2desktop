@@ -47,12 +47,28 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
  */
 class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
 
+    // Each of the four sub-fetches hits its own, unrelated table
+    // (chat/calendar/check-ins/workout_sessions) and is caught
+    // independently -- one of them failing (e.g. a migration this
+    // client's Supabase project hasn't been run against yet, like
+    // 0023_check_ins.sql before it's applied) must not null out the
+    // *entire* summary. Before this, a single failing query here left
+    // the whole notification shade + streak stuck showing HomeScreen's
+    // "still loading" spinner forever, indistinguishable from actually
+    // still being in flight -- since loadSummary() itself never
+    // completed, there was nothing to tell the difference.
     suspend fun loadSummary(clientId: String): HomeSummary {
-        val hasUnreadMessages = loadUnreadMessages(clientId)
-        val upcomingEvents = loadUpcomingEvents(clientId)
-        val checkInDue = loadCheckInDue(clientId)
-        val weekDays = loadWeekCompletion(clientId)
+        val hasUnreadMessages = runCatching { loadUnreadMessages(clientId) }.getOrDefault(false)
+        val upcomingEvents = runCatching { loadUpcomingEvents(clientId) }.getOrDefault(emptyList())
+        val checkInDue = runCatching { loadCheckInDue(clientId) }.getOrDefault(false)
+        val weekDays = runCatching { loadWeekCompletion(clientId) }.getOrDefault(emptyWeek())
         return HomeSummary(hasUnreadMessages, upcomingEvents, checkInDue, weekDays)
+    }
+
+    private fun emptyWeek(): List<WeekDay> {
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val weekStart = today.minusDays(today.dayOfWeek.value.toLong() % 7)
+        return (0..6).map { offset -> WeekDay(weekStart.plusDays(offset.toLong()), DayCompletion.NONE) }
     }
 
     private suspend fun loadUnreadMessages(clientId: String): Boolean {

@@ -213,14 +213,18 @@ class MainActivity : ComponentActivity() {
                             "client"
                         }
                         if (role != "coach") {
+                            // loadSummary() itself already catches each of
+                            // its four sub-fetches independently and falls
+                            // back to empty/false per one -- this outer
+                            // catch is only a last-resort guard against
+                            // something failing before that point (e.g.
+                            // SupabaseRestClient's own init check). A
+                            // non-null empty HomeSummary is what actually
+                            // lets HomeScreen tell "still loading" apart
+                            // from "loaded, nothing to show."
                             homeSummary = try {
                                 HomeSummaryRepository(SupabaseRestClient(token)).loadSummary(id)
                             } catch (e: Exception) {
-                                // Notification shade/streak just render
-                                // empty rather than the whole Home screen
-                                // failing over one of four unrelated
-                                // queries (chat/calendar/check-ins/
-                                // sessions) hitting a transient error.
                                 null
                             }
                         }

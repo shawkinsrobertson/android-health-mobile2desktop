@@ -907,6 +907,36 @@ wrapper in this environment to actually compile against (see Phase 6's
 opening note). Not opened in a browser or on a device -- flagged
 plainly rather than claimed as tested.
 
+**Two real bugs found on first live device test, both fixed**:
+
+1. **The redesigned client Home screen's greeting text overlapped the
+   status bar, and the slide-out nav sat half-hidden behind the system
+   navigation bar.** Root cause: the old `HomeScreen` had a `Scaffold`
+   wrapping everything, which applies window-inset padding
+   automatically; the redesign replaced it with a plain `Box`/`Column`
+   to make room for the custom notification shade at the very top, and
+   never added that padding back. With `targetSdk 36` enforcing
+   edge-to-edge regardless of any explicit opt-in, content drew straight
+   under the system bars. Fixed with a single `.safeDrawingPadding()` on
+   the outer `Box`.
+2. **The notification shade + streak heatmap could get stuck showing a
+   permanent loading spinner.** `HomeSummaryRepository.loadSummary()`
+   ran its four sub-fetches (unread messages, upcoming calendar events,
+   check-in due, week completion) with one shared, outer try/catch in
+   `MainActivity` -- any single one throwing (e.g. querying
+   `check_in_templates` against a Supabase project that hadn't had
+   `0023_check_ins.sql` applied yet) failed the *entire* summary,
+   leaving `homeSummary` permanently `null` and `HomeScreen` stuck on
+   its "still loading" spinner forever -- indistinguishable from
+   actually still being in flight, since there was no separate "failed"
+   state. Fixed by catching each of the four sub-fetches independently
+   (`runCatching` per fetch, falling back to false/empty/an all-`NONE`
+   week) so one missing table can't blank out the other three, and a
+   `HomeSummary` now always resolves to *something* non-null once the
+   fetch completes -- which is also what actually lets the UI
+   distinguish "loaded, nothing to show" from "still loading" in the
+   first place.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

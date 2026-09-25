@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -43,7 +44,13 @@ fun HomeScreen(
     onOpenCheckIn: () -> Unit,
     onOpenProfile: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Dropping the old Scaffold/TopAppBar (see below) meant losing the
+    // window-inset padding Scaffold applied automatically -- without this,
+    // content draws straight under the status bar and the slide-out nav
+    // sits half-hidden behind the system navigation bar on edge-to-edge
+    // devices (targetSdk 36 enforces edge-to-edge regardless of any
+    // explicit opt-in).
+    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (homeSummary != null) {
                 NotificationShade(
