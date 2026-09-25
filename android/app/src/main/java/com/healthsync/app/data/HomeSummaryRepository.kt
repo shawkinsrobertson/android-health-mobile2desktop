@@ -15,8 +15,12 @@ data class UpcomingEvent(val title: String, val startTime: Instant)
 
 data class TopDataPointSummary(val key: String, val label: String, val summary: String)
 
+/** The shade's "New Messages" card preview -- only populated for an incoming (coach-sent) message, matching the mockup's "Your Coach: ..." framing. */
+data class MessagePreview(val senderLabel: String, val body: String)
+
 data class HomeSummary(
     val hasUnreadMessages: Boolean,
+    val latestMessage: MessagePreview?,
     val upcomingEvents: List<UpcomingEvent>,
     val checkInDue: Boolean,
     // Sunday..Saturday, the local week containing today -- always 7
@@ -56,9 +60,9 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
  */
 class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
 
-    // Each of the four sub-fetches hits its own, unrelated table
-    // (chat/calendar/check-ins/workout_sessions) and is caught
-    // independently -- one of them failing (e.g. a migration this
+    // Each sub-fetch hits its own, unrelated table
+    // (chat/calendar/check-ins/workout_sessions/client_profiles) and is
+    // caught independently -- one of them failing (e.g. a migration this
     // client's Supabase project hasn't been run against yet, like
     // 0023_check_ins.sql before it's applied) must not null out the
     // *entire* summary. Before this, a single failing query here left
@@ -68,12 +72,13 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
     // completed, there was nothing to tell the difference.
     suspend fun loadSummary(clientId: String): HomeSummary {
         val hasUnreadMessages = runCatching { loadUnreadMessages(clientId) }.getOrDefault(false)
+        val latestMessage = runCatching { loadLatestMessagePreview(clientId) }.getOrNull()
         val upcomingEvents = runCatching { loadUpcomingEvents(clientId) }.getOrDefault(emptyList())
         val checkInDue = runCatching { loadCheckInDue(clientId) }.getOrDefault(false)
         val weekDays = runCatching { loadWeekCompletion(clientId) }.getOrDefault(emptyWeek())
         val topDataPoints = runCatching { loadTopDataPoints(clientId) }.getOrDefault(emptyList())
         val trainingItem = runCatching { WorkoutRepository(supabase).getNextTrainingItem(clientId) }.getOrNull()
-        return HomeSummary(hasUnreadMessages, upcomingEvents, checkInDue, weekDays, topDataPoints, trainingItem)
+        return HomeSummary(hasUnreadMessages, latestMessage, upcomingEvents, checkInDue, weekDays, topDataPoints, trainingItem)
     }
 
     private suspend fun loadTopDataPoints(clientId: String): List<TopDataPointSummary> {
@@ -107,6 +112,33 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         if (lastSenderId == clientId) return false
         val lastRead = thread.optString("client_last_read_at").ifBlank { null } ?: return true
         return Instant.parse(lastMessageAt).isAfter(Instant.parse(lastRead))
+    }
+
+    // Only surfaces a preview for an incoming (coach-sent) message -- the
+    // mockup's "New Messages" card reads as "here's what your coach just
+    // said," not a log of the client's own last reply.
+    private suspend fun loadLatestMessagePreview(clientId: String): MessagePreview? {
+        val threadRows = supabase.select(
+            "chat_threads",
+            mapOf("select" to "id", "client_id" to "eq.$clientId", "limit" to "1"),
+        )
+        if (threadRows.length() == 0) return null
+        val threadId = threadRows.getJSONObject(0).getString("id")
+
+        val messageRows = supabase.select(
+            "chat_messages",
+            mapOf(
+                "select" to "body,sender_role",
+                "thread_id" to "eq.$threadId",
+                "order" to "created_at.desc",
+                "limit" to "1",
+            ),
+        )
+        if (messageRows.length() == 0) return null
+        val message = messageRows.getJSONObject(0)
+        if (message.optString("sender_role") != "coach") return null
+        val body = message.optString("body").ifBlank { null } ?: return null
+        return MessagePreview(senderLabel = "Your Coach", body = body)
     }
 
     private suspend fun loadUpcomingEvents(clientId: String): List<UpcomingEvent> {

@@ -23,6 +23,17 @@ data class ClientSummary(
  */
 class ProfileRepository(private val supabase: SupabaseRestClient) {
 
+    /** First name (or full name if that's all there is) for the home screen's "Hey, {name}" greeting -- falls back to null (caller falls back to email) if unset. */
+    suspend fun loadDisplayName(userId: String): String? {
+        val rows = supabase.select(
+            "profiles",
+            mapOf("select" to "full_name", "id" to "eq.$userId"),
+        )
+        if (rows.length() == 0) return null
+        val fullName = rows.getJSONObject(0).optString("full_name").ifBlank { null } ?: return null
+        return fullName.substringBefore(" ")
+    }
+
     suspend fun loadRole(userId: String): String {
         val rows = supabase.select(
             "profiles",

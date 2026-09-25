@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -34,22 +34,24 @@ import com.healthsync.app.ui.nav.SlideOutNav
 
 // Sync (manual + force re-sync + per-type status) lives entirely on
 // ProfileScreen now, reachable from the slide-out nav -- this screen is
-// purely the shade + nav. The weekly streak also moved into the shade
-// itself (a compact StreakPreview in its collapsed row, the full
-// StreakHeatmap in its expanded panel) per the mockup. Below the greeting:
-// up to 3 stat cards for whichever data points the client picked
-// (client_profiles.top_data_points -- empty means they haven't picked any
-// yet, rendered as simply not showing the row, not an error state), then
-// a "Your Training" card for the next workout HomeSummaryRepository
-// resolved (program-aware if they're on one, else the existing standalone
-// fallback -- see WorkoutRepository.getNextTrainingItem), or the mockup's
-// empty-state copy when nothing's assigned at all.
+// purely the shade + nav. The greeting/date now live *inside* the shade
+// itself (see NotificationShade's doc comment), and the shade's own
+// background is meant to extend to the very top of the screen -- this
+// screen deliberately does NOT wrap everything in one blanket inset
+// modifier the way it used to (`safeDrawingPadding()` on the outer Box),
+// since that would push the shade's background down below the status bar
+// along with everything else. Instead: NotificationShade applies its own
+// top (status bar) inset internally, and this screen applies bottom/nav-
+// bar inset only where it's actually needed (the scrollable content
+// column, and SlideOutNav's own position).
 @Composable
 fun HomeScreen(
     healthConnectAvailable: Boolean,
     hasPermissions: Boolean?,
     homeSummary: HomeSummary?,
-    email: String?,
+    displayName: String?,
+    navExpanded: Boolean,
+    onToggleNav: () -> Unit,
     onRequestPermissions: () -> Unit,
     onInstallHealthConnect: () -> Unit,
     onOpenStats: () -> Unit,
@@ -71,18 +73,14 @@ fun HomeScreen(
     // their own colors explicitly off MaterialTheme.colorScheme) looked
     // right while the background and greeting text didn't move at all.
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        // Window-inset padding is a second, separate thing Scaffold used
-        // to give us for free -- without this, content draws straight
-        // under the status bar and the slide-out nav sits half-hidden
-        // behind the system navigation bar on edge-to-edge devices
-        // (targetSdk 36 enforces edge-to-edge regardless of any explicit
-        // opt-in).
-        Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+        Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (homeSummary != null) {
                     NotificationShade(
                         content = ShadeContent(
+                            displayName = displayName,
                             hasUnreadMessages = homeSummary.hasUnreadMessages,
+                            latestMessage = homeSummary.latestMessage,
                             upcomingEvents = homeSummary.upcomingEvents,
                             checkInDue = homeSummary.checkInDue,
                             weekDays = homeSummary.weekDays,
@@ -97,14 +95,9 @@ fun HomeScreen(
                     modifier = Modifier
                         .padding(16.dp)
                         .fillMaxSize()
+                        .navigationBarsPadding()
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        email?.let { "Hey, $it" } ?: "Hey",
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                    Spacer(Modifier.height(20.dp))
-
                     when {
                         !healthConnectAvailable -> {
                             Text("Health Connect isn't installed on this device, or needs an update.")
@@ -149,10 +142,10 @@ fun HomeScreen(
 
             SlideOutNav(
                 destinations = listOf(
-                    NavDestination("Stats", iconRes = R.drawable.ic_stats, onClick = onOpenStats),
                     NavDestination("Workouts", iconRes = R.drawable.ic_dumbbell, onClick = onOpenWorkouts),
                     NavDestination("Calendar", iconRes = R.drawable.ic_calendar, onClick = onOpenCalendar),
                     NavDestination("Inbox", iconRes = R.drawable.ic_inbox, onClick = onOpenInbox),
+                    NavDestination("Stats", iconRes = R.drawable.ic_stats, onClick = onOpenStats),
                     NavDestination(
                         "Profile",
                         iconRes = R.drawable.ic_profile_placeholder,
@@ -160,8 +153,11 @@ fun HomeScreen(
                         onClick = onOpenProfile,
                     ),
                 ),
+                expanded = navExpanded,
+                onToggleExpanded = onToggleNav,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
                     .padding(16.dp),
             )
         }

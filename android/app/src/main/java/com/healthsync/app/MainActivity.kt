@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,7 +189,16 @@ class MainActivity : ComponentActivity() {
                     // is never stuck on a blank screen over this.
                     var userId by remember { mutableStateOf<String?>(null) }
                     var role by remember { mutableStateOf<String?>(null) }
+                    var displayName by remember { mutableStateOf<String?>(null) }
                     var homeSummary by remember { mutableStateOf<HomeSummary?>(null) }
+                    // Hoisted here (not `remember`ed inside SlideOutNav)
+                    // so it survives navigating to a destination and back
+                    // to Home -- AuthNavHost's ROUTE_HOME composable, and
+                    // everything nested inside it including HomeScreen/
+                    // SlideOutNav, gets torn down and recreated on that
+                    // round trip; this val lives in MainActivity's own
+                    // composition, which doesn't.
+                    var navExpanded by rememberSaveable { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
                         val token = authRepository.getValidAccessToken()
                         if (token == null) {
@@ -214,6 +224,11 @@ class MainActivity : ComponentActivity() {
                             "client"
                         }
                         if (role != "coach") {
+                            displayName = try {
+                                ProfileRepository(SupabaseRestClient(token)).loadDisplayName(id)
+                            } catch (e: Exception) {
+                                null
+                            }
                             // loadSummary() itself already catches each of
                             // its four sub-fetches independently and falls
                             // back to empty/false per one -- this outer
@@ -243,7 +258,9 @@ class MainActivity : ComponentActivity() {
                             healthConnectAvailable = healthConnectManager.isAvailable,
                             hasPermissions = hasPermissions,
                             homeSummary = homeSummary,
-                            email = email,
+                            displayName = displayName,
+                            navExpanded = navExpanded,
+                            onToggleNav = { navExpanded = !navExpanded },
                             onRequestPermissions = {
                                 permissionLauncher.launch(healthConnectManager.requiredPermissions)
                             },

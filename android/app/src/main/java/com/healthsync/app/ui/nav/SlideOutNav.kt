@@ -17,10 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,34 +41,58 @@ data class NavDestination(
     val onClick: () -> Unit,
 )
 
-// Bottom-left slide-out nav: a single round button that, tapped, expands
-// into a pill row of destination icons (stats/workouts/calendar/inbox/
-// profile) -- tapping the same arrow again collapses it, per the mockup.
-@Composable
-fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifier) {
-    var open by remember { mutableStateOf(false) }
+private val BUTTON_SIZE = 52.dp
+private val ICON_SIZE = 26.dp
+private val PILL_RADIUS = 32.dp
+private val PILL_PADDING = 6.dp
+private val ITEM_SPACING = 6.dp
 
+// Bottom-left slide-out nav: collapsed, it's a single round toggle button;
+// tapped, it expands into a pill of destination icons (workouts/calendar/
+// inbox/stats/profile) with the same toggle arrow now at the *end* of the
+// row, tapping it again collapses back to just the round button -- per
+// the mockup, where the collapsed state's lone circular arrow button
+// visually IS the expanded pill's trailing arrow icon.
+//
+// [expanded]/[onToggleExpanded] are hoisted by the caller (MainActivity)
+// rather than `remember`ed internally here, so the open/closed state
+// survives navigating to a destination and back to Home -- SlideOutNav
+// itself gets torn down and recomposed fresh on that round trip (it's
+// nested inside HomeScreen, which AuthNavHost's `composable(ROUTE_HOME)`
+// recreates every time Home is re-entered), so internal `remember` state
+// would have reset to closed on every return.
+@Composable
+fun SlideOutNav(
+    destinations: List<NavDestination>,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(28.dp))
+            .clip(RoundedCornerShape(PILL_RADIUS))
             .background(MaterialTheme.colorScheme.primary)
-            .padding(4.dp),
+            .padding(PILL_PADDING),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NavIconButton(
-            iconRes = R.drawable.ic_nav_toggle,
-            contentDescription = if (open) "Close menu" else "Open menu",
-            rotationDegrees = if (open) 180f else 0f,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            onClick = { open = !open },
-        )
-
+        // The trailing spacer is INSIDE AnimatedVisibility's content, not
+        // on the outer Row (an earlier draft put ITEM_SPACING on the
+        // outer Row's own Arrangement.spacedBy, which left a spurious gap
+        // baked into the collapsed pill -- AnimatedVisibility still
+        // counts as a layout child at zero width when invisible, so
+        // spacedBy still inserted a gap before the toggle button even
+        // with nothing expanded to justify it). Keeping the spacer inside
+        // means it collapses to nothing right along with everything else
+        // in here.
         AnimatedVisibility(
-            visible = open,
+            visible = expanded,
             enter = expandHorizontally() + fadeIn(),
             exit = shrinkHorizontally() + fadeOut(),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.padding(end = ITEM_SPACING),
+                horizontalArrangement = Arrangement.spacedBy(ITEM_SPACING),
+            ) {
                 destinations.forEach { destination ->
                     if (destination.iconRes != null) {
                         NavIconButton(
@@ -80,7 +100,7 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
                             contentDescription = destination.label,
                             contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
                             onClick = {
-                                open = false
+                                onToggleExpanded()
                                 destination.onClick()
                             },
                         )
@@ -89,7 +109,7 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
                             glyph = destination.glyph.orEmpty(),
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                             onClick = {
-                                open = false
+                                onToggleExpanded()
                                 destination.onClick()
                             },
                         )
@@ -97,6 +117,14 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
                 }
             }
         }
+
+        NavIconButton(
+            iconRes = R.drawable.ic_nav_toggle,
+            contentDescription = if (expanded) "Close menu" else "Open menu",
+            rotationDegrees = if (expanded) 180f else 0f,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            onClick = onToggleExpanded,
+        )
     }
 }
 
@@ -110,7 +138,7 @@ private fun NavIconButton(
 ) {
     Row(
         modifier = Modifier
-            .size(44.dp)
+            .size(BUTTON_SIZE)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         horizontalArrangement = Arrangement.Center,
@@ -120,7 +148,7 @@ private fun NavIconButton(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
             tint = contentColor,
-            modifier = Modifier.size(22.dp).rotate(rotationDegrees),
+            modifier = Modifier.size(ICON_SIZE).rotate(rotationDegrees),
         )
     }
 }
@@ -129,7 +157,7 @@ private fun NavIconButton(
 private fun NavGlyphButton(glyph: String, contentColor: Color, onClick: () -> Unit) {
     Row(
         modifier = Modifier
-            .size(44.dp)
+            .size(BUTTON_SIZE)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         horizontalArrangement = Arrangement.Center,

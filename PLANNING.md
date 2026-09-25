@@ -1235,3 +1235,93 @@ change in this project.
   a join table cold, since every "coach's clients" query today assumes the
   single-FK model.
 - **Magic link (email OTP)** is the only auth method. No passwords.
+
+## Phase 9 -- Android home shade + nav redesign, from a second mockup pass
+
+A follow-up mockup (two screens: shade closed, shade open) revised the
+Phase 8 client home screen further. Changes, and the interpretations
+made where the mockup left something ambiguous:
+
+**Greeting moved into the shade itself.** "Hey, {name}" + today's date
+now render as the shade's own header row, not `HomeScreen`'s body text
+below it -- `NotificationShade`'s `ShadeContent` gained a `displayName`
+field. Needed a real first name to match the mockup's "Hey, Alex" (this
+screen previously only had the client's `email`) -- `ProfileRepository`
+gained `loadDisplayName`, reading `profiles.full_name` and taking the
+first word; falls back to plain "Hey" if unset.
+
+**Shade background extends to the true top of the screen.** Previously
+`HomeScreen` wrapped everything in one blanket `.safeDrawingPadding()`,
+which pushed the shade's background down below the status bar along
+with its content. Split apart: `NotificationShade` now applies
+`.statusBarsPadding()` to its own *content* only, after its background
+modifier -- the color still paints behind the status bar, only the
+greeting/icons themselves sit below it. `HomeScreen`'s outer container
+dropped the blanket inset entirely; the scrollable content column and
+`SlideOutNav` each apply their own `.navigationBarsPadding()` instead,
+since only they need bottom-inset protection now.
+
+**Centered pull-tab replaces "tap anywhere in the row."** A small,
+distinct rounded chip with the chevron, horizontally centered at the
+bottom of whatever the shade is currently showing (closed row or
+expanded panel) -- `ShadeTab`, its own composable rather than folding
+the tap target into the existing row layout as before.
+
+**Collapsed row's streak indicator: 7 dots -> 3 squares.** The mockup's
+closed state shows 3 small colored squares, not the existing
+`StreakPreview`'s full 7-dot week. Interpreted as "the last 3 days up to
+and including today" (new `MiniStreak`, replacing `StreakPreview`) --
+one from-the-mockup detail that's genuinely ambiguous (it could just as
+easily mean "3 most recent non-empty days" or something else); this is
+the most literal reading of "a short recent glance" and is easy to
+revise if wrong.
+
+**Expanded panel redesigned.** "You're on a roll" headline (static
+copy, not computed) above the full `StreakHeatmap`, which itself flipped
+day-letters from above each cell to below (matching the mockup) and
+went slightly squarer (8dp -> 6dp corner radius). Messages/Calendar/
+Tasks went from single-line `ShadeRow` text to title+subtitle preview
+cards: Messages needed an actual message body to show, so
+`HomeSummaryRepository` gained `loadLatestMessagePreview` (the thread's
+most recent message, only surfaced when it's an *incoming* one --
+`sender_role = 'coach'` -- matching the mockup's "Your Coach: ..."
+framing, not a log of the client's own last reply). Calendar's card
+additionally gets a small "OCT 13"-style date chip, derived client-side
+from the event's existing `start_time` (no new data needed). Tasks kept
+its existing copy, split into title/subtitle with a trailing arrow
+glyph.
+
+**Nav enlarged ~18% and reordered.** Button 44dp -> 52dp, icon 22dp ->
+26dp, pill corner radius 28dp -> 32dp -- roughly the requested 15-20%.
+Destination order now matches the mockup (Workouts, Calendar, Inbox,
+Stats, Profile) instead of the previous Stats-first order. The toggle
+arrow moved from the *start* of the row to the *end* -- the mockup's
+collapsed state is a single circular arrow button that visually *is*
+the expanded pill's trailing icon, not a separate leading control.
+
+**Nav's open/closed state now survives leaving and returning to Home.**
+Previously `remember`ed inside `SlideOutNav` itself, which gets torn
+down and recreated every time `AuthNavHost`'s `ROUTE_HOME` composable is
+re-entered (e.g. after visiting Workouts and tapping back) -- so the nav
+always silently re-collapsed on return, regardless of what the client
+left it as. Hoisted `expanded`/`onToggleExpanded` up to `MainActivity`
+(`rememberSaveable`, so it also survives rotation/process death) and
+threaded through `HomeScreen`. Deliberately scoped narrower than "stays
+expanded across every screen": `SlideOutNav` only renders on `HomeScreen`
+today (Calendar/Inbox/Workout/Profile/Stats don't show a bottom nav at
+all) -- putting it on every screen is a bigger structural change than
+this pass covers, so what shipped is "the state persists, ready for
+wherever the nav is shown," not "the nav is now on every screen."
+
+One real bug caught during this pass, worth naming since it's invisible
+without a device: an early draft put the destinations-to-toggle-button
+gap on the *outer* `Row`'s own `Arrangement.spacedBy`, which still
+inserts a gap between `AnimatedVisibility` and the next child even when
+that `AnimatedVisibility` has shrunk to zero width while collapsed --
+would have left the collapsed circle looking slightly off-center with a
+spurious gap baked in. Fixed by moving the gap onto the *inner* Row
+(inside `AnimatedVisibility`'s own content, as trailing end-padding), so
+it collapses to nothing together with everything else in there.
+
+Same manual-review-only posture as every other Android change in this
+project.
