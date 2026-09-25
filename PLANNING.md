@@ -531,8 +531,9 @@ table, same pattern as the existing 7:
 - **Activity** (extends steps/exercise): `ActiveCaloriesBurnedRecord`,
   `TotalCaloriesBurnedRecord`, `DistanceRecord`, `FloorsClimbedRecord`.
 - **Body measurement**: `BasalMetabolicRateRecord`, `WeightRecord`.
-- **Vitals** (extends HR/SpO2/BP/resp-rate): `BloodGlucoseRecord`,
-  `BodyTemperatureRecord`.
+- **Vitals** (extends HR/SpO2/BP/resp-rate): `BodyTemperatureRecord`.
+  (`BloodGlucoseRecord`, also originally scoped here, shipped separately
+  -- see Phase 8's blood glucose note.)
 - **Nutrition**: `HydrationRecord`, and `NutritionRecord` scoped to a
   curated macro subset -- calories, protein, carbs, fat, sugar, fiber,
   sodium -- not the 40+ individual-nutrient fields Health Connect exposes
@@ -873,12 +874,31 @@ a scoped `sed` pass over exactly those two literal class-name patterns,
 reverted after the first pass swept it up too -- that one genuinely
 needs to stay the dataviz blue, not become the brand accent).
 
-**Known gap, surfaced but not resolved this pass**: the mockup's "Your
-Top 3" stat cards reference an "Avg. BG" (blood glucose) stat. This app
-does not sync blood glucose anywhere -- `BloodGlucoseRecord` is listed
-only as a future Health Connect type in Phase 6. Not addressed here;
-whatever builds the "Your Top 3" cards for real needs to either add that
-sync path or pick a different third stat.
+**Known gap, surfaced then resolved as a same-day follow-up**: the
+mockup's "Your Top 3" stat cards reference an "Avg. BG" (blood glucose)
+stat, and this app didn't sync blood glucose anywhere when this pass
+first shipped. Closed immediately after: `0024_blood_glucose.sql` adds a
+`blood_glucose` table in the current (post-0022) per-client shape
+directly -- `client_id not null` and `unique(client_id,
+health_connect_id)` from the start, no legacy anon-RLS rows to migrate
+through, plus adds `'blood_glucose'` to `client_data_consent`'s type
+check constraint. Android gets a new `SyncSpec` (`BloodGlucoseRecord`,
+90-day initial backfill matching `blood_pressure`'s window rather than
+the 14-day one used for the higher-frequency SpO2/respiratory-rate
+samples, since blood glucose readings for a non-CGM user tend to be
+sparse) plus the matching `READ_BLOOD_GLUCOSE` manifest permission
+(permissions requested at runtime are already derived automatically
+from `allSyncSpecs` -- see `HealthConnectManager.requiredPermissions` --
+but the manifest declaration is separate and has to be added by hand).
+Web: `blood_glucose` added to `DATA_POINTS` and a new
+`getDataPointSummary` case (average mg/dL over the last 7 days, same
+shape as the existing `blood_oxygen`/`respiratory_rate` cases, so it can
+actually back an "Avg. BG" stat once one gets built) -- picked up
+automatically by the AI assistant's `get_data_point_summary` tool and
+the client's data-point picker, both already generic over `DATA_POINTS`.
+The "Your Top 3" stat cards themselves are still not built -- this only
+means blood glucose is now real, synced data available whenever they
+are.
 
 **Verification**: `npx tsc --noEmit`, `npx next lint`, `npx next build`
 (dummy env) all clean on the web side. Android: manual review only, same

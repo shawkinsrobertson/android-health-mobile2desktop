@@ -448,6 +448,20 @@ export async function getDataPointSummary(
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg} breaths/min avg this week`;
     }
+    case "blood_glucose": {
+      const data = await fetchAllRows<{ level_mg_dl: number }>((from, to) =>
+        supabase
+          .from("blood_glucose")
+          .select("level_mg_dl")
+          .eq("client_id", clientId)
+          .gte("sample_time", since)
+          .range(from, to),
+      );
+      const samples = data.map((r) => Number(r.level_mg_dl));
+      if (!samples.length) return "No blood glucose data synced yet";
+      const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+      return `${avg} mg/dL avg this week`;
+    }
     default:
       return "No data synced yet";
   }

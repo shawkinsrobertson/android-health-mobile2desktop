@@ -1,5 +1,6 @@
 package com.healthsync.app.healthconnect
 
+import androidx.health.connect.client.records.BloodGlucoseRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
@@ -175,6 +176,27 @@ val allSyncSpecs: List<SyncSpec<out Record>> = listOf(
                     "health_connect_id" to record.metadata.id,
                     "sample_time" to instantIso(record.time),
                     "breaths_per_minute" to record.rate,
+                    "source_package" to record.metadata.dataOrigin.packageName,
+                )
+            )
+        )
+    },
+
+    SyncSpec(
+        key = "blood_glucose",
+        recordType = BloodGlucoseRecord::class,
+        tables = listOf("blood_glucose"),
+        initialBackfillDays = 90,
+    ) { record ->
+        mapOf(
+            "blood_glucose" to listOf(
+                mapOf(
+                    "health_connect_id" to record.metadata.id,
+                    "sample_time" to instantIso(record.time),
+                    "level_mg_dl" to record.level.inMilligramsPerDeciliter,
+                    "specimen_source_code" to record.specimenSource,
+                    "meal_type_code" to record.mealType,
+                    "relation_to_meal_code" to record.relationToMeal,
                     "source_package" to record.metadata.dataOrigin.packageName,
                 )
             )

@@ -106,8 +106,8 @@ export async function fetchSleepForAssistant(
 }
 
 // Covers the remaining data-point types (heart_rate_samples,
-// exercise_sessions, blood_oxygen, blood_pressure, respiratory_rate) --
-// steps and sleep have their own richer fetchers above.
+// exercise_sessions, blood_oxygen, blood_pressure, respiratory_rate,
+// blood_glucose) -- steps and sleep have their own richer fetchers above.
 export async function fetchDataPointForAssistant(
   supabase: SupabaseClient,
   clientId: string,

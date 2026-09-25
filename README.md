@@ -24,9 +24,9 @@ an AI training coach grounded in that data.
 
 - **`android/`** — Kotlin/Jetpack Compose app. Reads Steps, Heart Rate,
   Sleep, Exercise sessions, and vitals (SpO2, blood pressure, respiratory
-  rate) from Health Connect and upserts them into Supabase. Runs a
-  background sync roughly every 15 minutes via WorkManager, plus a manual
-  "Sync now" button.
+  rate, blood glucose) from Health Connect and upserts them into
+  Supabase. Runs a background sync roughly every 15 minutes via
+  WorkManager, plus a manual "Sync now" button.
 - **`supabase/`** — SQL migration for the Postgres schema those tables
   live in.
 - **`dashboard/`** — Next.js app that reads the same Supabase project.
@@ -123,11 +123,13 @@ the dashboard; `handle_new_user()` (see `0002_accounts.sql`) already
 created their account then, so this is a plain sign-in, never a signup.
 The health-data tables (`steps`, `heart_rate_samples`, `sleep_sessions`,
 `sleep_stages`, `exercise_sessions`, `blood_oxygen`, `blood_pressure`,
-`respiratory_rate`) carry a real `client_id` column now, RLS-scoped to
-`auth.uid()` -- a client sees only their own rows, their coach sees their
-own clients' via the same `client_profiles.coach_id` pattern used
-elsewhere. See
-[`supabase/migrations/0015_health_data_auth.sql`](supabase/migrations/0015_health_data_auth.sql).
+`respiratory_rate`, `blood_glucose`) carry a real `client_id` column now,
+RLS-scoped to `auth.uid()` -- a client sees only their own rows, their
+coach sees their own clients' via the same `client_profiles.coach_id`
+pattern used elsewhere. See
+[`supabase/migrations/0015_health_data_auth.sql`](supabase/migrations/0015_health_data_auth.sql)
+(`blood_glucose` itself was added later, directly in this shape, by
+[`0024_blood_glucose.sql`](supabase/migrations/0024_blood_glucose.sql)).
 (The earlier manually-entered sync-code stopgap --
 [`0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql) -- is fully
 retired; the column it used is left in place, harmless, but no longer
@@ -217,6 +219,9 @@ querying directly or building dashboard features around them:
   [`ExerciseSessionRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/ExerciseSessionRecord).
 - `blood_pressure.body_position_code` / `measurement_location_code` — see
   [`BloodPressureRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/BloodPressureRecord).
+- `blood_glucose.specimen_source_code` / `meal_type_code` /
+  `relation_to_meal_code` — see
+  [`BloodGlucoseRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/BloodGlucoseRecord).
 
 ## Known gaps / natural next steps
 
