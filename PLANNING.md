@@ -1013,6 +1013,27 @@ recoloring it to match the nav pill -- Profile is the first and only
 caller of `tinted = false`. Closes the one real gap the icon set left
 open.
 
+**Confirmed on device (colors + icons both correct in dark theme), then
+a layout request from that same test round**: move the streak heatmap
+into the notification shade itself, collapsed-state showing a compact
+generic preview on the right (matching the mockup) rather than living in
+`HomeScreen`'s own body. `ShadeContent` gained a `weekDays` field;
+`StreakHeatmap.kt` gained a second composable, `StreakPreview` -- a
+small 7-dot row, same DONE/PARTIAL/NONE coloring as the full heatmap,
+sized to sit inline with the shade's category icons. The closed shade
+row now reads icons-left, `StreakPreview` + the expand chevron grouped
+right; expanding reveals a new "This week" section (the full
+`StreakHeatmap`) ahead of Messages/Calendar/Tasks. Caught and fixed a
+contrast bug while doing this: the heatmap's own "NONE" cell color was
+`colorScheme.surfaceVariant`, which in this theme is the *same* color as
+the shade's own background (`colorScheme.surface`) -- fine sitting on
+the page background, invisible sitting inside the shade. Both
+`StreakHeatmap` and `StreakPreview` now use a theme-independent
+`onSurface.copy(alpha = 0.12f)` for empty days instead, visible against
+either background. `HomeScreen`'s own body is now just the greeting --
+deliberately empty otherwise, until something like the mockup's "Your
+Top 3" stat cards gets built.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

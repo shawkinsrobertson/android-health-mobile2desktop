@@ -22,13 +22,16 @@ import com.healthsync.app.R
 import com.healthsync.app.data.HomeSummary
 import com.healthsync.app.ui.home.NotificationShade
 import com.healthsync.app.ui.home.ShadeContent
-import com.healthsync.app.ui.home.StreakHeatmap
 import com.healthsync.app.ui.nav.NavDestination
 import com.healthsync.app.ui.nav.SlideOutNav
 
 // Sync (manual + force re-sync + per-type status) lives entirely on
 // ProfileScreen now, reachable from the slide-out nav -- this screen is
-// purely the shade + streak + nav, no data-management controls.
+// purely the shade + nav. The weekly streak also moved into the shade
+// itself (a compact StreakPreview in its collapsed row, the full
+// StreakHeatmap in its expanded panel) per the mockup, so this screen's
+// own body is just the greeting once permissions are granted -- there's
+// deliberately nothing else here yet.
 @Composable
 fun HomeScreen(
     healthConnectAvailable: Boolean,
@@ -70,6 +73,7 @@ fun HomeScreen(
                             hasUnreadMessages = homeSummary.hasUnreadMessages,
                             upcomingEvents = homeSummary.upcomingEvents,
                             checkInDue = homeSummary.checkInDue,
+                            weekDays = homeSummary.weekDays,
                             onOpenInbox = onOpenInbox,
                             onOpenCalendar = onOpenCalendar,
                             onOpenCheckIn = onOpenCheckIn,
@@ -110,15 +114,7 @@ fun HomeScreen(
                             }
                         }
 
-                        else -> {
-                            Text("This week", style = MaterialTheme.typography.labelLarge)
-                            Spacer(Modifier.height(8.dp))
-                            if (homeSummary != null) {
-                                StreakHeatmap(weekDays = homeSummary.weekDays)
-                            } else {
-                                CircularProgressIndicator()
-                            }
-                        }
+                        else -> Unit
                     }
 
                     // Bottom padding so the last item isn't hidden behind

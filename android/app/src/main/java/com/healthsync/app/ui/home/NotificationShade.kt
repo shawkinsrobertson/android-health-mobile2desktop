@@ -30,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.R
 import com.healthsync.app.data.UpcomingEvent
+import com.healthsync.app.data.WeekDay
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -37,6 +38,7 @@ data class ShadeContent(
     val hasUnreadMessages: Boolean,
     val upcomingEvents: List<UpcomingEvent>,
     val checkInDue: Boolean,
+    val weekDays: List<WeekDay>,
     val onOpenInbox: () -> Unit,
     val onOpenCalendar: () -> Unit,
     val onOpenCheckIn: () -> Unit,
@@ -72,18 +74,28 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
                 ShadeGlyph(R.drawable.ic_calendar, dotVisible = content.upcomingEvents.isNotEmpty())
                 ShadeGlyph(R.drawable.ic_tasks, dotVisible = content.checkInDue)
             }
-            Icon(
-                painter = painterResource(R.drawable.ic_chevron_down),
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .rotate(if (expanded) 180f else 0f),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (content.weekDays.isNotEmpty()) {
+                    StreakPreview(weekDays = content.weekDays)
+                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron_down),
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(if (expanded) 180f else 0f),
+                )
+            }
         }
 
         AnimatedVisibility(visible = expanded) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                if (content.weekDays.isNotEmpty()) {
+                    ShadeSection(title = "This week") {
+                        StreakHeatmap(weekDays = content.weekDays, modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                }
                 ShadeSection(title = "Messages") {
                     if (content.hasUnreadMessages) {
                         ShadeRow("You have unread messages", onClick = content.onOpenInbox)
