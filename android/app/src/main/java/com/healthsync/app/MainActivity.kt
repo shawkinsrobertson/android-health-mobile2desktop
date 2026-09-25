@@ -36,6 +36,7 @@ import com.healthsync.app.ui.CoachHomeScreen
 import com.healthsync.app.ui.DashboardScreen
 import com.healthsync.app.ui.HomeScreen
 import com.healthsync.app.ui.ProfileScreen
+import com.healthsync.app.ui.WorkoutScreen
 import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.ROUTE_HOME
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
@@ -116,6 +117,9 @@ class MainActivity : ComponentActivity() {
                     onVerifyCode = { email, code -> authRepository.verifyCode(email, code) },
                     dashboardContent = { clientId, onBack ->
                         DashboardScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    workoutContent = { clientId, onBack ->
+                        WorkoutScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
                     },
                     profileContent = { onBack ->
                         val email by authRepository.emailFlow.collectAsState(initial = null)
@@ -240,7 +244,7 @@ class MainActivity : ComponentActivity() {
                                 startActivity(Intent(Intent.ACTION_VIEW, uri))
                             },
                             onOpenStats = { userId?.let { nav.onOpenDashboard(it) } },
-                            onOpenWorkouts = { nav.onOpenComingSoon("Workouts") },
+                            onOpenWorkouts = { userId?.let { nav.onOpenWorkout(it) } },
                             onOpenCalendar = { nav.onOpenComingSoon("Calendar") },
                             onOpenInbox = { nav.onOpenComingSoon("Inbox") },
                             onOpenCheckIn = { nav.onOpenComingSoon("Weekly check-in") },

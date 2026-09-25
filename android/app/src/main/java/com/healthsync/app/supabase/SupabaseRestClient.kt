@@ -88,6 +88,51 @@ class SupabaseRestClient(
     }
 
     /**
+     * Plain insert (no upsert/conflict handling) of [rows] into [table],
+     * returning the inserted rows as PostgREST hands them back -- callers
+     * need the server-assigned `id`s (e.g. a new workout_sessions row's id
+     * before anything else can reference it). Distinct from [upsert],
+     * which is health-sync's own on_conflict/merge-duplicates write path
+     * and returns nothing.
+     */
+    suspend fun insert(table: String, rows: List<Map<String, Any?>>): JSONArray {
+        if (rows.isEmpty()) return JSONArray()
+        val body = JSONArray().apply { rows.forEach { row -> put(JSONObject(row)) } }
+        val request = Request.Builder()
+            .url(restUrl(table).build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=representation")
+            .post(body.toString().toRequestBody(jsonMediaType))
+            .build()
+        return JSONArray(executeReturningBody(request))
+    }
+
+    /**
+     * Update every row in [table] matching [filters] (PostgREST filter
+     * syntax per value, e.g. `mapOf("id" to "eq.<uuid>")`) with [body]'s
+     * fields. Used for workout-session state a caller already knows the
+     * id of (timer start/pause/resume/finish, editing a logged set) --
+     * RLS's own client_id/coach_id check is still the real access
+     * boundary, [filters] just narrows which row(s) this particular call
+     * touches.
+     */
+    suspend fun patch(table: String, filters: Map<String, String>, body: Map<String, Any?>) {
+        var urlBuilder = restUrl(table)
+        filters.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=minimal")
+            .patch(JSONObject(body).toString().toRequestBody(jsonMediaType))
+            .build()
+        execute(request)
+    }
+
+    /**
      * Delete every row in [table] whose `health_connect_id` starts with
      * [prefix]. Used to propagate Health Connect deletions: a deleted
      * record's own Health Connect id is the prefix of every row it

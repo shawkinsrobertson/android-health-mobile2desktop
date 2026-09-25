@@ -1064,6 +1064,82 @@ separate asset for. `npx tsc --noEmit` / `npx next lint` / dummy-env
 touched beyond what the dumbbell replacement already covered), so same
 manual-review-only posture as the rest of this phase's Android work.
 
+**Native workout-logging flow, from a two-screen mockup ("today's
+workout" browse state + an active/logging state with a running timer and
+per-set fields).** The Workouts `SlideOutNav` destination had been a
+`ComingSoonScreen` stub since Phase 8's redesign; this replaces it with a
+real screen, reusing the web dashboard's existing "workout tracking v2"
+data model (`workout_sessions`/`workout_session_exercises`/
+`workout_session_sets`, `dashboard/lib/session-log.ts`'s lazy-seed
+pattern) rather than inventing a parallel one -- same tables, same RLS
+(client owns full CRUD on their own rows, coach select-only), reimplemented
+in Kotlin against this app's plain PostgREST client instead of the
+Supabase JS SDK. One real schema gap found and closed:
+`0025_workout_session_set_completion.sql` adds a `completed` boolean to
+`workout_session_sets` -- the mockup wants a checkmark per SET, but the
+web schema only ever tracked completion at the whole-exercise level
+(`workout_session_exercises.completed`, from `0009`). Additive, defaults
+false, and the web SessionLogger doesn't read or write it yet, so this
+doesn't touch anything already shipped.
+
+Explicitly scoped via `AskUserQuestion` before building: the mockup's
+"Warm-Up" card renders as a compact checklist with no weight/rest fields,
+visually distinct from the full per-set logging the other exercises get
+-- offered building that special case vs. uniform logging for every
+exercise. **Chose uniform** (every exercise, including warm-up items,
+gets the same reps/weight/rest/checkmark `SetRow` treatment) for a
+simpler, more consistent implementation; a coach-authored "Warm-Up" entry
+just looks like any other exercise card now, a real (accepted) departure
+from the mockup's specific rendering, not an oversight.
+
+`SupabaseRestClient` gained `insert()` (plain POST, `return=representation`,
+needed for a new session's server-assigned id and the freshly-inserted
+session-exercise/set rows) and `patch()` (PATCH-by-filter, `return=minimal`,
+for timer state and set edits) -- both were missing entirely before this
+(the client only ever upserted Health Connect data). New
+`data/WorkoutRepository.kt` mirrors `session-log.ts`'s
+`ensureSessionExercises` exactly (idempotent: only inserts what's
+missing, so re-entering an in-progress session never duplicates rows) and
+adds the timer start/pause/resume/finish calls the web's session actions
+already had. New `ui/WorkoutScreen.kt` is one screen with two states
+(not started / in progress) rather than a separate detail + session
+route -- both mockups share the same header, and re-opening this screen
+mid-workout should land straight back in the logging view. Tapping
+"Start workout" creates the session row **and** starts its timer in one
+call (`WorkoutRepository.startSession`), unlike the web flow where those
+are two separate steps on two separate pages -- the mockup goes straight
+from Start to the running-timer screen with no page in between.
+
+"Today's workout" reuses the same placeholder `app/client/page.tsx`
+already established (`assigned_program_id is null`, most recently
+assigned, ordered by `assigned_at desc`) -- there's still no real per-day
+scheduling anywhere in this app. Two more deliberate simplifications,
+stated rather than discovered later:
+- **The per-set rest countdown (the mockup's "▶ 1:30" cells) is local
+  UI state only, never persisted.** It only means something live, in the
+  moment; re-entering the screen mid-rest with no record of when it
+  started would just show a wrong countdown, so resetting to
+  "not started" on re-entry is the honest behavior.
+- **"Finish" just pops back to Home**, not a full summary screen like
+  the web's post-session summary page. Building an equivalent summary
+  view was judged out of scope for this pass given how much else this
+  feature already touches; a real gap, flagged rather than silently
+  skipped.
+
+Same manual-review-only posture as every other Android change in this
+project (no SDK/Gradle wrapper in this environment to compile against --
+see Phase 6's opening note): reviewed carefully against this file's own
+conventions and the exact web data model it mirrors, but not built or
+run on a device. One bug caught and fixed during that review, worth
+naming since it's the kind that's invisible without a device: the
+elapsed-timer display was driven by an unread `tick` counter incremented
+inside a `LaunchedEffect` -- Compose only recomposes a `Text` when it
+actually *reads* a changed `State`, and nothing read `tick`, so the
+timer would have silently frozen at its starting value forever. Fixed by
+having the effect recompute and store the actual elapsed-seconds value
+into a `State` the `Text` reads directly, instead of a side counter
+nothing depended on.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a
