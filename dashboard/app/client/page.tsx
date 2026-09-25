@@ -15,6 +15,7 @@ import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DATA_POINTS, labelFor } from "./data-points";
 import { updateWeightUnit, updateDataConsent } from "./actions";
 import { getCurrentCheckIn } from "@/lib/check-ins";
+import { DumbbellIcon } from "@/components/icons/DumbbellIcon";
 
 export const dynamic = "force-dynamic";
 
@@ -25,20 +26,6 @@ interface RecentSessionRow {
   started_at: string | null;
   total_paused_seconds: number | null;
   assigned_workouts: { name: string } | null;
-}
-
-function DumbbellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8 text-ink-muted" aria-hidden="true">
-      <path
-        d="M4 9v6M2 10v4M20 9v6M22 10v4M7 8v8M17 8v8M7 12h10"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 export default async function ClientDashboardPage() {
@@ -133,7 +120,7 @@ export default async function ClientDashboardPage() {
             />
           ) : (
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[color:var(--page-plane)]">
-              <DumbbellIcon />
+              <DumbbellIcon className="h-8 w-8 text-ink-muted" />
             </div>
           )}
           <div className="min-w-0">

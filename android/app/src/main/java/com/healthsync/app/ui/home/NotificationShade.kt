@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.healthsync.app.R
 import com.healthsync.app.data.UpcomingEvent
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -38,14 +42,11 @@ data class ShadeContent(
     val onOpenCheckIn: () -> Unit,
 )
 
-// Closed state: three category glyphs (messages/calendar/tasks), each
-// carrying a dot when there's something in it -- plain emoji Text rather
-// than Material icon glyphs, matching how the rest of this app already
-// renders iconography (see MainActivity's chat "💬"), since this project
-// has no material-icons-extended dependency to draw from. Tapping the row
-// expands a panel with per-category detail -- the mockup's pull-down
-// gesture is simplified here to a tap-to-expand chevron (same end state,
-// an expanded panel with these three categories, without a hand-rolled
+// Closed state: three category icons (messages/calendar/tasks), each
+// carrying a dot when there's something in it. Tapping the row expands a
+// panel with per-category detail -- the mockup's pull-down gesture is
+// simplified here to a tap-to-expand chevron (same end state, an
+// expanded panel with these three categories, without a hand-rolled
 // drag gesture that can't be verified without a device/emulator to test
 // against -- see PLANNING.md).
 @Composable
@@ -67,14 +68,17 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                ShadeGlyph("✉", dotVisible = content.hasUnreadMessages) // ✉
-                ShadeGlyph("📅", dotVisible = content.upcomingEvents.isNotEmpty()) // 📅
-                ShadeGlyph("✅", dotVisible = content.checkInDue) // ✅
+                ShadeGlyph(R.drawable.ic_inbox, dotVisible = content.hasUnreadMessages)
+                ShadeGlyph(R.drawable.ic_calendar, dotVisible = content.upcomingEvents.isNotEmpty())
+                ShadeGlyph(R.drawable.ic_tasks, dotVisible = content.checkInDue)
             }
-            Text(
-                if (expanded) "⌃" else "⌄", // ⌃ / ⌄
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron_down),
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(if (expanded) 180f else 0f),
             )
         }
 
@@ -111,9 +115,14 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ShadeGlyph(glyph: String, dotVisible: Boolean) {
+private fun ShadeGlyph(iconRes: Int, dotVisible: Boolean) {
     Box {
-        Text(glyph, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(22.dp),
+        )
         if (dotVisible) {
             Box(
                 modifier = Modifier

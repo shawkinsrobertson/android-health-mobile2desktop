@@ -971,6 +971,38 @@ reusing the same `onOpenDashboard` callback that button used to call --
 no new navigation plumbing needed, since it was always just "go to
 DashboardScreen with my own id."
 
+**Real icon set, replacing the emoji placeholders.** The user supplied
+13 SVGs (`icons-and-nav-svgs.zip`) -- exactly the nav/shade categories
+this pass had been standing in for with plain emoji, plus four workout-
+equipment icons and a generic edit/delete pair. Converted with
+`svg2vectordrawable` (npm) into Android vector drawables under
+`android/app/src/main/res/drawable/`, and into React components (`fill`/
+`stroke` swapped to `currentColor`, matching the one existing inline-SVG
+convention already in this codebase -- `app/client/page.tsx`'s original
+`DumbbellIcon`) under `dashboard/components/icons/`. Two files
+(`dumbbell-icon.svg`, `bodyweight-icon.svg`) use an internal `<mask>`/
+`<clipPath>` with an `id` referenced via `url(#id)` -- a first
+mechanical pass blindly normalized every `fill="white"` to `fill="none"`
+to strip an unrelated clip-rect's fill, which also corrupted the mask's
+own `fill="white"` (mask opacity, not a visible color) and broke it;
+caught before shipping and fixed by only touching the two literal brand
+colors, never `fill="white"`. Separately, those same two id-bearing SVGs
+would collide in the DOM if their React component ever rendered twice on
+one page (`id`/`url(#id)` are global per document) -- fixed by generating
+each one's id via React's `useId()` instead of hardcoding the source
+SVG's id.
+
+Wired in: `NotificationShade`'s three category icons + expand chevron,
+`SlideOutNav`'s toggle arrow + Stats/Workouts/Calendar/Inbox icons (no
+Profile icon was included -- that one destination still falls back to
+a plain-text glyph, a real gap not papered over), the web `NavBar`'s
+Calendar/Check-in/Inbox links, `app/client/page.tsx`'s "Next up" card
+(replacing its old hand-drawn dumbbell), and `CoachNotes`' Edit/Delete
+buttons. The barbell/bodyweight/kettlebell icons, and a wider edit/
+delete sweep across the rest of the app, are placed as assets but not
+wired anywhere yet -- left for whenever the real Workouts screen or a
+broader icon pass happens.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

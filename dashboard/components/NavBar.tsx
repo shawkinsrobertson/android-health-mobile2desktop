@@ -3,6 +3,8 @@ import { getCurrentProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 import { listThreadsForUnread } from "@/lib/chat";
 import { InboxNavLink } from "@/components/chat/InboxNavLink";
+import { CalendarIcon } from "@/components/icons/CalendarIcon";
+import { TasksIcon } from "@/components/icons/TasksIcon";
 
 export async function NavBar() {
   const profile = await getCurrentProfile();
@@ -30,7 +32,8 @@ export async function NavBar() {
             </Link>
           )}
           {profile?.role === "coach" && (
-            <Link href="/dashboard/calendar" className="hover:text-ink-primary">
+            <Link href="/dashboard/calendar" className="flex items-center gap-1.5 hover:text-ink-primary">
+              <CalendarIcon className="h-4 w-4" />
               Calendar
             </Link>
           )}
@@ -43,7 +46,8 @@ export async function NavBar() {
             </Link>
           )}
           {profile?.role === "client" && (
-            <Link href="/client/check-in" className="hover:text-ink-primary">
+            <Link href="/client/check-in" className="flex items-center gap-1.5 hover:text-ink-primary">
+              <TasksIcon className="h-4 w-4" />
               Check-in
             </Link>
           )}

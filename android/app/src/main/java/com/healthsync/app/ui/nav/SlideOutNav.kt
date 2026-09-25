@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,15 +24,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.healthsync.app.R
 
-data class NavDestination(val label: String, val glyph: String, val onClick: () -> Unit)
+// [iconRes] is the icon set's drawable for this destination; [glyph] is a
+// plain-text fallback for destinations the icon set doesn't cover yet
+// (only Profile, currently -- no person/settings icon was included). Set
+// exactly one.
+data class NavDestination(
+    val label: String,
+    val iconRes: Int? = null,
+    val glyph: String? = null,
+    val onClick: () -> Unit,
+)
 
 // Bottom-left slide-out nav: a single round button that, tapped, expands
-// into a pill row of destination glyphs (workouts/calendar/inbox/
+// into a pill row of destination icons (stats/workouts/calendar/inbox/
 // profile) -- tapping the same arrow again collapses it, per the mockup.
-// Glyphs are plain emoji Text rather than Material icons, same reasoning
-// as NotificationShade (no material-icons-extended dependency here).
 @Composable
 fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
@@ -43,8 +55,10 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NavGlyphButton(
-            glyph = if (open) "←" else "→", // ← / →
+        NavIconButton(
+            iconRes = R.drawable.ic_nav_toggle,
+            contentDescription = if (open) "Close menu" else "Open menu",
+            rotationDegrees = if (open) 180f else 0f,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             onClick = { open = !open },
         )
@@ -56,14 +70,26 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 destinations.forEach { destination ->
-                    NavGlyphButton(
-                        glyph = destination.glyph,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        onClick = {
-                            open = false
-                            destination.onClick()
-                        },
-                    )
+                    if (destination.iconRes != null) {
+                        NavIconButton(
+                            iconRes = destination.iconRes,
+                            contentDescription = destination.label,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            onClick = {
+                                open = false
+                                destination.onClick()
+                            },
+                        )
+                    } else {
+                        NavGlyphButton(
+                            glyph = destination.glyph.orEmpty(),
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            onClick = {
+                                open = false
+                                destination.onClick()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -71,7 +97,32 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun NavGlyphButton(glyph: String, contentColor: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun NavIconButton(
+    iconRes: Int,
+    contentDescription: String?,
+    contentColor: Color,
+    onClick: () -> Unit,
+    rotationDegrees: Float = 0f,
+) {
+    Row(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = contentColor,
+            modifier = Modifier.size(22.dp).rotate(rotationDegrees),
+        )
+    }
+}
+
+@Composable
+private fun NavGlyphButton(glyph: String, contentColor: Color, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .size(44.dp)

@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.healthsync.app.R
 import com.healthsync.app.data.HomeSummary
 import com.healthsync.app.ui.home.NotificationShade
 import com.healthsync.app.ui.home.ShadeContent
@@ -128,11 +129,13 @@ fun HomeScreen(
 
             SlideOutNav(
                 destinations = listOf(
-                    NavDestination("Stats", "📊", onOpenStats),
-                    NavDestination("Workouts", "🏋", onOpenWorkouts),
-                    NavDestination("Calendar", "📅", onOpenCalendar),
-                    NavDestination("Inbox", "✉", onOpenInbox),
-                    NavDestination("Profile", "👤", onOpenProfile),
+                    NavDestination("Stats", iconRes = R.drawable.ic_stats, onClick = onOpenStats),
+                    NavDestination("Workouts", iconRes = R.drawable.ic_dumbbell, onClick = onOpenWorkouts),
+                    NavDestination("Calendar", iconRes = R.drawable.ic_calendar, onClick = onOpenCalendar),
+                    NavDestination("Inbox", iconRes = R.drawable.ic_inbox, onClick = onOpenInbox),
+                    // No profile/settings icon in the current icon set --
+                    // plain-text fallback until one's added (see NavDestination).
+                    NavDestination("Profile", glyph = "👤", onClick = onOpenProfile),
                 ),
                 modifier = Modifier
                     .align(Alignment.BottomStart)

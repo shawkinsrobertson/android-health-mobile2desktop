@@ -8,6 +8,8 @@ import {
   updateCoachNote,
   type CoachNoteRow,
 } from "@/app/dashboard/clients/[clientId]/notes-actions";
+import { EditIcon } from "@/components/icons/EditIcon";
+import { DeleteIcon } from "@/components/icons/DeleteIcon";
 
 const PREVIEW_COUNT = 3;
 
@@ -121,15 +123,17 @@ export function CoachNotes({
                 <button
                   type="button"
                   onClick={() => setEditingNote(note)}
-                  className="text-xs text-ink-muted hover:text-ink-primary"
+                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary"
                 >
+                  <EditIcon className="h-3.5 w-3.5" />
                   Edit
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDelete(note.id)}
-                  className="text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
                 >
+                  <DeleteIcon className="h-3.5 w-3.5" />
                   Delete
                 </button>
               </div>
