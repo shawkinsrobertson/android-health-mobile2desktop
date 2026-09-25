@@ -5,6 +5,8 @@ import { listThreadsForUnread } from "@/lib/chat";
 import { InboxNavLink } from "@/components/chat/InboxNavLink";
 import { CalendarIcon } from "@/components/icons/CalendarIcon";
 import { TasksIcon } from "@/components/icons/TasksIcon";
+import { ClientsIcon } from "@/components/icons/ClientsIcon";
+import { LibrariesIcon } from "@/components/icons/LibrariesIcon";
 
 export async function NavBar() {
   const profile = await getCurrentProfile();
@@ -22,12 +24,14 @@ export async function NavBar() {
         </Link>
         <nav className="flex flex-1 gap-4 text-sm text-ink-secondary">
           {profile?.role === "coach" && (
-            <Link href="/dashboard" className="hover:text-ink-primary">
+            <Link href="/dashboard" className="flex items-center gap-1.5 hover:text-ink-primary">
+              <ClientsIcon className="h-4 w-4" />
               Clients
             </Link>
           )}
           {profile?.role === "coach" && (
-            <Link href="/dashboard/library" className="hover:text-ink-primary">
+            <Link href="/dashboard/library" className="flex items-center gap-1.5 hover:text-ink-primary">
+              <LibrariesIcon className="h-4 w-4" />
               Library
             </Link>
           )}

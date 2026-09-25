@@ -1034,6 +1034,36 @@ either background. `HomeScreen`'s own body is now just the greeting --
 deliberately empty otherwise, until something like the mockup's "Your
 Top 3" stat cards gets built.
 
+**Second icon batch: chat icons + a size-corrected dumbbell.** Six more
+SVGs (`icon-set-2-with-updates.zip`): attach (paperclip), microphone,
+phone, a two-person "clients" glyph, an open-book "libraries" glyph, and
+a revised dumbbell. Same `svg2vectordrawable`/`currentColor`-swap
+pipeline as the first batch. The dumbbell was the one with an actual
+geometry change, not just a new asset: the old path stayed inset within
+the 24x24 box (spanning roughly x 1.25-22.75, y 6.25-17.75), so it
+rendered visibly smaller than every other nav icon at the same
+`Modifier.size()`/`className`; the new one spans the full 0-24 edge to
+edge, which is what "more size consistency in the nav" meant concretely.
+It kept the same internal `<mask>`-based hollow-stroke trick (still id
+`path-1-inside-1_815_62` in the source, still handled via `useId()` on
+the web side) -- a drop-in replacement of the same filenames
+(`ic_dumbbell.xml`, `DumbbellIcon.tsx`), so neither `SlideOutNav` (the
+Workouts destination) nor `app/client/page.tsx`'s "Next up" card needed
+any code changes.
+
+Wired the rest into their obvious targets: the chat `Composer`'s emoji
+attach/microphone buttons (📎/🎙️) became `AttachIcon`/`MicrophoneIcon`,
+`CallButton`'s 📞 became `PhoneIcon`, and the web `NavBar`'s coach-only
+"Clients"/"Library" text links picked up `ClientsIcon`/`LibrariesIcon`
+alongside their label text, matching the icon+text pattern already used
+for Calendar/Check-in. The composer's recording-stop state (⏹) was left
+as a plain filled square rather than sourcing a seventh icon -- no stop
+icon was supplied and it's a two-state toggle on one button, not worth a
+separate asset for. `npx tsc --noEmit` / `npx next lint` / dummy-env
+`npx next build` all clean; Android changes are drawable-only (no Kotlin
+touched beyond what the dumbbell replacement already covered), so same
+manual-review-only posture as the rest of this phase's Android work.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

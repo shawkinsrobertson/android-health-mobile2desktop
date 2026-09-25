@@ -2,6 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { EmojiPicker } from "./EmojiPicker";
+import { AttachIcon } from "@/components/icons/AttachIcon";
+import { MicrophoneIcon } from "@/components/icons/MicrophoneIcon";
 import type { ChatMessageRow } from "@/lib/chat";
 
 export function Composer({
@@ -123,9 +125,10 @@ export function Composer({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-md border border-[color:var(--border-hairline)] px-2 py-2 text-sm"
+          aria-label="Attach a file"
+          className="rounded-md border border-[color:var(--border-hairline)] p-2 text-ink-secondary hover:text-ink-primary"
         >
-          📎
+          <AttachIcon className="h-4 w-4" />
         </button>
         <input
           ref={fileInputRef}
@@ -141,13 +144,14 @@ export function Composer({
         <button
           type="button"
           onClick={recording ? stopRecording : startRecording}
-          className={`rounded-md border px-2 py-2 text-sm ${
+          aria-label={recording ? "Stop recording" : "Record a voice message"}
+          className={`rounded-md border p-2 ${
             recording
               ? "border-red-500 text-red-600 dark:text-red-400"
-              : "border-[color:var(--border-hairline)]"
+              : "border-[color:var(--border-hairline)] text-ink-secondary hover:text-ink-primary"
           }`}
         >
-          {recording ? "⏹" : "🎙️"}
+          {recording ? <span className="block h-4 w-4 rounded-sm bg-current" /> : <MicrophoneIcon className="h-4 w-4" />}
         </button>
         <textarea
           value={text}
