@@ -31,12 +31,16 @@ import androidx.compose.ui.unit.dp
 import com.healthsync.app.R
 
 // [iconRes] is the icon set's drawable for this destination; [glyph] is a
-// plain-text fallback for destinations the icon set doesn't cover yet
-// (only Profile, currently -- no person/settings icon was included). Set
-// exactly one.
+// plain-text fallback for destinations the icon set doesn't cover yet.
+// Set exactly one. [tinted] controls whether [iconRes] gets recolored to
+// match the nav's contentColor (true, the default -- for the monochrome
+// line icons) or renders with its own baked-in colors as-is (false --
+// for a multi-color asset like the Profile placeholder avatar, which is
+// meant to look the same regardless of surrounding theme).
 data class NavDestination(
     val label: String,
     val iconRes: Int? = null,
+    val tinted: Boolean = true,
     val glyph: String? = null,
     val onClick: () -> Unit,
 )
@@ -74,7 +78,7 @@ fun SlideOutNav(destinations: List<NavDestination>, modifier: Modifier = Modifie
                         NavIconButton(
                             iconRes = destination.iconRes,
                             contentDescription = destination.label,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
                             onClick = {
                                 open = false
                                 destination.onClick()

@@ -993,15 +993,25 @@ each one's id via React's `useId()` instead of hardcoding the source
 SVG's id.
 
 Wired in: `NotificationShade`'s three category icons + expand chevron,
-`SlideOutNav`'s toggle arrow + Stats/Workouts/Calendar/Inbox icons (no
-Profile icon was included -- that one destination still falls back to
-a plain-text glyph, a real gap not papered over), the web `NavBar`'s
-Calendar/Check-in/Inbox links, `app/client/page.tsx`'s "Next up" card
-(replacing its old hand-drawn dumbbell), and `CoachNotes`' Edit/Delete
-buttons. The barbell/bodyweight/kettlebell icons, and a wider edit/
-delete sweep across the rest of the app, are placed as assets but not
-wired anywhere yet -- left for whenever the real Workouts screen or a
-broader icon pass happens.
+`SlideOutNav`'s toggle arrow + Stats/Workouts/Calendar/Inbox icons, the
+web `NavBar`'s Calendar/Check-in/Inbox links, `app/client/page.tsx`'s
+"Next up" card (replacing its old hand-drawn dumbbell), and `CoachNotes`'
+Edit/Delete buttons. The barbell/bodyweight/kettlebell icons, and a
+wider edit/delete sweep across the rest of the app, are placed as
+assets but not wired anywhere yet -- left for whenever the real
+Workouts screen or a broader icon pass happens.
+
+**Profile placeholder icon, added same-day.** A "P" monogram avatar
+badge (filled circle + border + accent-colored letter), not a tintable
+line icon like the rest -- converted the same way but *without* the
+`currentColor` swap, since it's meant to look identical regardless of
+surrounding theme (`ProfilePlaceholderIcon.tsx` on web keeps its literal
+hex colors; the Android drawable does too). `NavDestination` gained a
+`tinted: Boolean = true` flag so `SlideOutNav` can render a destination's
+icon with its own baked-in colors (`tint = Color.Unspecified`) instead of
+recoloring it to match the nav pill -- Profile is the first and only
+caller of `tinted = false`. Closes the one real gap the icon set left
+open.
 
 ## Standing product decisions
 

@@ -133,9 +133,12 @@ fun HomeScreen(
                     NavDestination("Workouts", iconRes = R.drawable.ic_dumbbell, onClick = onOpenWorkouts),
                     NavDestination("Calendar", iconRes = R.drawable.ic_calendar, onClick = onOpenCalendar),
                     NavDestination("Inbox", iconRes = R.drawable.ic_inbox, onClick = onOpenInbox),
-                    // No profile/settings icon in the current icon set --
-                    // plain-text fallback until one's added (see NavDestination).
-                    NavDestination("Profile", glyph = "👤", onClick = onOpenProfile),
+                    NavDestination(
+                        "Profile",
+                        iconRes = R.drawable.ic_profile_placeholder,
+                        tinted = false,
+                        onClick = onOpenProfile,
+                    ),
                 ),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
