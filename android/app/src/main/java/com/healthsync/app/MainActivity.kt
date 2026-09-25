@@ -125,10 +125,12 @@ class MainActivity : ComponentActivity() {
                         val profileActiveWork = profileWorkInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
                         val profileIsSyncing = profileActiveWork?.state == WorkInfo.State.ENQUEUED ||
                             profileActiveWork?.state == WorkInfo.State.RUNNING
+                        val profileLastResult = profileActiveWork?.toSyncResult()
                         val profileScope = rememberCoroutineScope()
                         ProfileScreen(
                             email = email,
                             isSyncing = profileIsSyncing,
+                            lastResult = profileLastResult,
                             syncStateStore = syncStateStore,
                             onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
                             onForceResync = {
@@ -162,19 +164,6 @@ class MainActivity : ComponentActivity() {
                         hasPermissions = healthConnectManager.isAvailable &&
                             healthConnectManager.hasAllPermissions()
                     }
-
-                    // Sync runs as a WorkManager job (see SyncScheduler.triggerManualSync)
-                    // rather than a coroutine on this Composable's scope, so it survives
-                    // this Activity being destroyed mid-run -- screen off, app
-                    // backgrounded, low memory -- instead of being silently cancelled.
-                    // The UI just observes the unique work's status/output.
-                    val workInfos by WorkManager.getInstance(this@MainActivity)
-                        .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
-                        .collectAsState(initial = emptyList())
-                    val activeWorkInfo = workInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
-                    val isSyncing = activeWorkInfo?.state == WorkInfo.State.ENQUEUED ||
-                        activeWorkInfo?.state == WorkInfo.State.RUNNING
-                    val lastResult = activeWorkInfo?.toSyncResult()
 
                     val email by authRepository.emailFlow.collectAsState(initial = null)
 
@@ -241,8 +230,6 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             healthConnectAvailable = healthConnectManager.isAvailable,
                             hasPermissions = hasPermissions,
-                            isSyncing = isSyncing,
-                            lastResult = lastResult,
                             homeSummary = homeSummary,
                             email = email,
                             onRequestPermissions = {
@@ -252,8 +239,7 @@ class MainActivity : ComponentActivity() {
                                 val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
                                 startActivity(Intent(Intent.ACTION_VIEW, uri))
                             },
-                            onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
-                            onViewMyData = { userId?.let { nav.onOpenDashboard(it) } },
+                            onOpenStats = { userId?.let { nav.onOpenDashboard(it) } },
                             onOpenWorkouts = { nav.onOpenComingSoon("Workouts") },
                             onOpenCalendar = { nav.onOpenComingSoon("Calendar") },
                             onOpenInbox = { nav.onOpenComingSoon("Inbox") },

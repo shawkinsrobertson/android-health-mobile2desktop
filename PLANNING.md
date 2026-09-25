@@ -937,6 +937,40 @@ plainly rather than claimed as tested.
    distinguish "loaded, nothing to show" from "still loading" in the
    first place.
 
+**Confirmed fixed on device, then a third bug + a reorg request from the
+same test pass**: the status-bar overlap and stuck spinner above were
+both confirmed resolved on a rebuild (screenshot showed the shade/streak/
+nav all rendering correctly below the status bar). That same screenshot
+surfaced a third, distinct bug: the page background was plain white with
+black text regardless of the device's actual (dark) theme, while the
+hand-styled sub-components (shade, streak cells) correctly showed dark-
+theme colors -- a visible mismatch. Root cause was adjacent to bug #1 but
+different: `Scaffold` doesn't just apply inset padding, it also wraps
+content in a `Surface`, which paints `colorScheme.background` behind
+everything and sets `LocalContentColor` so every plain `Text()` picks up
+the right on-background color automatically. Dropping `Scaffold` lost
+that too -- a bare `Box`/`Column` shows the raw Android window background
+(white) and `Text()` falls back to its hardcoded-black default, while
+components that set colors explicitly off `MaterialTheme.colorScheme`
+(the shade, the heatmap cells) rendered correctly since they never
+depended on either default. Fixed by wrapping `HomeScreen`'s root in a
+`Surface(color = MaterialTheme.colorScheme.background)` alongside the
+existing inset-padding `Box`.
+
+Same round, a reorg request: data-sync controls ("Sync now", force
+re-sync, per-type last-synced status) don't belong on the client
+dashboard/home screen -- they're settings, not something to look at
+daily. Moved "Sync now" and the last-sync result text (previously still
+on `HomeScreen`) into `ProfileScreen` alongside the force-resync/data-
+type controls that had already landed there; `HomeScreen` no longer
+takes `isSyncing`/`lastResult`/`onSyncNow` at all. The existing "Data"
+screen (`DashboardScreen.kt`, steps/sleep/heart-rate charts) is
+relabeled "Stats" and moved from a button on Home into a fifth
+`SlideOutNav` destination (alongside Workouts/Calendar/Inbox/Profile),
+reusing the same `onOpenDashboard` callback that button used to call --
+no new navigation plumbing needed, since it was always just "go to
+DashboardScreen with my own id."
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

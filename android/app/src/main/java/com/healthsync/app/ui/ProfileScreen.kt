@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.healthconnect.allSyncSpecs
+import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncStateStore
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -36,6 +37,7 @@ import java.time.format.DateTimeFormatter
 fun ProfileScreen(
     email: String?,
     isSyncing: Boolean,
+    lastResult: SyncResult?,
     syncStateStore: SyncStateStore,
     onSyncNow: () -> Unit,
     onForceResync: () -> Unit,
@@ -64,6 +66,21 @@ fun ProfileScreen(
             Spacer(Modifier.height(4.dp))
             TextButton(onClick = onSyncNow, enabled = !isSyncing) {
                 Text(if (isSyncing) "Syncing…" else "Sync now")
+            }
+            lastResult?.let { result ->
+                if (result.success) {
+                    Text(
+                        "Last sync: +${result.upsertedRows} row(s) written, -${result.deletedRows} removed",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    Text(
+                        "Last sync had errors: ${result.errors.joinToString("; ")}",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
             TextButton(onClick = onForceResync, enabled = !isSyncing) {
                 Text("Force full re-sync")
