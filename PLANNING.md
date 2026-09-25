@@ -1140,6 +1140,93 @@ having the effect recompute and store the actual elapsed-seconds value
 into a `State` the `Text` reads directly, instead of a side counter
 nothing depended on.
 
+**Workout completion, dashboard population, calendar + chat first
+passes.** Four features in one round, all Android-only.
+
+*Workout summary.* `WorkoutScreen` gained a third state past
+not-started/in-progress: tapping Finish sets `completed_at` and shows a
+summary (workout name, duration, a notes field, every exercise's sets
+still directly editable, plus a per-exercise PR toggle) with a
+"Save & Return to Dashboard" button. This is a deliberate departure from
+the web dashboard's own summary page, which is read-only except for
+notes (a separate "Edit sets" link goes back to the logging page for
+anything else) -- the ask here was specifically for editing abilities on
+the summary itself, so Android doesn't mirror that read-only split.
+`findActiveSession` was renamed `findTodaysSession` and its `completed_at
+is.null` filter dropped, since the session needs to stay reachable
+through the summary state even after it's marked complete -- re-entering
+the screen a different day still correctly falls through to "not
+started." Two real bugs caught in review before anything shipped: (1)
+`return@ExerciseLogCard` inside lambdas passed to a plain (non-`inline`)
+`@Composable` function isn't legal Kotlin -- non-local returns only work
+through inlined calls -- and this exact pattern was already sitting in
+last session's shipped `InProgressWorkout` code undetected, since nothing
+in this environment compiles Kotlin; fixed everywhere it appeared, by
+null-checking with `?.let {}`/`if` instead of an early return. (2)
+`elapsedSeconds()` fell back to `Instant.now()` when a session wasn't
+paused -- fine while a workout is actively running, but on the summary
+screen (session finished, `pausedAt` null) it meant "Duration" would
+silently keep climbing on every recomposition instead of showing a fixed
+number. Fixed by using `completedAt` as the cutoff once it's set.
+
+*Dashboard population ("Your Top 3" + "Your Training").* New
+`data/DataPointRepository.kt` ports `dashboard/lib/queries.ts`'s
+`getDataPointSummary` line for line (same 8 keys, same 7-day-window
+wording) so a client sees the same numbers in the app as on the web --
+one accepted gap, matching `HealthDataRepository.kt`'s own existing
+precedent: no cross-source dedup for the steps case. `ProfileRepository`
+gained `loadTopDataPoints` (reads `client_profiles.top_data_points`,
+written by the web's `DataPointPicker` -- Android has no picker UI of its
+own yet, display-only). "Your Training" is genuinely new logic, not
+ported from anywhere -- the web dashboard's own `/client` page still only
+does "most recently assigned standalone workout," its own comment
+calling that "a placeholder for real scheduling." `WorkoutRepository
+.getNextTrainingItem` prefers the client's most-recently-assigned
+program's first not-yet-completed workout (by `order_index`, cross-
+referenced against `workout_sessions.completed_at`), falling through to
+the existing standalone pick, `null` only when neither yields anything --
+rendered as the mockup's "You do not have any workouts assigned" empty
+state. `WorkoutScreen` itself now calls this same method (not the old
+standalone-only `getTodaysWorkout`) so tapping the Your Training card and
+opening Workouts from the nav land on the same workout. Both new
+`HomeSummary` fields (`topDataPoints`, `trainingItem`) follow the
+existing per-sub-fetch `runCatching` pattern, so a failure in either
+can't blank the rest of the home screen.
+
+*Calendar, first pass, read-only.* New `data/CalendarRepository.kt` +
+`ui/CalendarScreen.kt`: upcoming `calendar_events`, and Google Calendar
+connection status from `calendar_connections`. Deliberately does NOT
+implement native OAuth -- the web's connect flow
+(`app/api/calendar/google/{start,callback}`) is built entirely around a
+Next.js session *cookie*, which a Custom Tab has no way to carry from
+this app's bearer-JWT auth. Making that native would need a new,
+JWT-aware server route plus a registered deep link back into the app --
+real scope, not a drop-in for a "first pass." Until that exists,
+"Connect Google Calendar" opens the web dashboard in the device's browser
+(a new `DASHBOARD_URL` `BuildConfig` field, same `local.properties`
+pattern as `SUPABASE_URL`) and lets the client complete the connect
+there; this screen just re-reads `calendar_connections` afterward like
+everything else it shows.
+
+*Chat/Inbox, first pass, text-only.* New `data/ChatRepository.kt` +
+`ui/InboxScreen.kt`: find the client's one coach thread
+(`chat_threads` has a unique `(coach_id, client_id)`), list/send
+messages, mark read. Polls every 5 seconds while the screen is open
+rather than using the web's Supabase Realtime subscription
+(`ThreadView.tsx`'s `.channel(...).on("postgres_changes", ...)`) -- this
+app has no Realtime/websocket client set up anywhere
+(`SupabaseRestClient` is plain PostgREST-over-OkHttp), and pulling one in
+for a single screen wasn't judged worth it for a first pass. Attachments,
+reactions, replies, and pinning are all out of scope here too, same
+reasoning.
+
+Five new files (`WorkoutRepository`'s summary/training additions,
+`DataPointRepository`, `CalendarRepository`, `ChatRepository`,
+`CalendarScreen`, `InboxScreen`), all wired through new
+`workout/{clientId}`-shaped routes already established by the earlier
+Workouts pass. Same manual-review-only posture as every other Android
+change in this project.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a

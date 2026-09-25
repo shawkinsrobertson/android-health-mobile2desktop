@@ -67,10 +67,11 @@ private data class WorkoutUiState(
 )
 
 /**
- * "Today's Workout": browse -> Start -> per-set logging, one screen with
- * two states rather than a separate detail + session route -- both
- * mockups share the same header, and a client re-opening this screen
- * mid-workout should land straight back in the logging view, not a
+ * "Today's Workout": browse -> Start -> per-set logging -> summary, one
+ * screen with three states rather than separate detail/session/summary
+ * routes -- all three mockups share the same header, and a client
+ * re-opening this screen mid-workout (or right after finishing, before
+ * they've tapped Save & Return) should land back in the right one, not a
  * "start again?" prompt. [clientId] is the signed-in client's own id
  * (Workouts is a client-only SlideOutNav destination, unlike Stats which
  * a coach can also open for one of their clients).
@@ -95,12 +96,15 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
         val repo = WorkoutRepository(SupabaseRestClient(token))
         repository = repo
         try {
-            val workout = repo.getTodaysWorkout(clientId)
+            // Same program-aware pick HomeScreen's "Your Training" card
+            // shows, so tapping that card and opening Workouts from the
+            // nav both land on the same workout.
+            val workout = repo.getNextTrainingItem(clientId)?.workout
             if (workout == null) {
                 error = "No workout assigned yet."
             } else {
                 val exercises = repo.getWorkoutExercises(workout.id)
-                val session = repo.findActiveSession(clientId, workout.id)
+                val session = repo.findTodaysSession(clientId, workout.id)
                 state = if (session != null) {
                     val (exerciseRows, setRows) = repo.ensureSessionExercises(session.id, clientId, workout.coachId, exercises)
                     WorkoutUiState(workout, exercises, session, exerciseRows, setRows)
@@ -137,12 +141,18 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 )
                 currentState == null -> Unit
-                currentState.session != null && currentState.session.completedAt == null -> InProgressWorkout(
+                currentState.session != null && currentState.session.completedAt != null -> SummaryWorkout(
                     repository = repository!!,
                     scope = scope,
                     state = currentState,
                     onStateChange = { state = it },
-                    onFinished = onBack,
+                    onSaved = onBack,
+                )
+                currentState.session != null -> InProgressWorkout(
+                    repository = repository!!,
+                    scope = scope,
+                    state = currentState,
+                    onStateChange = { state = it },
                 )
                 else -> NotStartedWorkout(
                     state = currentState,
@@ -197,7 +207,6 @@ private fun InProgressWorkout(
     scope: CoroutineScope,
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
-    onFinished: () -> Unit,
 ) {
     val session = state.session!!
     var expandedExerciseId by remember(state.workout.id) {
@@ -264,7 +273,11 @@ private fun InProgressWorkout(
             Button(onClick = {
                 scope.launch {
                     repository.finishSession(session.id)
-                    onFinished()
+                    // Setting completedAt locally is what flips the parent
+                    // WorkoutScreen's `when` branch over to SummaryWorkout
+                    // -- no re-fetch needed, the rest of the state (sets,
+                    // exercises) is already loaded.
+                    onStateChange(state.copy(session = session.copy(completedAt = Instant.now().toString())))
                 }
             }) { Text("Finish") }
         }
@@ -281,14 +294,108 @@ private fun InProgressWorkout(
                 expanded = expanded,
                 onToggleExpanded = { expandedExerciseId = if (expanded) null else exercise.id },
                 onSetChanged = { updatedSet ->
-                    val sessionExerciseId = sessionExercise?.id ?: return@ExerciseLogCard
-                    val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList())
-                        .map { if (it.id == updatedSet.id) updatedSet else it }
-                    onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                    sessionExercise?.id?.let { sessionExerciseId ->
+                        val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList())
+                            .map { if (it.id == updatedSet.id) updatedSet else it }
+                        onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                    }
                 },
                 repository = repository,
                 scope = scope,
             )
+        }
+    }
+}
+
+/**
+ * Post-Finish recap -- unlike the web dashboard's summary page (a
+ * read-only recap where only session notes are editable, with a separate
+ * "Edit sets" link back to the logging page for anything else), every
+ * set/PR field here stays directly editable in place, matching what was
+ * asked for. `workout_sessions.completed_at` is already set by the time
+ * this renders (InProgressWorkout's Finish button sets it before handing
+ * off here) -- "Save & Return" only needs to commit the notes field and
+ * leave; every set/PR edit before that point already persisted itself on
+ * focus-loss/tap, same as during logging.
+ */
+@Composable
+private fun SummaryWorkout(
+    repository: WorkoutRepository,
+    scope: CoroutineScope,
+    state: WorkoutUiState,
+    onStateChange: (WorkoutUiState) -> Unit,
+    onSaved: () -> Unit,
+) {
+    val session = state.session!!
+    var notes by remember(session.id) { mutableStateOf(session.notes ?: "") }
+    var saving by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text("Workout complete!", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(state.workout.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Duration: ${formatElapsed(elapsedSeconds(session))}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = { Text("Notes") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+
+        state.exercises.forEach { exercise ->
+            val sessionExercise = state.sessionExercises[exercise.id]
+            val sets = sessionExercise?.let { state.setsByExercise[it.id] }.orEmpty()
+
+            ExerciseLogCard(
+                exercise = exercise,
+                sets = sets,
+                expanded = true,
+                onToggleExpanded = {},
+                collapsible = false,
+                isPr = sessionExercise?.isPr ?: false,
+                onTogglePr = {
+                    if (sessionExercise != null) {
+                        scope.launch {
+                            val newIsPr = !sessionExercise.isPr
+                            repository.setExercisePr(sessionExercise.id, newIsPr)
+                            val updatedExercises = state.sessionExercises + (exercise.id to sessionExercise.copy(isPr = newIsPr))
+                            onStateChange(state.copy(sessionExercises = updatedExercises))
+                        }
+                    }
+                },
+                onSetChanged = { updatedSet ->
+                    sessionExercise?.id?.let { sessionExerciseId ->
+                        val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList())
+                            .map { if (it.id == updatedSet.id) updatedSet else it }
+                        onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                    }
+                },
+                repository = repository,
+                scope = scope,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = {
+                saving = true
+                scope.launch {
+                    repository.setSessionNotes(session.id, notes.ifBlank { null })
+                    saving = false
+                    onSaved()
+                }
+            },
+            enabled = !saving,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (saving) "Saving…" else "Save & Return to Dashboard")
         }
     }
 }
@@ -302,6 +409,9 @@ private fun ExerciseLogCard(
     onSetChanged: (SessionSet) -> Unit,
     repository: WorkoutRepository,
     scope: CoroutineScope,
+    collapsible: Boolean = true,
+    isPr: Boolean = false,
+    onTogglePr: (() -> Unit)? = null,
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -313,7 +423,7 @@ private fun ExerciseLogCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleExpanded),
+                modifier = Modifier.fillMaxWidth().let { if (collapsible) it.clickable(onClick = onToggleExpanded) else it },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -322,7 +432,14 @@ private fun ExerciseLogCard(
                     color = if (expanded) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                if (sets.isNotEmpty() && sets.all { it.completed }) {
+                if (onTogglePr != null) {
+                    TextButton(onClick = onTogglePr) {
+                        Text(
+                            if (isPr) "★ PR" else "☆ PR",
+                            color = if (isPr) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else if (sets.isNotEmpty() && sets.all { it.completed }) {
                     Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
@@ -469,11 +586,17 @@ private fun AssignedWorkoutExercise.prescriptionSummary(): String {
     return listOfNotNull(setsPart, amountPart).joinToString(" · ").ifBlank { "—" }
 }
 
+// Cutoff instant for the elapsed-time calculation: completedAt once the
+// session is finished (so the summary screen's "Duration" is a fixed
+// number, not one that silently keeps growing on every recomposition),
+// otherwise pausedAt while paused, otherwise "now" while actively running.
 private fun elapsedSeconds(session: WorkoutSession): Long {
     val startedAt = session.startedAt ?: return 0
     val start = Instant.parse(startedAt)
-    val pauseCutoff = session.pausedAt?.let { Instant.parse(it) } ?: Instant.now()
-    val rawElapsed = java.time.Duration.between(start, pauseCutoff).seconds
+    val cutoff = session.completedAt?.let { Instant.parse(it) }
+        ?: session.pausedAt?.let { Instant.parse(it) }
+        ?: Instant.now()
+    val rawElapsed = java.time.Duration.between(start, cutoff).seconds
     return (rawElapsed - session.totalPausedSeconds).coerceAtLeast(0)
 }
 

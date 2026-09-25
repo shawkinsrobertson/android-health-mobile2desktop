@@ -55,4 +55,20 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
             )
         }
     }
+
+    /**
+     * The up-to-3 data-point keys this client picked for their dashboard's
+     * "top 3" cards (dashboard/app/client/actions.ts's updateTopDataPoints
+     * writes this same client_profiles.top_data_points array; there's no
+     * Android UI to *change* the selection yet, only to display it).
+     */
+    suspend fun loadTopDataPoints(clientId: String): List<String> {
+        val rows = supabase.select(
+            "client_profiles",
+            mapOf("select" to "top_data_points", "profile_id" to "eq.$clientId"),
+        )
+        if (rows.length() == 0) return emptyList()
+        val array = rows.getJSONObject(0).optJSONArray("top_data_points") ?: return emptyList()
+        return (0 until array.length()).map { array.getString(it) }
+    }
 }

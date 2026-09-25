@@ -32,9 +32,11 @@ import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncScheduler
 import com.healthsync.app.sync.SyncStateStore
 import com.healthsync.app.sync.SyncWorker
+import com.healthsync.app.ui.CalendarScreen
 import com.healthsync.app.ui.CoachHomeScreen
 import com.healthsync.app.ui.DashboardScreen
 import com.healthsync.app.ui.HomeScreen
+import com.healthsync.app.ui.InboxScreen
 import com.healthsync.app.ui.ProfileScreen
 import com.healthsync.app.ui.WorkoutScreen
 import com.healthsync.app.ui.nav.AuthNavHost
@@ -120,6 +122,12 @@ class MainActivity : ComponentActivity() {
                     },
                     workoutContent = { clientId, onBack ->
                         WorkoutScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    calendarContent = { clientId, onBack ->
+                        CalendarScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    inboxContent = { clientId, onBack ->
+                        InboxScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
                     },
                     profileContent = { onBack ->
                         val email by authRepository.emailFlow.collectAsState(initial = null)
@@ -245,8 +253,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenStats = { userId?.let { nav.onOpenDashboard(it) } },
                             onOpenWorkouts = { userId?.let { nav.onOpenWorkout(it) } },
-                            onOpenCalendar = { nav.onOpenComingSoon("Calendar") },
-                            onOpenInbox = { nav.onOpenComingSoon("Inbox") },
+                            onOpenCalendar = { userId?.let { nav.onOpenCalendar(it) } },
+                            onOpenInbox = { userId?.let { nav.onOpenInbox(it) } },
                             onOpenCheckIn = { nav.onOpenComingSoon("Weekly check-in") },
                             onOpenProfile = nav.onOpenProfile,
                         )

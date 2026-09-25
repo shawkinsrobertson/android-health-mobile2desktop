@@ -16,6 +16,12 @@ data class AssignedWorkout(
     val name: String,
 )
 
+/** [programName] is non-null when this workout came from within an assigned program, null for a standalone assignment. */
+data class TrainingItem(
+    val workout: AssignedWorkout,
+    val programName: String?,
+)
+
 data class AssignedWorkoutExercise(
     val id: String,
     val orderIndex: Int,
@@ -35,12 +41,14 @@ data class WorkoutSession(
     val pausedAt: String?,
     val totalPausedSeconds: Int,
     val completedAt: String?,
+    val notes: String?,
 )
 
 data class SessionExercise(
     val id: String,
     val assignedWorkoutExerciseId: String,
     val completed: Boolean,
+    val isPr: Boolean,
 )
 
 data class SessionSet(
@@ -69,6 +77,9 @@ data class SessionSet(
  *    0025_workout_session_set_completion.sql), which the web SessionLogger
  *    doesn't expose yet -- the mockup this screen was built from wanted
  *    per-set done state, not just the exercise-level flag 0009 shipped.
+ *  - Unlike the web summary page (read-only recap + a notes-only save),
+ *    this app's post-Finish summary screen keeps every set/PR field
+ *    editable -- see WorkoutScreen's Summary state.
  */
 class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
@@ -90,6 +101,76 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
             coachId = row.getString("coach_id"),
             name = row.getString("name"),
         )
+    }
+
+    /**
+     * "Your Training" card logic -- new, not ported from the web (the web
+     * dashboard's own /client page still only does the standalone
+     * fallback below, its own comment there calls it "a placeholder for
+     * real scheduling"). Prefers the client's most-recently-assigned
+     * program: the first of its workouts, in order_index order, that has
+     * no completed workout_sessions row yet. Falls through to the
+     * existing standalone getTodaysWorkout() when there's no program, or
+     * every one of its workouts is already completed -- null only when
+     * neither yields anything, which HomeScreen renders as the mockup's
+     * "You do not have any workouts assigned" empty state.
+     */
+    suspend fun getNextTrainingItem(clientId: String): TrainingItem? {
+        val programRows = supabase.select(
+            "assigned_programs",
+            mapOf(
+                "select" to "id,name",
+                "client_id" to "eq.$clientId",
+                "order" to "assigned_at.desc",
+                "limit" to "1",
+            ),
+        )
+        if (programRows.length() > 0) {
+            val program = programRows.getJSONObject(0)
+            val programId = program.getString("id")
+            val programName = program.getString("name")
+
+            val workoutRows = supabase.select(
+                "assigned_workouts",
+                mapOf(
+                    "select" to "id,coach_id,name",
+                    "assigned_program_id" to "eq.$programId",
+                    "order" to "order_index.asc",
+                ),
+            )
+            if (workoutRows.length() > 0) {
+                val workoutIds = (0 until workoutRows.length()).map { workoutRows.getJSONObject(it).getString("id") }
+                val completedRows = supabase.select(
+                    "workout_sessions",
+                    mapOf(
+                        "select" to "assigned_workout_id",
+                        "client_id" to "eq.$clientId",
+                        "assigned_workout_id" to "in.(${workoutIds.joinToString(",")})",
+                        "completed_at" to "not.is.null",
+                    ),
+                )
+                val completedIds = (0 until completedRows.length())
+                    .map { completedRows.getJSONObject(it).getString("assigned_workout_id") }
+                    .toSet()
+
+                val next = (0 until workoutRows.length())
+                    .map { workoutRows.getJSONObject(it) }
+                    .firstOrNull { it.getString("id") !in completedIds }
+                if (next != null) {
+                    return TrainingItem(
+                        workout = AssignedWorkout(
+                            id = next.getString("id"),
+                            coachId = next.getString("coach_id"),
+                            name = next.getString("name"),
+                        ),
+                        programName = programName,
+                    )
+                }
+            }
+        }
+
+        val standalone = getTodaysWorkout(clientId) ?: return null
+        return TrainingItem(workout = standalone, programName = null)
     }
 
     suspend fun getWorkoutExercises(assignedWorkoutId: String): List<AssignedWorkoutExercise> {
@@ -117,17 +198,26 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
         }
     }
 
-    /** Today's not-yet-completed session for this workout, if the client already started one this app run (or a previous one) and hasn't finished it. */
-    suspend fun findActiveSession(clientId: String, assignedWorkoutId: String): WorkoutSession? {
+    private val sessionSelect = "id,assigned_workout_id,started_at,paused_at,total_paused_seconds,completed_at,notes"
+
+    /**
+     * Today's session for this workout -- active (not yet finished) OR
+     * just-finished-but-not-yet-left-the-summary-screen, since the
+     * summary state (see WorkoutScreen) keeps showing the same session
+     * after Finish is tapped until the client actually saves and leaves.
+     * Re-entering this screen after a genuine finish-and-leave (a new
+     * calendar day, or performed_on no longer matches) correctly falls
+     * through to "not started" for a fresh attempt.
+     */
+    suspend fun findTodaysSession(clientId: String, assignedWorkoutId: String): WorkoutSession? {
         val today = LocalDate.now(ZoneId.systemDefault()).toString()
         val rows = supabase.select(
             "workout_sessions",
             mapOf(
-                "select" to "id,assigned_workout_id,started_at,paused_at,total_paused_seconds,completed_at",
+                "select" to sessionSelect,
                 "client_id" to "eq.$clientId",
                 "assigned_workout_id" to "eq.$assignedWorkoutId",
                 "performed_on" to "eq.$today",
-                "completed_at" to "is.null",
                 "order" to "created_at.desc",
                 "limit" to "1",
             ),
@@ -156,6 +246,14 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
             ),
         )
         return rows.getJSONObject(0).toWorkoutSession()
+    }
+
+    suspend fun setSessionNotes(sessionId: String, notes: String?) {
+        supabase.patch("workout_sessions", mapOf("id" to "eq.$sessionId"), mapOf("notes" to notes))
+    }
+
+    suspend fun setExercisePr(sessionExerciseId: String, isPr: Boolean) {
+        supabase.patch("workout_session_exercises", mapOf("id" to "eq.$sessionExerciseId"), mapOf("is_pr" to isPr))
     }
 
     suspend fun pauseTimer(sessionId: String) {
@@ -204,7 +302,7 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
         val existingExerciseRows = supabase.select(
             "workout_session_exercises",
             mapOf(
-                "select" to "id,assigned_workout_exercise_id,completed",
+                "select" to "id,assigned_workout_exercise_id,completed,is_pr",
                 "session_id" to "eq.$sessionId",
             ),
         )
@@ -299,12 +397,14 @@ private fun JSONObject.toWorkoutSession() = WorkoutSession(
     pausedAt = if (isNull("paused_at")) null else getString("paused_at"),
     totalPausedSeconds = optInt("total_paused_seconds", 0),
     completedAt = if (isNull("completed_at")) null else getString("completed_at"),
+    notes = if (isNull("notes")) null else optString("notes"),
 )
 
 private fun JSONObject.toSessionExercise() = SessionExercise(
     id = getString("id"),
     assignedWorkoutExerciseId = getString("assigned_workout_exercise_id"),
     completed = optBoolean("completed", false),
+    isPr = optBoolean("is_pr", false),
 )
 
 private fun JSONObject.toSessionSet() = SessionSet(

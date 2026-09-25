@@ -13,6 +13,8 @@ data class WeekDay(val date: LocalDate, val completion: DayCompletion)
 
 data class UpcomingEvent(val title: String, val startTime: Instant)
 
+data class TopDataPointSummary(val key: String, val label: String, val summary: String)
+
 data class HomeSummary(
     val hasUnreadMessages: Boolean,
     val upcomingEvents: List<UpcomingEvent>,
@@ -20,6 +22,13 @@ data class HomeSummary(
     // Sunday..Saturday, the local week containing today -- always 7
     // entries so the heatmap can render a fixed-width row.
     val weekDays: List<WeekDay>,
+    // Up to 3, in the order the client picked them. Empty (not an error
+    // state) just means they haven't picked any yet.
+    val topDataPoints: List<TopDataPointSummary>,
+    // Null means "nothing assigned" (HomeScreen's empty state), not
+    // "still loading" -- loadSummary() always resolves this one way or
+    // the other before returning.
+    val trainingItem: TrainingItem?,
 )
 
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
@@ -62,7 +71,18 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         val upcomingEvents = runCatching { loadUpcomingEvents(clientId) }.getOrDefault(emptyList())
         val checkInDue = runCatching { loadCheckInDue(clientId) }.getOrDefault(false)
         val weekDays = runCatching { loadWeekCompletion(clientId) }.getOrDefault(emptyWeek())
-        return HomeSummary(hasUnreadMessages, upcomingEvents, checkInDue, weekDays)
+        val topDataPoints = runCatching { loadTopDataPoints(clientId) }.getOrDefault(emptyList())
+        val trainingItem = runCatching { WorkoutRepository(supabase).getNextTrainingItem(clientId) }.getOrNull()
+        return HomeSummary(hasUnreadMessages, upcomingEvents, checkInDue, weekDays, topDataPoints, trainingItem)
+    }
+
+    private suspend fun loadTopDataPoints(clientId: String): List<TopDataPointSummary> {
+        val keys = ProfileRepository(supabase).loadTopDataPoints(clientId)
+        val dataPoints = DataPointRepository(supabase)
+        return keys.map { key ->
+            val summary = runCatching { dataPoints.getSummary(clientId, key) }.getOrDefault("No data synced yet")
+            TopDataPointSummary(key = key, label = labelFor(key), summary = summary)
+        }
     }
 
     private fun emptyWeek(): List<WeekDay> {

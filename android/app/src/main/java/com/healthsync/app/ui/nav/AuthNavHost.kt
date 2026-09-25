@@ -17,11 +17,15 @@ const val ROUTE_PROFILE = "profile"
 private const val ROUTE_VERIFY_CODE = "verify_code/{email}"
 private const val ROUTE_DASHBOARD = "dashboard/{clientId}"
 private const val ROUTE_WORKOUT = "workout/{clientId}"
+private const val ROUTE_CALENDAR = "calendar/{clientId}"
+private const val ROUTE_INBOX = "inbox/{clientId}"
 private const val ROUTE_COMING_SOON = "coming_soon/{title}"
 
 private fun verifyCodeRoute(email: String) = "verify_code/${Uri.encode(email)}"
 private fun dashboardRoute(clientId: String) = "dashboard/${Uri.encode(clientId)}"
 private fun workoutRoute(clientId: String) = "workout/${Uri.encode(clientId)}"
+private fun calendarRoute(clientId: String) = "calendar/${Uri.encode(clientId)}"
+private fun inboxRoute(clientId: String) = "inbox/${Uri.encode(clientId)}"
 fun comingSoonRoute(title: String) = "coming_soon/${Uri.encode(title)}"
 
 // Bundled rather than four positional lambdas -- HomeScreen's SlideOutNav
@@ -32,6 +36,8 @@ class HomeNavCallbacks(
     val onOpenDashboard: (clientId: String) -> Unit,
     val onOpenProfile: () -> Unit,
     val onOpenWorkout: (clientId: String) -> Unit,
+    val onOpenCalendar: (clientId: String) -> Unit,
+    val onOpenInbox: (clientId: String) -> Unit,
     val onOpenComingSoon: (title: String) -> Unit,
 )
 
@@ -54,6 +60,8 @@ fun AuthNavHost(
     dashboardContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
     profileContent: @Composable (onBack: () -> Unit) -> Unit,
     workoutContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
+    calendarContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
+    inboxContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
     homeContent: @Composable (nav: HomeNavCallbacks) -> Unit,
 ) {
     NavHost(navController = navController, startDestination = startDestination) {
@@ -85,6 +93,8 @@ fun AuthNavHost(
                     onOpenDashboard = { clientId -> navController.navigate(dashboardRoute(clientId)) },
                     onOpenProfile = { navController.navigate(ROUTE_PROFILE) },
                     onOpenWorkout = { clientId -> navController.navigate(workoutRoute(clientId)) },
+                    onOpenCalendar = { clientId -> navController.navigate(calendarRoute(clientId)) },
+                    onOpenInbox = { clientId -> navController.navigate(inboxRoute(clientId)) },
                     onOpenComingSoon = { title -> navController.navigate(comingSoonRoute(title)) },
                 ),
             )
@@ -105,6 +115,20 @@ fun AuthNavHost(
         ) { backStackEntry ->
             val clientId = Uri.decode(backStackEntry.arguments?.getString("clientId") ?: "")
             workoutContent(clientId) { navController.popBackStack() }
+        }
+        composable(
+            ROUTE_CALENDAR,
+            arguments = listOf(navArgument("clientId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val clientId = Uri.decode(backStackEntry.arguments?.getString("clientId") ?: "")
+            calendarContent(clientId) { navController.popBackStack() }
+        }
+        composable(
+            ROUTE_INBOX,
+            arguments = listOf(navArgument("clientId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val clientId = Uri.decode(backStackEntry.arguments?.getString("clientId") ?: "")
+            inboxContent(clientId) { navController.popBackStack() }
         }
         composable(
             ROUTE_COMING_SOON,

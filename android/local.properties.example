@@ -10,3 +10,8 @@ SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
 # Project Settings -> API -> "anon" "public" key. Do NOT use the
 # service_role key here — this ships inside the app.
 SUPABASE_ANON_KEY=your-anon-key-here
+
+# The web dashboard's own URL (SITE_URL in dashboard/.env.local.example).
+# Only used to open a browser for Google Calendar connect/sync -- see
+# ui/CalendarScreen.kt. Defaults to http://localhost:3000 if left unset.
+DASHBOARD_URL=http://localhost:3000
