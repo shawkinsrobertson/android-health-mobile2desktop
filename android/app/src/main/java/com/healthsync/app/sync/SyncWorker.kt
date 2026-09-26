@@ -37,8 +37,10 @@ class SyncWorker(
             )
         }
 
-        val accessToken = AuthRepository(applicationContext).getValidAccessToken()
-        if (accessToken == null) {
+        val authRepository = AuthRepository(applicationContext)
+        val accessToken = authRepository.getValidAccessToken()
+        val clientId = authRepository.getUserId()
+        if (accessToken == null || clientId == null) {
             return Result.failure(
                 Data.Builder().putString(KEY_FAILURE_REASON, "Not signed in").build()
             )
@@ -48,6 +50,7 @@ class SyncWorker(
             healthConnectManager = healthConnectManager,
             supabase = SupabaseRestClient(accessToken = accessToken),
             syncState = SyncStateStore(applicationContext),
+            clientId = clientId,
         )
 
         val result = repository.syncAll()
@@ -62,6 +65,7 @@ class SyncWorker(
             .putInt(KEY_UPSERTED_ROWS, result.upsertedRows)
             .putInt(KEY_DELETED_ROWS, result.deletedRows)
             .putStringArray(KEY_ERRORS, result.errors.toTypedArray())
+            .putString(KEY_READ_SUMMARY, result.readSummary)
             .build()
         return Result.success(output)
     }
@@ -70,6 +74,7 @@ class SyncWorker(
         const val KEY_UPSERTED_ROWS = "upsertedRows"
         const val KEY_DELETED_ROWS = "deletedRows"
         const val KEY_ERRORS = "errors"
+        const val KEY_READ_SUMMARY = "readSummary"
         const val KEY_FAILURE_REASON = "failureReason"
     }
 }

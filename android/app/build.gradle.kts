@@ -5,8 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Load SUPABASE_URL / SUPABASE_ANON_KEY from local.properties (gitignored)
-// and expose them as BuildConfig fields. See local.properties.example.
+// Load SUPABASE_URL / SUPABASE_ANON_KEY / DASHBOARD_URL from
+// local.properties (gitignored) and expose them as BuildConfig fields.
+// See local.properties.example.
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {
@@ -15,6 +16,10 @@ val localProperties = Properties().apply {
 }
 val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: ""
 val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: ""
+// The web dashboard's own URL (SITE_URL in dashboard/.env.local.example)
+// -- used only to hand off Google Calendar connect/sync to a browser (see
+// ui/CalendarScreen.kt's doc comment for why that's not done natively).
+val dashboardUrl: String = localProperties.getProperty("DASHBOARD_URL") ?: "http://localhost:3000"
 
 android {
     namespace = "com.healthsync.app"
@@ -29,6 +34,7 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "DASHBOARD_URL", "\"$dashboardUrl\"")
     }
 
     buildTypes {

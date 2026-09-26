@@ -30,6 +30,14 @@ data class SyncResult(
     val upsertedRows: Int,
     val deletedRows: Int,
     val errors: List<String>,
+    // "steps=0, heart_rate=12, sleep=1, ..." -- how many raw records
+    // Health Connect actually handed back per type this run, *before*
+    // any of our own filtering/dedup/push logic touches them. Lets the
+    // UI show whether a type looks stuck because Health Connect itself
+    // has nothing newer to give us, or because something on our side is
+    // dropping records it did receive -- see SyncRepository's read vs
+    // upserted counts.
+    val readSummary: String = "",
 ) {
     val success: Boolean get() = errors.isEmpty()
 }
@@ -43,38 +51,46 @@ data class SyncResult(
  * One record type failing (e.g. a permission was revoked) doesn't stop the
  * others — errors are collected and returned rather than thrown.
  *
- * Every pushed row's ownership comes from [supabase]'s access token (RLS
- * resolves `client_id` via `auth.uid()` on the Supabase side -- see
- * `supabase/migrations/0015_health_data_auth.sql`), not from anything
- * this class adds to the row payload -- unlike before real per-client
- * auth existed, when this repository stamped a `user_id` value (the
- * manually-entered sync code) onto every row itself.
+ * Every pushed row is stamped with [clientId] (the signed-in user's own
+ * id) in [pushRecords] -- RLS on the health-data tables (see
+ * `supabase/migrations/0015_health_data_auth.sql`) checks `client_id =
+ * auth.uid()`, but the `client_id` column itself has no default, so the
+ * value has to actually be in the row we send, same as this repository
+ * used to stamp a `user_id` value (the manually-entered sync code) onto
+ * every row before real per-client auth existed -- just the real id now,
+ * not a substitute for it.
  */
 class SyncRepository(
     private val healthConnectManager: HealthConnectManager,
     private val supabase: SupabaseRestClient,
     private val syncState: SyncStateStore,
+    private val clientId: String,
 ) {
     suspend fun syncAll(): SyncResult {
         var upserted = 0
         var deleted = 0
         val errors = mutableListOf<String>()
+        val readCounts = mutableMapOf<String, Int>()
 
         for (spec in allSyncSpecs) {
             try {
-                val (u, d) = syncOne(spec)
-                upserted += u
-                deleted += d
+                val outcome = syncOne(spec)
+                upserted += outcome.upserted
+                deleted += outcome.deleted
+                readCounts[spec.key] = outcome.read
             } catch (e: Exception) {
                 Log.e(TAG, "Sync failed for ${spec.key}", e)
                 errors += "${spec.key}: ${e.message ?: e::class.simpleName}"
             }
         }
 
-        return SyncResult(upserted, deleted, errors)
+        val readSummary = readCounts.entries.joinToString(", ") { (key, count) -> "$key=$count" }
+        return SyncResult(upserted, deleted, errors, readSummary)
     }
 
-    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): Pair<Int, Int> {
+    private data class SyncOutcome(val read: Int, val upserted: Int, val deleted: Int)
+
+    private suspend fun <T : Record> syncOne(spec: SyncSpec<T>): SyncOutcome {
         val existingToken = syncState.getChangesToken(spec.key)
         return if (existingToken == null) {
             backfill(spec)
@@ -84,7 +100,7 @@ class SyncRepository(
     }
 
     /** First-time sync for a record type: pull recent history by time range, then mint a token. */
-    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): Pair<Int, Int> {
+    private suspend fun <T : Record> backfill(spec: SyncSpec<T>): SyncOutcome {
         val client = healthConnectManager.client
         val start = Instant.now().minus(spec.initialBackfillDays, ChronoUnit.DAYS)
         val records = readAllPages(spec, TimeRangeFilter.after(start))
@@ -94,7 +110,7 @@ class SyncRepository(
         val token = client.getChangesToken(ChangesTokenRequest(recordTypes = setOf(spec.recordType)))
         syncState.saveChangesToken(spec.key, token)
         Log.i(TAG, "Backfilled ${spec.key}: ${records.size} record(s), $upserted row(s)")
-        return upserted to 0
+        return SyncOutcome(read = records.size, upserted = upserted, deleted = 0)
     }
 
     private suspend fun <T : Record> readAllPages(spec: SyncSpec<T>, filter: TimeRangeFilter): List<T> {
@@ -126,10 +142,11 @@ class SyncRepository(
     private suspend fun <T : Record> drainChanges(
         spec: SyncSpec<T>,
         startToken: String,
-    ): Pair<Int, Int> {
+    ): SyncOutcome {
         val client = healthConnectManager.client
         var upserted = 0
         var deleted = 0
+        var read = 0
         var token = startToken
 
         while (true) {
@@ -138,8 +155,12 @@ class SyncRepository(
             if (response.changesTokenExpired) {
                 Log.w(TAG, "Changes token expired for ${spec.key}, falling back to backfill")
                 syncState.clearChangesToken(spec.key)
-                val (u, d) = backfill(spec)
-                return (upserted + u) to (deleted + d)
+                val fallback = backfill(spec)
+                return SyncOutcome(
+                    read = read + fallback.read,
+                    upserted = upserted + fallback.upserted,
+                    deleted = deleted + fallback.deleted,
+                )
             }
 
             val upsertedRecords = mutableListOf<T>()
@@ -155,6 +176,7 @@ class SyncRepository(
                     }
                 }
             }
+            read += upsertedRecords.size
             upserted += pushRecords(spec, upsertedRecords)
 
             token = response.nextChangesToken
@@ -165,7 +187,7 @@ class SyncRepository(
         if (upserted > 0 || deleted > 0) {
             Log.i(TAG, "Synced ${spec.key}: +$upserted / -$deleted row(s)")
         }
-        return upserted to deleted
+        return SyncOutcome(read = read, upserted = upserted, deleted = deleted)
     }
 
     /**
@@ -182,7 +204,8 @@ class SyncRepository(
         for (record in records) {
             for ((table, rows) in spec.toTableRows(record)) {
                 if (rows.isEmpty()) continue
-                rowsByTable.getOrPut(table) { mutableListOf() }.addAll(rows)
+                rowsByTable.getOrPut(table) { mutableListOf() }
+                    .addAll(rows.map { row -> row + ("client_id" to clientId) })
             }
         }
 
@@ -203,7 +226,12 @@ class SyncRepository(
         var count = 0
         for ((table, rows) in rowsByTable) {
             for (batch in rows.chunked(UPSERT_BATCH_SIZE)) {
-                supabase.upsert(table = table, rows = batch, onConflict = "health_connect_id")
+                // client_id,health_connect_id -- matches the composite unique
+                // constraint from supabase/migrations/
+                // 0022_per_client_health_data_conflict_key.sql. A plain
+                // health_connect_id conflict target would upsert against
+                // whichever row (any client's) happens to hold that id.
+                supabase.upsert(table = table, rows = batch, onConflict = "client_id,health_connect_id")
                 count += batch.size
             }
         }

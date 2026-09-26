@@ -18,6 +18,8 @@ import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
 import { AssistantChat } from "@/components/AssistantChat";
 import { getAssistantMessages } from "@/lib/assistant";
+import { CheckInEditor } from "@/components/CheckInEditor";
+import { getCheckInTemplate } from "@/lib/check-ins";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,7 @@ export default async function ClientDetailPage({
   const client = profileRes.data;
   const thread = await getThreadReadOnly(supabase, coach.id, params.clientId);
   const chatUnread = thread ? isThreadUnread(thread, "coach") : false;
+  const checkInTemplate = await getCheckInTemplate(supabase, coach.id, params.clientId);
 
   const [summaries, stats, steps, sleep] = clientProfile.onboardedAt
     ? await Promise.all([
@@ -207,10 +210,6 @@ export default async function ClientDetailPage({
                 <dt className="text-ink-muted">Phone</dt>
                 <dd className="text-ink-primary">{clientProfile.phone || "—"}</dd>
               </div>
-              <div>
-                <dt className="text-ink-muted">Sync code</dt>
-                <dd className="font-mono text-ink-primary">{clientProfile.syncCode}</dd>
-              </div>
               <div className="sm:col-span-2">
                 <dt className="text-ink-muted">Goals</dt>
                 <dd className="text-ink-primary">{clientProfile.goals || "—"}</dd>
@@ -244,7 +243,7 @@ export default async function ClientDetailPage({
                   <li key={d.key} className="flex items-center gap-2 text-ink-primary">
                     <span
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        consented ? "bg-[color:var(--series-steps)]" : "bg-ink-muted"
+                        consented ? "bg-[color:var(--accent)]" : "bg-ink-muted"
                       }`}
                       aria-hidden="true"
                     />
@@ -269,6 +268,26 @@ export default async function ClientDetailPage({
           </section>
 
           <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+            <h2 className="mb-1 text-sm font-semibold text-ink-primary">Weekly check-in</h2>
+            <p className="mb-3 text-xs text-ink-muted">
+              A recurring set of questions this client answers each week -- shows up in their Tasks.
+            </p>
+            <CheckInEditor
+              clientId={params.clientId}
+              template={
+                checkInTemplate
+                  ? {
+                      name: checkInTemplate.name,
+                      schema: checkInTemplate.schema,
+                      dayOfWeek: checkInTemplate.dayOfWeek,
+                      active: checkInTemplate.active,
+                    }
+                  : null
+              }
+            />
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
             <h2 className="mb-1 text-sm font-semibold text-ink-primary">AI assistant</h2>
             <p className="mb-3 text-xs text-ink-muted">
               Grounded in this client&apos;s synced data and your non-private notes. Only you see this
@@ -286,7 +305,7 @@ export default async function ClientDetailPage({
               {personalRecords.length > 3 && (
                 <Link
                   href={`/dashboard/clients/${params.clientId}/personal-records`}
-                  className="text-xs text-[color:var(--series-steps)] hover:underline"
+                  className="text-xs text-[color:var(--accent)] hover:underline"
                 >
                   See all
                 </Link>
@@ -417,7 +436,7 @@ function AssignForm({
       </select>
       <button
         type="submit"
-        className="w-fit rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+        className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
       >
         Assign
       </button>

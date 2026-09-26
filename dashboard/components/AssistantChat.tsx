@@ -21,7 +21,7 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="underline underline-offset-2 hover:text-[color:var(--series-steps)]"
+      className="underline underline-offset-2 hover:text-[color:var(--accent)]"
     >
       {children}
     </a>
@@ -167,7 +167,7 @@ export function AssistantChat({
             key={i}
             className={`max-w-[85%] rounded-lg px-3 py-2 ${
               message.role === "user"
-                ? "ml-auto bg-[color:var(--series-steps)] text-white"
+                ? "ml-auto bg-[color:var(--accent)] text-white"
                 : "bg-[color:var(--page-plane)] text-ink-primary"
             }`}
           >
@@ -205,7 +205,7 @@ export function AssistantChat({
         <button
           type="submit"
           disabled={sending || !input.trim()}
-          className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
         >
           Send
         </button>

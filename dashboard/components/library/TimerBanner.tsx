@@ -15,7 +15,7 @@ export function TimerBanner() {
     <button
       type="button"
       onClick={restore}
-      className="fixed inset-x-0 top-0 z-40 flex w-full items-center justify-center gap-2 bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+      className="fixed inset-x-0 top-0 z-40 flex w-full items-center justify-center gap-2 bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
     >
       <span className="uppercase tracking-wide">{timer.kind === "work" ? "Work" : "Rest"}</span>
       <span className="tabular-nums">{formatClock(timer.remainingSeconds)}</span>

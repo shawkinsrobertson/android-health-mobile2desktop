@@ -41,15 +41,31 @@ class AuthRepository(
     }
 
     /**
+     * The signed-in user's Supabase id (profiles.id / auth.uid()), or
+     * null if there's no session. Unlike [getValidAccessToken] this never
+     * refreshes -- the id itself doesn't expire with the token, so a
+     * plain stored-session read is enough.
+     */
+    suspend fun getUserId(): String? = sessionStore.readTokens()?.userId
+
+    /**
      * Returns a currently-valid access token, refreshing first if it's
      * expired or expiring within [REFRESH_MARGIN_SECONDS] -- the
      * refreshed session's rotated refresh_token is persisted on success
      * (see [SupabaseAuthClient.refreshSession]). Returns null if there's
-     * no session at all, or if refresh itself fails (an expired/revoked
-     * refresh token, or no network) -- the caller ([SyncWorker][
-     * com.healthsync.app.sync.SyncWorker]) treats null as "not signed
-     * in," not a retryable network error; the next scheduled/manual sync
-     * attempt is the retry, same philosophy [SyncRepository][
+     * no session at all, or if refresh itself fails -- but the stored
+     * session is only *cleared* when GoTrue explicitly rejected the
+     * refresh token ([SupabaseAuthHttpException] with a 4xx status --
+     * expired, revoked, already used). A network-level failure or a 5xx
+     * leaves the session in place and just fails this one attempt, so a
+     * momentary connectivity blip on app launch can't force a real
+     * sign-out -- callers that need to tell "this session is genuinely
+     * dead" apart from "that one attempt failed" should check whether
+     * [getUserId] still returns a value afterward (see
+     * [com.healthsync.app.MainActivity]'s role-fetch for the pattern).
+     * [SyncWorker][com.healthsync.app.sync.SyncWorker] just treats null
+     * as "not signed in for this run" either way; the next scheduled/
+     * manual sync is the retry, same philosophy [SyncRepository][
      * com.healthsync.app.sync.SyncRepository] already uses for
      * per-record-type sync failures.
      */
@@ -64,8 +80,16 @@ class AuthRepository(
             val refreshed = authClient.refreshSession(tokens.refreshToken)
             sessionStore.save(refreshed)
             refreshed.accessToken
+        } catch (e: SupabaseAuthHttpException) {
+            if (e.statusCode in 400..499) {
+                Log.w(TAG, "Refresh token rejected (${e.statusCode}), clearing session", e)
+                sessionStore.clear()
+            } else {
+                Log.w(TAG, "Refresh failed with server error ${e.statusCode}, leaving session in place", e)
+            }
+            null
         } catch (e: Exception) {
-            Log.w(TAG, "Session refresh failed, treating as signed out", e)
+            Log.w(TAG, "Refresh failed (network?), leaving session in place", e)
             null
         }
     }

@@ -84,7 +84,7 @@ export default async function ClientDocumentPage({
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="w-fit rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+            className="w-fit rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             Open file
           </a>
@@ -102,7 +102,7 @@ export default async function ClientDocumentPage({
             <DynamicFormRenderer schema={schema} existingAnswers={answers} existingFileUrls={existingFileUrls} />
             <button
               type="submit"
-              className="w-fit rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+              className="w-fit rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
             >
               Submit
             </button>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/browser";
 import { isThreadUnread, type ChatThreadRow } from "@/lib/chat";
+import { InboxIcon } from "@/components/icons/InboxIcon";
 
 // NavBar's "Inbox" link, live: tracks unread-ness per thread (a coach has
 // one per client; a client has exactly one) so the yellow dot updates the
@@ -55,7 +56,8 @@ export function InboxNavLink({
   const unread = Object.values(unreadMap).some(Boolean);
 
   return (
-    <Link href={href} className="relative hover:text-ink-primary">
+    <Link href={href} className="relative flex items-center gap-1.5 hover:text-ink-primary">
+      <InboxIcon className="h-4 w-4" />
       Inbox
       {unread && (
         <span className="absolute -right-2 -top-1 h-2 w-2 rounded-full bg-yellow-400" aria-label="Unread messages" />

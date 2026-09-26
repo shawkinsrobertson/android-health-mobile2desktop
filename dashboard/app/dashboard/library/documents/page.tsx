@@ -36,7 +36,7 @@ export default async function DocumentLibraryPage() {
         </div>
         <Link
           href="/dashboard/library/documents/new"
-          className="rounded-lg bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+          className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
         >
           New document
         </Link>
@@ -68,7 +68,7 @@ export default async function DocumentLibraryPage() {
                   className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
                     doc.document_type === "form"
                       ? "bg-[color:var(--series-exercise)]/20 text-[color:var(--series-exercise)]"
-                      : "bg-[color:var(--series-steps)]/20 text-[color:var(--series-steps)]"
+                      : "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
                   }`}
                 >
                   {doc.document_type === "form" ? "form" : "file"}

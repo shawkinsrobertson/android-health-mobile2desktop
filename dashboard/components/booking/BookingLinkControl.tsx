@@ -42,7 +42,7 @@ export function BookingLinkControl({ bookingUrl }: { bookingUrl: string | null }
         type="button"
         onClick={handleGenerate}
         disabled={generating}
-        className="text-[color:var(--series-steps)] hover:underline disabled:opacity-50"
+        className="text-[color:var(--accent)] hover:underline disabled:opacity-50"
       >
         {generating ? "Generating…" : "Generate booking link"}
       </button>

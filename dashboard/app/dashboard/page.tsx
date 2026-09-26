@@ -96,7 +96,7 @@ export default async function DashboardPage() {
           <form action={createInviteLink}>
             <button
               type="submit"
-              className="rounded-lg bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+              className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
             >
               Generate invite link
             </button>
@@ -122,7 +122,7 @@ export default async function DashboardPage() {
                         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
                         : label === "expired"
                           ? "bg-ink-muted/20 text-ink-muted"
-                          : "bg-[color:var(--series-steps)]/20 text-[color:var(--series-steps)]"
+                          : "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
                     }`}
                   >
                     {label}

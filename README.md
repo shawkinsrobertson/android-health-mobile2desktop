@@ -24,9 +24,9 @@ an AI training coach grounded in that data.
 
 - **`android/`** — Kotlin/Jetpack Compose app. Reads Steps, Heart Rate,
   Sleep, Exercise sessions, and vitals (SpO2, blood pressure, respiratory
-  rate) from Health Connect and upserts them into Supabase. Runs a
-  background sync roughly every 15 minutes via WorkManager, plus a manual
-  "Sync now" button.
+  rate, blood glucose) from Health Connect and upserts them into
+  Supabase. Runs a background sync roughly every 15 minutes via
+  WorkManager, plus a manual "Sync now" button.
 - **`supabase/`** — SQL migration for the Postgres schema those tables
   live in.
 - **`dashboard/`** — Next.js app that reads the same Supabase project.
@@ -66,7 +66,7 @@ installable from Play Store on 9–13).
    - **Sign in**: enter the same email you (or the client) used to join
      on the dashboard (see section 4 below -- an account has to exist
      there first, via a coach's invite link, before the app can sign
-     into it), then enter the 6-digit code emailed to that address. Sync
+     into it), then enter the 8-digit code emailed to that address. Sync
      won't run at all until this step is done -- see `AuthRepository
      .getValidAccessToken()`.
    - If Health Connect isn't installed, the app prompts you to install it.
@@ -116,18 +116,20 @@ the header comment in
 for the full reasoning.
 
 The Android app now authenticates as the specific client it's syncing
-for, via Supabase Auth email OTP (a 6-digit code typed in-app, not a
+for, via Supabase Auth email OTP (an 8-digit code typed in-app, not a
 magic-link tap-through -- there's no deep-link handling in the app). A
 client signs in on their phone with the same email they used to join on
 the dashboard; `handle_new_user()` (see `0002_accounts.sql`) already
 created their account then, so this is a plain sign-in, never a signup.
 The health-data tables (`steps`, `heart_rate_samples`, `sleep_sessions`,
 `sleep_stages`, `exercise_sessions`, `blood_oxygen`, `blood_pressure`,
-`respiratory_rate`) carry a real `client_id` column now, RLS-scoped to
-`auth.uid()` -- a client sees only their own rows, their coach sees their
-own clients' via the same `client_profiles.coach_id` pattern used
-elsewhere. See
-[`supabase/migrations/0015_health_data_auth.sql`](supabase/migrations/0015_health_data_auth.sql).
+`respiratory_rate`, `blood_glucose`) carry a real `client_id` column now,
+RLS-scoped to `auth.uid()` -- a client sees only their own rows, their
+coach sees their own clients' via the same `client_profiles.coach_id`
+pattern used elsewhere. See
+[`supabase/migrations/0015_health_data_auth.sql`](supabase/migrations/0015_health_data_auth.sql)
+(`blood_glucose` itself was added later, directly in this shape, by
+[`0024_blood_glucose.sql`](supabase/migrations/0024_blood_glucose.sql)).
 (The earlier manually-entered sync-code stopgap --
 [`0003_sync_code.sql`](supabase/migrations/0003_sync_code.sql) -- is fully
 retired; the column it used is left in place, harmless, but no longer
@@ -161,22 +163,37 @@ read for access control.)
 4. Once SMTP is connected, edit **both** of these templates -- Supabase
    sends **"Confirm signup"** for a brand-new account's first-ever sign-in,
    and **"Magic Link"** for every sign-in after that, so both need the same
-   treatment or only returning users get the fix:
-   - **Confirm signup**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup`
-   - **Magic Link**: `{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`
+   treatment or only returning users get the fix. Each template needs
+   **both** a link (for the web dashboard) **and** the raw `{{ .Token }}`
+   (for the Android app -- see below), e.g.:
 
-   This is required, not optional -- the default `{{ .ConfirmationURL }}`
-   link uses Supabase's PKCE `code` flow, which needs a secret stored on
-   the browser that *requested* the link. Email links routinely get opened
-   somewhere else (a mail app's in-app browser, a different device), which
-   fails with "PKCE code verifier not found in storage." The `token_hash`
-   link verifies the token itself server-side instead, so it works
-   regardless of what opens it -- see `app/auth/confirm/route.ts`. Using
-   `{{ .RedirectTo }}` (which reflects whatever `SITE_URL` the *requesting*
-   environment sent, as long as it matched the allowlist in step 2) instead
-   of `{{ .SiteURL }}` (a single project-wide setting) is what lets local
-   dev and a deployed demo share one Supabase project without their magic
-   links stepping on each other.
+   ```html
+   <p>Enter this code in the Health Sync app: <strong>{{ .Token }}</strong></p>
+   <p>Or, on this device: <a href="{{ .RedirectTo }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink">click here to sign in</a>.</p>
+   ```
+   (swap `type=magiclink` for `type=signup` in the "Confirm signup" template)
+
+   The link half is required, not optional -- the default
+   `{{ .ConfirmationURL }}` link uses Supabase's PKCE `code` flow, which
+   needs a secret stored on the browser that *requested* the link. Email
+   links routinely get opened somewhere else (a mail app's in-app browser,
+   a different device), which fails with "PKCE code verifier not found in
+   storage." The `token_hash` link verifies the token itself server-side
+   instead, so it works regardless of what opens it -- see
+   `app/auth/confirm/route.ts`. Using `{{ .RedirectTo }}` (which reflects
+   whatever `SITE_URL` the *requesting* environment sent, as long as it
+   matched the allowlist in step 2) instead of `{{ .SiteURL }}` (a single
+   project-wide setting) is what lets local dev and a deployed demo share
+   one Supabase project without their magic links stepping on each other.
+
+   The `{{ .Token }}` half is what the **Android app** needs -- see
+   `android/app/src/main/java/com/healthsync/app/auth/SupabaseAuthClient.kt`.
+   It calls this exact same `/auth/v1/otp` endpoint and shows the user a
+   type-in-the-8-digit-code screen (`VerifyCodeScreen`), not a link -- if
+   `{{ .Token }}` isn't in the template, an Android sign-in attempt gets
+   the web's link instead of a code, with nothing to type in. Both
+   consumers share the one template per email type, so it has to serve
+   both at once rather than picking one.
 5. Set `SITE_URL` in `dashboard/.env.local` (and in your deploy platform's
    environment variables, if you're running a deployed copy too) to that
    environment's own origin.
@@ -202,6 +219,9 @@ querying directly or building dashboard features around them:
   [`ExerciseSessionRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/ExerciseSessionRecord).
 - `blood_pressure.body_position_code` / `measurement_location_code` — see
   [`BloodPressureRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/BloodPressureRecord).
+- `blood_glucose.specimen_source_code` / `meal_type_code` /
+  `relation_to_meal_code` — see
+  [`BloodGlucoseRecord`](https://developer.android.com/reference/kotlin/androidx/health/connect/client/records/BloodGlucoseRecord).
 
 ## Known gaps / natural next steps
 

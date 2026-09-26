@@ -53,3 +53,36 @@ export function isFileAnswer(value: unknown): value is FileAnswer {
     "filename" in value
   );
 }
+
+// Parses a FormBuilder's hidden-input value (JSON.stringify(FormField[]))
+// back into a FormSchema, throwing a user-facing message on anything
+// malformed. Shared by every "coach authors a form_schema" action
+// (document library, check-in templates).
+export function parseFormSchema(raw: FormDataEntryValue | null): FormSchema {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("Add at least one field to the form.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Malformed form schema.");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("Add at least one field to the form.");
+  }
+  for (const raw of parsed as unknown[]) {
+    const field = raw as { id?: unknown; type?: unknown; label?: unknown } | null;
+    if (
+      !field ||
+      typeof field !== "object" ||
+      !field.id ||
+      !field.type ||
+      typeof field.label !== "string" ||
+      !field.label.trim()
+    ) {
+      throw new Error("Every field needs a label.");
+    }
+  }
+  return parsed as FormSchema;
+}

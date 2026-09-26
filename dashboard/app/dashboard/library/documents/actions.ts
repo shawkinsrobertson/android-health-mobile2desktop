@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { applyMediaField, readMediaField } from "@/lib/media";
-import type { FormSchema } from "@/lib/forms";
+import { parseFormSchema, type FormSchema } from "@/lib/forms";
 
 const LIST_PATH = "/dashboard/library/documents";
 
@@ -18,35 +18,6 @@ async function requireCoach() {
 function strOrNull(value: FormDataEntryValue | null): string | null {
   const s = typeof value === "string" ? value.trim() : "";
   return s || null;
-}
-
-function parseFormSchema(raw: FormDataEntryValue | null): FormSchema {
-  if (typeof raw !== "string" || !raw.trim()) {
-    throw new Error("Add at least one field to the form.");
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Malformed form schema.");
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("Add at least one field to the form.");
-  }
-  for (const raw of parsed as unknown[]) {
-    const field = raw as { id?: unknown; type?: unknown; label?: unknown } | null;
-    if (
-      !field ||
-      typeof field !== "object" ||
-      !field.id ||
-      !field.type ||
-      typeof field.label !== "string" ||
-      !field.label.trim()
-    ) {
-      throw new Error("Every field needs a label.");
-    }
-  }
-  return parsed as FormSchema;
 }
 
 export async function createDocument(formData: FormData) {

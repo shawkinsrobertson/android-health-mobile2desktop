@@ -132,7 +132,7 @@ export default async function ProgramDetailPage({
 
           <button
             type="submit"
-            className="w-fit rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+            className="w-fit rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             Save changes
           </button>

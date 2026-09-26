@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,13 +23,23 @@ import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.healthsync.app.auth.AuthRepository
+import com.healthsync.app.data.HomeSummary
+import com.healthsync.app.data.HomeSummaryRepository
+import com.healthsync.app.data.ProfileRepository
 import com.healthsync.app.healthconnect.HealthConnectManager
+import com.healthsync.app.supabase.SupabaseRestClient
 import com.healthsync.app.sync.MANUAL_SYNC_WORK_NAME
 import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncScheduler
 import com.healthsync.app.sync.SyncStateStore
 import com.healthsync.app.sync.SyncWorker
+import com.healthsync.app.ui.CalendarScreen
+import com.healthsync.app.ui.CoachHomeScreen
+import com.healthsync.app.ui.DashboardScreen
 import com.healthsync.app.ui.HomeScreen
+import com.healthsync.app.ui.InboxScreen
+import com.healthsync.app.ui.ProfileScreen
+import com.healthsync.app.ui.WorkoutScreen
 import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.ROUTE_HOME
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
@@ -41,6 +52,7 @@ private fun WorkInfo.toSyncResult(): SyncResult? = when (state) {
         upsertedRows = outputData.getInt(SyncWorker.KEY_UPSERTED_ROWS, 0),
         deletedRows = outputData.getInt(SyncWorker.KEY_DELETED_ROWS, 0),
         errors = outputData.getStringArray(SyncWorker.KEY_ERRORS)?.toList().orEmpty(),
+        readSummary = outputData.getString(SyncWorker.KEY_READ_SUMMARY) ?: "",
     )
     WorkInfo.State.FAILED -> SyncResult(
         upsertedRows = 0,
@@ -84,12 +96,75 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val scope = rememberCoroutineScope()
 
+                val onSignOut: () -> Unit = {
+                    scope.launch {
+                        // Order matters: clear sync cursors before the
+                        // session is gone, and navigate last so the
+                        // Login screen only appears once both are
+                        // actually done -- see SyncStateStore
+                        // .clearAllChangesTokens()'s doc comment for
+                        // why a stale cursor under a new account would
+                        // silently skip that account's own backfill.
+                        authRepository.logout()
+                        syncStateStore.clearAllChangesTokens()
+                        navController.navigate(ROUTE_LOGIN) {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                        }
+                    }
+                }
+
                 AuthNavHost(
                     navController = navController,
                     startDestination = if (loggedIn) ROUTE_HOME else ROUTE_LOGIN,
                     onRequestOtp = { email -> authRepository.login(email) },
                     onVerifyCode = { email, code -> authRepository.verifyCode(email, code) },
-                ) {
+                    dashboardContent = { clientId, onBack ->
+                        DashboardScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    workoutContent = { clientId, onBack ->
+                        WorkoutScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    calendarContent = { clientId, onBack ->
+                        CalendarScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    inboxContent = { clientId, onBack ->
+                        InboxScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    },
+                    profileContent = { onBack ->
+                        val email by authRepository.emailFlow.collectAsState(initial = null)
+                        val profileWorkInfos by WorkManager.getInstance(this@MainActivity)
+                            .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
+                            .collectAsState(initial = emptyList())
+                        val profileActiveWork = profileWorkInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
+                        val profileIsSyncing = profileActiveWork?.state == WorkInfo.State.ENQUEUED ||
+                            profileActiveWork?.state == WorkInfo.State.RUNNING
+                        val profileLastResult = profileActiveWork?.toSyncResult()
+                        val profileScope = rememberCoroutineScope()
+                        ProfileScreen(
+                            email = email,
+                            isSyncing = profileIsSyncing,
+                            lastResult = profileLastResult,
+                            syncStateStore = syncStateStore,
+                            onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
+                            onForceResync = {
+                                profileScope.launch {
+                                    syncStateStore.clearAllChangesTokens()
+                                    SyncScheduler.triggerManualSync(this@MainActivity)
+                                }
+                            },
+                            onSignOut = {
+                                profileScope.launch {
+                                    authRepository.logout()
+                                    syncStateStore.clearAllChangesTokens()
+                                    navController.navigate(ROUTE_LOGIN) {
+                                        popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                                    }
+                                }
+                            },
+                            onBack = onBack,
+                        )
+                    },
+                ) { nav ->
                     var hasPermissions by remember { mutableStateOf<Boolean?>(null) }
 
                     val permissionLauncher = rememberLauncherForActivityResult(
@@ -103,53 +178,104 @@ class MainActivity : ComponentActivity() {
                             healthConnectManager.hasAllPermissions()
                     }
 
-                    // Sync runs as a WorkManager job (see SyncScheduler.triggerManualSync)
-                    // rather than a coroutine on this Composable's scope, so it survives
-                    // this Activity being destroyed mid-run -- screen off, app
-                    // backgrounded, low memory -- instead of being silently cancelled.
-                    // The UI just observes the unique work's status/output.
-                    val workInfos by WorkManager.getInstance(this@MainActivity)
-                        .getWorkInfosForUniqueWorkFlow(MANUAL_SYNC_WORK_NAME)
-                        .collectAsState(initial = emptyList())
-                    val activeWorkInfo = workInfos.firstOrNull { it.state != WorkInfo.State.CANCELLED }
-                    val isSyncing = activeWorkInfo?.state == WorkInfo.State.ENQUEUED ||
-                        activeWorkInfo?.state == WorkInfo.State.RUNNING
-                    val lastResult = activeWorkInfo?.toSyncResult()
-
                     val email by authRepository.emailFlow.collectAsState(initial = null)
 
-                    HomeScreen(
-                        healthConnectAvailable = healthConnectManager.isAvailable,
-                        hasPermissions = hasPermissions,
-                        isSyncing = isSyncing,
-                        lastResult = lastResult,
-                        syncStateStore = syncStateStore,
-                        email = email,
-                        onRequestPermissions = {
-                            permissionLauncher.launch(healthConnectManager.requiredPermissions)
-                        },
-                        onInstallHealthConnect = {
-                            val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
-                            startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        },
-                        onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
-                        onSignOut = {
-                            scope.launch {
-                                // Order matters: clear sync cursors before the
-                                // session is gone, and navigate last so the
-                                // Login screen only appears once both are
-                                // actually done -- see SyncStateStore
-                                // .clearAllChangesTokens()'s doc comment for
-                                // why a stale cursor under a new account would
-                                // silently skip that account's own backfill.
-                                authRepository.logout()
-                                syncStateStore.clearAllChangesTokens()
-                                navController.navigate(ROUTE_LOGIN) {
-                                    popUpTo(navController.graph.startDestinationId) { inclusive = true }
-                                }
+                    // Fetched once per Home composition, purely to decide
+                    // what this screen shows -- a coach sees their client
+                    // roster instead of the Health Connect/sync UI, since
+                    // coaches don't sync their own device data through
+                    // this app. Defaults to "client" on any failure (no
+                    // network, RLS surprise, etc.) so a signed-in client
+                    // is never stuck on a blank screen over this.
+                    var userId by remember { mutableStateOf<String?>(null) }
+                    var role by remember { mutableStateOf<String?>(null) }
+                    var displayName by remember { mutableStateOf<String?>(null) }
+                    var homeSummary by remember { mutableStateOf<HomeSummary?>(null) }
+                    // Hoisted here (not `remember`ed inside SlideOutNav)
+                    // so it survives navigating to a destination and back
+                    // to Home -- AuthNavHost's ROUTE_HOME composable, and
+                    // everything nested inside it including HomeScreen/
+                    // SlideOutNav, gets torn down and recreated on that
+                    // round trip; this val lives in MainActivity's own
+                    // composition, which doesn't.
+                    var navExpanded by rememberSaveable { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        val token = authRepository.getValidAccessToken()
+                        if (token == null) {
+                            // getValidAccessToken() clears the stored
+                            // session itself when it was GoTrue that
+                            // explicitly rejected the refresh token (see
+                            // its own doc comment) -- getUserId() still
+                            // returning something means this failure was
+                            // just a transient one (network, a 5xx) and
+                            // the session is fine, so leave the screen
+                            // alone rather than sign someone out over a
+                            // momentary connectivity blip.
+                            if (authRepository.getUserId() == null) {
+                                onSignOut()
                             }
-                        },
-                    )
+                            return@LaunchedEffect
+                        }
+                        val id = authRepository.getUserId() ?: return@LaunchedEffect
+                        userId = id
+                        role = try {
+                            ProfileRepository(SupabaseRestClient(token)).loadRole(id)
+                        } catch (e: Exception) {
+                            "client"
+                        }
+                        if (role != "coach") {
+                            displayName = try {
+                                ProfileRepository(SupabaseRestClient(token)).loadDisplayName(id)
+                            } catch (e: Exception) {
+                                null
+                            }
+                            // loadSummary() itself already catches each of
+                            // its four sub-fetches independently and falls
+                            // back to empty/false per one -- this outer
+                            // catch is only a last-resort guard against
+                            // something failing before that point (e.g.
+                            // SupabaseRestClient's own init check). A
+                            // non-null empty HomeSummary is what actually
+                            // lets HomeScreen tell "still loading" apart
+                            // from "loaded, nothing to show."
+                            homeSummary = try {
+                                HomeSummaryRepository(SupabaseRestClient(token)).loadSummary(id)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                    }
+
+                    if (role == "coach") {
+                        CoachHomeScreen(
+                            authRepository = authRepository,
+                            email = email,
+                            onOpenClient = nav.onOpenDashboard,
+                            onSignOut = onSignOut,
+                        )
+                    } else {
+                        HomeScreen(
+                            healthConnectAvailable = healthConnectManager.isAvailable,
+                            hasPermissions = hasPermissions,
+                            homeSummary = homeSummary,
+                            displayName = displayName,
+                            navExpanded = navExpanded,
+                            onToggleNav = { navExpanded = !navExpanded },
+                            onRequestPermissions = {
+                                permissionLauncher.launch(healthConnectManager.requiredPermissions)
+                            },
+                            onInstallHealthConnect = {
+                                val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
+                                startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            },
+                            onOpenStats = { userId?.let { nav.onOpenDashboard(it) } },
+                            onOpenWorkouts = { userId?.let { nav.onOpenWorkout(it) } },
+                            onOpenCalendar = { userId?.let { nav.onOpenCalendar(it) } },
+                            onOpenInbox = { userId?.let { nav.onOpenInbox(it) } },
+                            onOpenCheckIn = { nav.onOpenComingSoon("Weekly check-in") },
+                            onOpenProfile = nav.onOpenProfile,
+                        )
+                    }
                 }
             }
         }

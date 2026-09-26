@@ -65,7 +65,7 @@ export default async function JoinPage({
           />
           <button
             type="submit"
-            className="rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+            className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             Send sign-in link
           </button>

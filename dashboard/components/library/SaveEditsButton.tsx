@@ -16,7 +16,7 @@ export function SaveEditsButton({ summaryHref }: { summaryHref: string }) {
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="w-full rounded-lg bg-[color:var(--series-steps)] px-4 py-3 text-sm font-medium text-white"
+        className="w-full rounded-lg bg-[color:var(--accent)] px-4 py-3 text-sm font-medium text-white"
       >
         Save
       </button>
@@ -39,7 +39,7 @@ export function SaveEditsButton({ summaryHref }: { summaryHref: string }) {
               <button
                 type="button"
                 onClick={() => router.push(summaryHref)}
-                className="rounded-lg bg-[color:var(--series-steps)] px-4 py-2 text-sm font-medium text-white"
+                className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white"
               >
                 Save
               </button>

@@ -13,6 +13,11 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+// PostgREST's own default cap on an unbounded response -- select()
+// pages past this rather than trusting a single request not to get
+// silently truncated at it.
+private const val SELECT_PAGE_SIZE = 1000
+
 /**
  * Minimal PostgREST client for pushing Health Connect data to Supabase.
  * Talks straight to `/rest/v1/<table>` rather than pulling in the full
@@ -83,6 +88,51 @@ class SupabaseRestClient(
     }
 
     /**
+     * Plain insert (no upsert/conflict handling) of [rows] into [table],
+     * returning the inserted rows as PostgREST hands them back -- callers
+     * need the server-assigned `id`s (e.g. a new workout_sessions row's id
+     * before anything else can reference it). Distinct from [upsert],
+     * which is health-sync's own on_conflict/merge-duplicates write path
+     * and returns nothing.
+     */
+    suspend fun insert(table: String, rows: List<Map<String, Any?>>): JSONArray {
+        if (rows.isEmpty()) return JSONArray()
+        val body = JSONArray().apply { rows.forEach { row -> put(JSONObject(row)) } }
+        val request = Request.Builder()
+            .url(restUrl(table).build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=representation")
+            .post(body.toString().toRequestBody(jsonMediaType))
+            .build()
+        return JSONArray(executeReturningBody(request))
+    }
+
+    /**
+     * Update every row in [table] matching [filters] (PostgREST filter
+     * syntax per value, e.g. `mapOf("id" to "eq.<uuid>")`) with [body]'s
+     * fields. Used for workout-session state a caller already knows the
+     * id of (timer start/pause/resume/finish, editing a logged set) --
+     * RLS's own client_id/coach_id check is still the real access
+     * boundary, [filters] just narrows which row(s) this particular call
+     * touches.
+     */
+    suspend fun patch(table: String, filters: Map<String, String>, body: Map<String, Any?>) {
+        var urlBuilder = restUrl(table)
+        filters.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .header("Prefer", "return=minimal")
+            .patch(JSONObject(body).toString().toRequestBody(jsonMediaType))
+            .build()
+        execute(request)
+    }
+
+    /**
      * Delete every row in [table] whose `health_connect_id` starts with
      * [prefix]. Used to propagate Health Connect deletions: a deleted
      * record's own Health Connect id is the prefix of every row it
@@ -103,19 +153,75 @@ class SupabaseRestClient(
         execute(request)
     }
 
+    /**
+     * Read-only PostgREST select against [table] -- [params] become query
+     * parameters verbatim, e.g. `mapOf("select" to "start_time,count",
+     * "client_id" to "eq.<uuid>", "order" to "start_time.asc")`. RLS on
+     * the target table does the actual per-user/per-coach scoping via
+     * this client's [accessToken], same as every write this class makes
+     * -- see supabase/migrations/0015_health_data_auth.sql for the
+     * coach-can-also-select-their-clients'-rows policies this relies on.
+     *
+     * Pages through the full result in batches of [SELECT_PAGE_SIZE]
+     * rather than trusting a single request not to get silently
+     * truncated -- PostgREST caps an unbounded response at 1000 rows by
+     * default, and this app's own health-data tables are exactly the
+     * shape that blows past that (the web dashboard hit this same issue
+     * with this same data first -- see dashboard/lib/queries.ts's
+     * fetchAllRows() and its comment). Skipped when [params] already
+     * carries its own "limit" -- that's a caller deliberately asking for
+     * a bounded top-N (e.g. "5 most recent workouts"), not something to
+     * page past.
+     */
+    suspend fun select(table: String, params: Map<String, String>): JSONArray {
+        if (params.containsKey("limit")) {
+            return JSONArray(executeReturningBody(selectRequest(table, params)))
+        }
+
+        val all = JSONArray()
+        var offset = 0
+        while (true) {
+            val pageParams = params + mapOf(
+                "limit" to SELECT_PAGE_SIZE.toString(),
+                "offset" to offset.toString(),
+            )
+            val page = JSONArray(executeReturningBody(selectRequest(table, pageParams)))
+            for (i in 0 until page.length()) all.put(page.get(i))
+            if (page.length() < SELECT_PAGE_SIZE) break
+            offset += SELECT_PAGE_SIZE
+        }
+        return all
+    }
+
+    private fun selectRequest(table: String, params: Map<String, String>): Request {
+        var urlBuilder = restUrl(table)
+        params.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        return Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+    }
+
     // OkHttp's call.execute() is blocking I/O; run it on Dispatchers.IO so
     // callers never have to know or care what thread/dispatcher they were
     // invoked from. Without this, a caller on the main thread (e.g. the
     // Compose "Sync now" button, whose rememberCoroutineScope() runs on the
     // UI dispatcher) crashes with NetworkOnMainThreadException.
     private suspend fun execute(request: Request) {
-        withContext(Dispatchers.IO) {
-            http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val bodyText = response.body?.string().orEmpty()
-                    throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
-                }
+        executeReturningBody(request)
+    }
+
+    // Same as execute() but hands back the response body -- select() needs
+    // the JSON payload, the write methods above just need success/failure.
+    private suspend fun executeReturningBody(request: Request): String = withContext(Dispatchers.IO) {
+        http.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
             }
+            bodyText
         }
     }
 }

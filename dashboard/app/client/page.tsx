@@ -14,6 +14,8 @@ import { PersonalRecordsList } from "@/components/PersonalRecordsList";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DATA_POINTS, labelFor } from "./data-points";
 import { updateWeightUnit, updateDataConsent } from "./actions";
+import { getCurrentCheckIn } from "@/lib/check-ins";
+import { DumbbellIcon } from "@/components/icons/DumbbellIcon";
 
 export const dynamic = "force-dynamic";
 
@@ -24,20 +26,6 @@ interface RecentSessionRow {
   started_at: string | null;
   total_paused_seconds: number | null;
   assigned_workouts: { name: string } | null;
-}
-
-function DumbbellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8 text-ink-muted" aria-hidden="true">
-      <path
-        d="M4 9v6M2 10v4M20 9v6M22 10v4M7 8v8M17 8v8M7 12h10"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 export default async function ClientDashboardPage() {
@@ -93,18 +81,21 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
-  const [personalRecords, { data: consentRows }, initialEvents, googleConnectionRes] = await Promise.all([
-    getPersonalRecords(supabase, profile.id),
-    supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
-    listEvents(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
-    supabase
-      .from("calendar_connections")
-      .select("external_account_email, last_synced_at")
-      .eq("profile_id", profile.id)
-      .eq("provider", "google")
-      .maybeSingle(),
-  ]);
+  const [personalRecords, { data: consentRows }, initialEvents, googleConnectionRes, currentCheckIn] =
+    await Promise.all([
+      getPersonalRecords(supabase, profile.id),
+      supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
+      listEvents(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
+      supabase
+        .from("calendar_connections")
+        .select("external_account_email, last_synced_at")
+        .eq("profile_id", profile.id)
+        .eq("provider", "google")
+        .maybeSingle(),
+      getCurrentCheckIn(supabase, profile.id),
+    ]);
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
+  const checkInDue = currentCheckIn.template?.active && !currentCheckIn.response?.submittedAt;
 
   return (
     <div className="flex flex-col gap-8">
@@ -129,7 +120,7 @@ export default async function ClientDashboardPage() {
             />
           ) : (
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[color:var(--page-plane)]">
-              <DumbbellIcon />
+              <DumbbellIcon className="h-8 w-8 text-ink-muted" />
             </div>
           )}
           <div className="min-w-0">
@@ -152,10 +143,23 @@ export default async function ClientDashboardPage() {
         </Link>
       )}
 
+      {checkInDue && (
+        <Link
+          href="/client/check-in"
+          className="flex items-center gap-3 rounded-xl border border-[color:var(--border-hairline)] bg-[color:var(--accent)]/10 p-4 hover:bg-[color:var(--accent)]/15"
+        >
+          <div className="min-w-0">
+            <h2 className="text-xs font-medium text-accent">Tasks</h2>
+            <p className="text-sm font-semibold text-ink-primary">Tell me how it was!</p>
+            <p className="text-xs text-ink-muted">Fill out your weekly check-in.</p>
+          </div>
+        </Link>
+      )}
+
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">Recent workouts</h2>
-          <Link href="/client/history" className="text-xs text-[color:var(--series-steps)] hover:underline">
+          <Link href="/client/history" className="text-xs text-[color:var(--accent)] hover:underline">
             See all
           </Link>
         </div>
@@ -188,7 +192,7 @@ export default async function ClientDashboardPage() {
           {personalRecords.length > 3 && (
             <Link
               href="/client/personal-records"
-              className="text-xs text-[color:var(--series-steps)] hover:underline"
+              className="text-xs text-[color:var(--accent)] hover:underline"
             >
               See all
             </Link>
@@ -215,14 +219,15 @@ export default async function ClientDashboardPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>
         <p className="mb-3 text-sm text-ink-secondary">
-          Open the Health Sync app, enter this code once in Settings, and your synced Health
-          Connect data will show up below.
+          Open the Health Sync app and sign in with this email. You&apos;ll get an 8-digit code
+          by email each time -- no password, and nothing to type in on the phone beyond that
+          code. Your synced Health Connect data will show up below once it&apos;s connected.
         </p>
         <div className="flex items-center gap-2">
-          <code className="rounded-lg bg-[color:var(--page-plane)] px-3 py-2 font-mono text-lg tracking-widest text-ink-primary">
-            {clientProfile.syncCode}
+          <code className="rounded-lg bg-[color:var(--page-plane)] px-3 py-2 font-mono text-sm text-ink-primary">
+            {profile.email}
           </code>
-          <CopyLinkButton url={clientProfile.syncCode} />
+          <CopyLinkButton url={profile.email} />
         </div>
       </section>
 
@@ -255,7 +260,7 @@ export default async function ClientDashboardPage() {
           </label>
           <button
             type="submit"
-            className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+            className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
             Save
           </button>
@@ -281,7 +286,7 @@ export default async function ClientDashboardPage() {
           ))}
           <button
             type="submit"
-            className="mt-1 w-fit rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+            className="mt-1 w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
             Save
           </button>

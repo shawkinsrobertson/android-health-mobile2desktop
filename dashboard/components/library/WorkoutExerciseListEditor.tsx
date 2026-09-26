@@ -158,7 +158,7 @@ function ExerciseRow({
         <div className="text-sm font-medium text-ink-primary">{item.exercise_name}</div>
         <PrescriptionFields defaults={item} />
         <div className="flex gap-3">
-          <button type="submit" className="rounded-md bg-[color:var(--series-steps)] px-2 py-1 text-xs text-white">
+          <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
             Save
           </button>
           <button type="button" onClick={onCancelEdit} className="text-xs text-ink-muted">
@@ -359,7 +359,7 @@ export function WorkoutExerciseListEditor({
                         Notes
                         <input name="notes" defaultValue={unit.block.notes ?? ""} className={inputClass} />
                       </label>
-                      <button type="submit" className="rounded-md bg-[color:var(--series-steps)] px-2 py-1 text-xs text-white">
+                      <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
                         Save
                       </button>
                     </form>
@@ -471,7 +471,7 @@ export function WorkoutExerciseListEditor({
           <PrescriptionFields />
           <button
             type="submit"
-            className="w-fit rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+            className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
           >
             Add
           </button>

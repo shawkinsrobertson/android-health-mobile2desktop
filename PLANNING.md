@@ -168,6 +168,12 @@ guarantee. Needs a real `ANTHROPIC_API_KEY` (console.anthropic.com) to
 run -- same pattern as `DAILY_API_KEY`/Google OAuth/`RESEND_API_KEY`
 earlier in this project.
 
+**vNext, not built**: a response-quality refining pass. First live test
+(2026-09-22) confirmed the tool-calling loop actually pulls real client
+data end-to-end, but tone/length/formatting of the model's answers
+hasn't been tuned at all yet -- flagged for a dedicated session later
+this week rather than iterating blind.
+
 ## Phase 6 -- mobile rearchitecture + iOS (up next, pulled forward)
 
 Android app needs real per-client login instead of one shared anon key
@@ -199,7 +205,7 @@ real work is elsewhere:
 - **Email OTP, not magic-link deep-linking.** There's no deep-link
   infrastructure in the app today (no registered URI scheme, no callback
   activity), and magic-link assumes an interactive foreground moment
-  anyway. A typed-in-app 6-digit email OTP sidesteps both problems and
+  anyway. A typed-in-app 8-digit email OTP sidesteps both problems and
   fits a background-sync app better.
 - **Headless session refresh for WorkManager.** Periodic background sync
   (no user present) needs a persisted, silently-refreshable session --
@@ -207,6 +213,309 @@ real work is elsewhere:
   on after.
 - **One-time data migration** of existing `sync_code`-tagged rows to real
   per-user ids once auth lands.
+
+**Auth + basic dashboards (shipped 2026-09-22).** The auth rearchitecture
+above (email OTP, `SupabaseRestClient` on a per-session JWT, `SyncWorker`
+gated on `AuthRepository.getValidAccessToken()`) had already landed in an
+earlier pass, but nobody was actually syncing -- diagnosed to a real gap:
+the dashboard's own onboarding UI (`/client`'s "Connect your phone"
+section, and the coach's client-detail page's "Sync code" field) still
+told people to "enter this code in Settings," a screen the Android app
+no longer has. Fixed by replacing that copy with the real flow (open the
+app, sign in with your account email, enter the 8-digit code you're
+sent) and dropping the now-dead sync-code display -- `sync_code` stays
+in the schema (nothing currently depends on removing the column) but
+nothing surfaces it anymore.
+
+Also added, since sync alone gives no feedback that it's actually
+working: a basic role-aware dashboard screen.
+`SupabaseRestClient` gained a `select()` method (it was write-only
+before -- upsert/delete only); `SessionStore`/`AuthRepository` now also
+persist and expose the signed-in user's id, not just their tokens/email.
+`data/ProfileRepository.kt` reads the signed-in user's `profiles.role`
+and, for a coach, their client roster (`client_profiles` + `profiles`,
+relying on the coach-select RLS policies `0002_accounts.sql` already
+grants for the web dashboard). `data/HealthDataRepository.kt` is a
+deliberately simplified Kotlin counterpart to `dashboard/lib/queries.ts`
+-- steps/sleep/heart-rate/workout summaries scoped to one `clientId`,
+documented as skipping that file's overlap-dedup and cross-day prorating
+(good enough to see sync is working and spot rough trends, not a second
+source of truth). `ui/DashboardScreen.kt` renders it (stat rows + a
+plain Compose-native bar chart, no charting dependency added) and is
+shared by both a client viewing their own data (a new "View my data"
+button on the existing `HomeScreen`) and a coach viewing one client's
+(`ui/CoachHomeScreen.kt`, the coach's whole landing screen -- no Health
+Connect/sync UI at all there, since coaches don't sync their own device
+data through this app). `AuthNavHost` gained one new parameterized route
+(`dashboard/{clientId}`) to carry either case.
+
+Explicitly a basic pass, not a rebuild of the web dashboard's data
+views: no pagination, no date-range picker, no per-data-point drill-down
+beyond steps/sleep/HR/workouts, no offline caching. Flagged rather than
+claimed tested: this environment had no Android SDK or committed Gradle
+wrapper to actually compile against, so this shipped on careful manual
+review against the existing code's exact conventions rather than a
+build -- needs a real compile + on-device pass before trusting it
+further.
+
+**Found in that on-device pass (2026-09-23): the email template gap.**
+The app built and the login screen worked, but the email that arrived
+was the web dashboard's magic-link email, with no code to type in --
+`VerifyCodeScreen` had nothing to show for. Root cause: README.md
+section 4's "Confirm signup"/"Magic Link" template instructions
+(written for the web-only PKCE-avoidance problem, before the Android
+app's OTP flow existed) only ever put `{{ .TokenHash }}` in a link, never
+`{{ .Token }}` -- and Android's `SupabaseAuthClient.requestOtp()` hits
+the exact same `/auth/v1/otp` endpoint and the exact same one
+template-per-email-type as the web flow, so there was no code path that
+could have produced a code. Fixed by updating README.md's template
+instructions to include both the link (still required for the web) and
+`{{ .Token }}` (for Android) in the same email -- a Supabase Dashboard
+template edit, not a code change, and one every environment running
+both the web dashboard and the Android app needs to apply once.
+
+**Also found in that pass: sync itself 403'd with an RLS violation once
+signed in.** `SyncRepository`'s own doc comment claimed row ownership
+"comes from the access token" via RLS resolving `client_id` -- that's
+not how RLS works. `0015_health_data_auth.sql` adds `client_id` with no
+column default and a policy checking `client_id = auth.uid()`; nothing
+was actually putting `client_id` in the row payload `SyncSpec.kt`
+builds, so every insert sent `client_id = null`, which never equals
+`auth.uid()`. Fixed by having `SyncRepository` take a `clientId`
+constructor param (from `AuthRepository.getUserId()`, already added
+alongside the dashboards above) and stamp it onto every row in
+`pushRecords` -- same idea as the old sync-code stamping this replaced,
+just the real id instead of a substitute for it. A real backend-auth gap
+that had nothing to do with being untested Kotlin -- the earlier "no
+Android SDK to compile against" caveat wouldn't have caught this either
+way, since it's a runtime/RLS mismatch, not a type error.
+
+**One more found in the same pass, after the `client_id` fix above:**
+syncing the same physical test device (a Garmin, reconnected to Health
+Connect mid-testing) still 403'd, this time with the error explicitly
+naming "USING expression" rather than the generic message above --
+that's Postgres's tell for an `ON CONFLICT DO UPDATE` hitting a row it
+isn't allowed to *touch*, not one it isn't allowed to *insert*.
+`health_connect_id` was `unique` per table since `0001_init.sql`, back
+when this was a single-user app -- once multiple accounts can share one
+device's Health Connect history (this exact device had pre-multi-tenant
+test data still sitting in these tables, `client_id` left `null` by
+0015's backfill), re-syncing it under a *different* account hits the
+same `health_connect_id` values, and `on_conflict=health_connect_id`
+tried to `UPDATE` a row that null-`client_id` (nobody's, under current
+RLS) row -- which RLS correctly refused. Fixed properly rather than
+just deleting the colliding rows: `0022_per_client_health_data_conflict_key.sql`
+drops the orphaned rows *and* swaps every health-data table's unique
+constraint from `(health_connect_id)` to `(client_id, health_connect_id)`
+-- `health_connect_id` only ever needs to be unique within one client's
+own data, and the old global constraint would have made this exact
+collision inevitable again the next time a device gets reused across
+accounts (a real risk on a project still mid-testing, not just a
+one-off). `SyncRepository`'s `on_conflict` target was updated to match
+(`client_id,health_connect_id`). Needs this migration run before the
+Android app can sync again.
+
+**Also found (2026-09-23): a genuinely unreachable Sign Out button.**
+After a session went stale (refresh failed for some reason -- an
+overnight token expiry with background sync not running, or a device
+system update, weren't pinned down and don't matter for the fix), the
+only way back to Login is tapping Sign Out on `HomeScreen` -- but that
+screen's `Column` had no scroll modifier, and its "Data types" list
+(one row per synced record type, seven of them once Health Connect was
+actually configured right) was a `LazyColumn`, which greedily fills all
+remaining space in a bounded parent. With enough data types listed, that
+pushed "Account"/"Sign out" completely off the bottom of the screen with
+no way to reach them. Fixed by making the whole screen scroll
+(`verticalScroll`) and swapping the data-types `LazyColumn` for a plain
+`Column` + `forEach` (a `LazyColumn` inside a now-scrollable `Column`
+would crash outright, not just misbehave -- same pattern already used in
+`DashboardScreen.kt`/`CoachHomeScreen.kt`, which were written with a
+scroll modifier from the start for exactly this reason).
+**Deliberately not fixed alongside this**: automatically detecting a
+dead session and routing back to Login on its own, without anyone
+needing to find Sign Out at all. `getValidAccessToken()` returns null
+for both "the session is genuinely dead" and "the network was briefly
+unreachable right when the screen opened," and treating both the same
+would silently sign someone out over a momentary connectivity blip --
+worse than the bug it would fix. Left as an explicit follow-up decision
+rather than shipped half-differentiated.
+
+**Built as a follow-up, same day**: the differentiation above, so the
+app can now tell those two cases apart and auto-recover from the real
+one. `SupabaseAuthClient`'s `execute()` used to throw a plain
+`IOException` for both a real (non-2xx) GoTrue response and a
+network-level failure -- indistinguishable to any caller. It now throws
+a new `SupabaseAuthHttpException(statusCode, message)` specifically for
+the former; a genuine network failure still throws OkHttp's own
+`IOException` naturally, before a `Response` is ever received, so the
+two are structurally different exception types rather than needing
+message-string parsing. `AuthRepository.getValidAccessToken()` only
+clears the stored session when refresh fails with a 4xx (GoTrue
+explicitly rejected the token -- expired, revoked, already used); a 5xx
+or a plain `IOException` leaves the session in place and just fails
+that one attempt, same as before. `MainActivity`'s role-fetch effect
+(the thing that runs every time Home is reached, for either role) now
+checks `getUserId()` after a failed `getValidAccessToken()` -- still
+non-null means the session survived (transient failure, leave the
+screen alone), null means `getValidAccessToken()` itself already
+cleared it, so the effect calls the same `onSignOut()` a manual tap
+would, routing back to Login without anyone needing to find a button.
+
+**Steps still stuck past a fixed date even after everything else works
+(2026-09-23, unresolved).** With RLS/composite-key/timezone-bucketing
+all fixed and confirmed working for sleep, steps still capped at an old
+date -- and this time confirmed *not* a data-availability problem: the
+device's own Health Connect app shows current step data. The one thing
+that can't be inspected from here is Health Connect's per-type changes-
+API cursor (`SyncStateStore`'s stored token for `"steps"`) -- if that's
+stuck (established before Garmin caught up, or a platform quirk on this
+LineageOS install with a freshly-reinstalled Health Connect), every
+`drainChanges()` call keeps asking "what changed since X" against a
+baseline that may not be behaving as documented, and there's no way to
+tell from outside Health Connect whether it's answering correctly.
+Rather than guess further, added a **"Force full re-sync"** action on
+`HomeScreen` (`SyncStateStore.clearAllChangesTokens()` + a manual sync)
+-- already-existing plumbing, just not previously exposed in the UI --
+so every type falls back to `SyncRepository.backfill()`'s plain time-
+range read instead of trusting the changes cursor. This is a genuine
+diagnostic step (confirms whether the cursor specifically was the
+problem) as much as a workaround; if it doesn't fix steps either, the
+bug is somewhere else entirely and this rules out the cursor as a
+suspect.
+
+**Force full re-sync didn't fix it either -- cursor ruled out.** A
+backfill doesn't touch the changes-API cursor at all (it's a plain
+time-range read), and steps still stopped at the same date, so whatever
+this is, it isn't the changes token. That narrows it to two
+possibilities this app genuinely can't tell apart without more
+visibility: Health Connect isn't handing this app steps records past
+that date at all (a permission or platform-implementation issue on this
+LineageOS install, outside anything fixable in this codebase), or
+records are coming back from Health Connect but getting dropped
+somewhere in `SyncRepository`'s own pipeline before they reach Supabase.
+Added instrumentation rather than guessing further:
+`SyncResult.readSummary` (`"steps=0, heart_rate=12, ..."`) reports how
+many raw records Health Connect actually returned per type *before* any
+of this app's own filtering/dedup/push logic runs, surfaced directly on
+`HomeScreen` under "Last sync." A `0` for steps there points squarely at
+Health Connect/permissions, outside this codebase; a nonzero read with
+nothing written points back at `pushRecords` or the Postgres side.
+
+**The read count came back `steps=1761`, `+8853 row(s) written`, no
+errors -- neither of the two guesses above.** Health Connect *is*
+handing over steps records, and they *are* reaching Supabase; the sync
+pipeline was never the problem. What was never actually checked: the
+*dates* those rows carry, or whether the dashboard's own query could see
+all of them. It couldn't -- `HealthDataRepository`'s steps query is
+`order=start_time.asc` with no limit, and `SupabaseRestClient.select()`
+sent it as a single unbounded request. PostgREST caps an unbounded
+response at 1000 rows by default; an ascending sort past that cap
+returns the *oldest* 1000 and silently drops everything newer -- which
+looks exactly like "data stops at a fixed date," consistently, on every
+rebuild. This is the identical bug `dashboard/lib/queries.ts`'s
+`fetchAllRows()` already exists to work around on the web side, for this
+same steps data, documented in that function's own comment -- Android's
+`select()` never got the equivalent protection. Fixed by making
+`select()` page through the full result in 1000-row batches instead of
+trusting one request (skipped when a caller's own `params` already
+specifies `limit`, e.g. the "5 most recent workouts" query, which is a
+deliberate bounded top-N, not something to page past).
+
+**Confirmed fixed (2026-09-23).** Steps now render through the current
+day, gaps and spikes intact, matching real activity -- closing out what
+turned out to be three unrelated bugs surfacing as the same symptom in
+sequence: missing `client_id` on every pushed row, a globally-unique
+`health_connect_id` colliding across accounts on a reused device, and
+finally this pagination gap on the read side. Known follow-up, not
+blocking: `bucketSleepByNight` doesn't merge multiple sleep sessions
+landing on the same local day (unlike `bucketStepsByDay`'s per-day sum),
+so a day with two recorded sessions shows two separate bars instead of
+one combined entry.
+
+**Designed 2026-09-23, not built yet: per-client preferred data source,
+plus porting proper overlap dedup/proration to Android.** Chasing the
+steps bug above surfaced the real reason `dashboard/lib/queries.ts`'s
+`resolveOverlappingSources` exists at all -- confirmed directly (both in
+Supabase and in Health Connect's own per-entry view on-device) that a
+single real client can have two apps (in this case Garmin Connect and
+the phone's own on-device step sensor) both writing overlapping
+`StepsRecord`s for the same walk. `resolveOverlappingSources` already
+handles this on the web today, but by a **per-day computed heuristic**
+(whichever source's daily total is highest becomes "primary" for that
+day, every other source only gap-fills the time primary didn't cover) --
+not a fixed, trusted source. That heuristic can pick the wrong source on
+a day it guesses wrong, and the Android dashboard (`HealthDataRepository`)
+was built with neither the heuristic nor real dedup at all -- its own
+doc comment says so plainly, a deliberate "rough trends, not exact
+totals" simplification for the basic pass.
+
+Two related pieces of work, scoped together since they touch the same
+data:
+
+1. **Per-client, per-data-type preferred source**, overriding the
+   heuristic when set. Extends `client_data_consent` (already the
+   per-`client_id`/per-`data_type` settings table matching the
+   `DATA_POINTS` taxonomy) with a nullable `preferred_source` column --
+   same shape of concept as consent, not a new table. When set for a
+   (client, data type), the resolution logic treats that source as
+   primary outright and skips the highest-total computation; every other
+   source still gap-fills exactly like today, so non-preferred data
+   isn't discarded, just deprioritized. No preference set -> today's
+   heuristic, unchanged. Client-owned, coach read-only, same as the rest
+   of `client_data_consent` -- a coach sees which source is trusted on
+   the client detail page's existing Data sharing display, but only the
+   client sets it, matching that table's existing ownership split.
+
+   **Detecting when to even offer a choice** (the "easy lift" part) --
+   nobody should have to think about this unless it's actually
+   ambiguous for them: a query per (client, data type) for distinct
+   `source_package` values contributing rows in that type's recent
+   window. Zero or one distinct source (the common case) -> nothing
+   shown, ever. Two or more -> that's the trigger, in two places:
+   - **On the client's own `/client` page's existing Data sharing
+     section**: for a data type with 2+ sources and no preference set
+     yet, that row gets an inline "we noticed steps are tracked by both
+     Garmin Connect and your phone -- which should we trust?" picker in
+     place of its normal display. Once set, the same slot becomes a
+     plain editable dropdown ("currently using Garmin Connect, change?")
+     instead of a first-time prompt -- one UI slot, two framings,
+     depending on whether `preferred_source` is already set. This is
+     also the ongoing safety net: a client detail page load re-runs the
+     cheap distinct-source check every time, so a data type that only
+     becomes ambiguous later (a client stops wearing their watch for a
+     stretch and the phone sensor starts contributing) still eventually
+     gets caught, no separate mechanism needed.
+   - **Right after the Android app's first successful sync for a data
+     type** -- specifically, a type that just ran through
+     `SyncRepository.backfill()` for the first time this run (the
+     `existingToken == null` branch in `syncOne`, already exactly the
+     "is this the first time we've ever synced this type" signal the
+     code needs, just not exposed outside `SyncRepository` yet -- would
+     need a small `SyncResult` addition, e.g. `firstSyncedTypes: Set<String>`,
+     mirroring how `readSummary` got added for the steps-truncation
+     diagnostic). After such a sync, for each type in that set, run the
+     same ambiguity check; if ambiguous, show a lightweight one-time
+     in-app prompt with the same "which should we trust?" framing right
+     on the device, while the client's already looking at it. Skipping
+     or dismissing it saves nothing (`preferred_source` stays null) --
+     no snooze state to build, the web-side check above just catches it
+     later regardless.
+   - Friendly source names for the picker (e.g. `com.garmin.android.apps
+     .connectmobile` -> "Garmin Connect") need a small lookup, duplicated
+     as a plain constant on both the web (TypeScript) and Android
+     (Kotlin) sides rather than a shared package for a handful of
+     entries -- falls back to the raw package name for anything not in
+     the list, so an unrecognized app never breaks the picker, just
+     looks less polished.
+
+2. **Port `resolveOverlappingSources`/`accumulateStepsByDay`-equivalent
+   dedup and cross-midnight proration to Android's
+   `HealthDataRepository`**, so its numbers stop being "rough trends
+   only" and actually match the web dashboard -- the same per-day
+   primary/gap-fill logic, reading the new `preferred_source` column
+   first and falling back to the per-day heuristic exactly like the web
+   side will. Held until the UI/interactivity pass on the dashboards, per
+   explicit direction -- not started.
 
 **New health data types, scoped 2026-09-17** (bundled into this phase --
 see Phase 4 above). Prompted by realizing Health Connect isn't just "the
@@ -222,8 +531,9 @@ table, same pattern as the existing 7:
 - **Activity** (extends steps/exercise): `ActiveCaloriesBurnedRecord`,
   `TotalCaloriesBurnedRecord`, `DistanceRecord`, `FloorsClimbedRecord`.
 - **Body measurement**: `BasalMetabolicRateRecord`, `WeightRecord`.
-- **Vitals** (extends HR/SpO2/BP/resp-rate): `BloodGlucoseRecord`,
-  `BodyTemperatureRecord`.
+- **Vitals** (extends HR/SpO2/BP/resp-rate): `BodyTemperatureRecord`.
+  (`BloodGlucoseRecord`, also originally scoped here, shipped separately
+  -- see Phase 8's blood glucose note.)
 - **Nutrition**: `HydrationRecord`, and `NutritionRecord` scoped to a
   curated macro subset -- calories, protein, carbs, fat, sugar, fiber,
   sodium -- not the 40+ individual-nutrient fields Health Connect exposes
@@ -444,6 +754,479 @@ picked.
   in this codebase). Options: Supabase's `pg_cron` extension, or a
   Vercel Cron hitting a route handler on a schedule.
 
+## Phase 8 -- design system + UI pass (shipped)
+
+Triggered by a set of mockups + a full color/typography reference the
+user provided for a redesigned client dashboard (pull-down notification
+shade, heatmap weekly streak, slide-out bottom-left nav) plus the
+instruction to apply the same dark/light theme throughout both the web
+dashboard and the Android app. Scoped up front via `AskUserQuestion`
+into four decisions: (1) this pass covers foundation + a new client home
+screen, not every screen; (2) the streak heatmap measures assigned
+workout *completion*; (3) the coach dashboard gets reskinned in place,
+no structural redesign (no coach mockup was provided); (4) the mockup's
+"Tasks" panel ("Tell me how it was! Fill out your weekly check-in")
+should be backed by a real, newly-built weekly check-in feature rather
+than left as a mock.
+
+**Design tokens.** Primary/secondary/accent + text-primary/secondary/
+tertiary, light and dark (`#FFFDFB`/`#F7F1E8`/`#C1573B` light,
+`#281E18`/`#675E59`/`#C1573B` dark). One documented assumption: the
+mockups only gave `text-tertiary` (text/icons drawn on an accent-colored
+surface) for dark mode; light mode reuses the same dark-brown
+(`#281E18`) rather than guessing a new value, since Accent itself is
+theme-invariant and dark text reads correctly on it either way. Web:
+`dashboard/app/globals.css`'s CSS variables were repointed to these
+values (kept the same variable *names* -- `--page-plane`, `--surface-1`,
+`--text-primary` etc. -- so every one of the ~600 existing call sites
+already using `bg-plane`/`bg-surface`/`text-ink-*` picked up the new
+palette automatically, no per-file edits needed) plus two new tokens,
+`--accent`/`--text-tertiary`, exposed via `tailwind.config.ts` as
+`accent`/`ink.tertiary`. Chart series colors (`--series-*`) were left
+alone -- they're a separate, already-validated dataviz palette, not
+part of this reskin. Typography: Archivo (Title/Header/Button) + Open
+Sans (Body/Links/Secondary) via `next/font/google` in `app/layout.tsx`,
+plus a `fontSize` scale in `tailwind.config.ts` (`text-title`, `text-h1`
+through `text-h3`, `text-button`, `text-body`, `text-link`,
+`text-body-sm`) matching the mockup's exact px/weight table. Android:
+new `ui/theme/Color.kt` (the same hex tokens) and a rewritten
+`Theme.kt` mapping them onto Material3's color-scheme roles (`primary`/
+`onPrimary` -> Accent/text-tertiary, since Material's "primary" role is
+the prominent-button color the mockup uses Accent for; `background`/
+`surface` -> the design system's own Primary/Secondary -- a real naming
+collision between the two systems' vocab, not a bug). Archivo
+(Medium/SemiBold/ExtraBold) and Open Sans (Regular/SemiBold) `.ttf`
+files were fetched from Google Fonts' CSS API directly (`fonts.gstatic.com`,
+the same static files `next/font/google` resolves to) into `res/font/`
+and wired into a new `Type.kt`'s `HealthSyncTypography`, since Android
+has no equivalent of `next/font` to fetch these at build time.
+
+**Weekly check-ins (new feature, not a mock).** Reuses the document
+library's dynamic form builder wholesale (`lib/forms.ts`'s
+`FormField`/`FormSchema`/`FormAnswers`, `FormBuilder.tsx`,
+`DynamicFormRenderer.tsx`) rather than inventing a second
+question-authoring format -- a check-in is exactly "a form, but assigned
+recurringly instead of once." `0023_check_ins.sql` adds
+`check_in_templates` (one per coach-client pair, `unique(coach_id,
+client_id)`, holds a `form_schema` + which day of the week it opens) and
+`check_in_responses` (one row per `(template_id, week_start)`, mirroring
+`assigned_documents`/`document_responses`'s "coach owns the shape,
+client owns the answers" RLS split). `lib/check-ins.ts`'s
+`currentWeekStart(dayOfWeek)` does the UTC, Sunday-anchored week
+bucketing both the web queries and Android's `HomeSummaryRepository`
+replicate identically, so a client's "is this due" state agrees between
+platforms. Coach side: a new "Weekly check-in" section on the client
+detail page (`components/CheckInEditor.tsx`) using `FormBuilder`
+directly. Client side: `/client/check-in` (new page + NavBar link) using
+`DynamicFormRenderer`, plus a "Tasks" card on the client home page that
+appears only when a check-in is due. `parseFormSchema` (previously
+private to the documents action) was promoted to a `lib/forms.ts` export
+since it now has two real callers.
+
+**Android client home screen redesign.** `ui/home/NotificationShade.kt`
+(closed state: three glyphs -- messages/calendar/tasks -- each with an
+unread dot; tap expands a panel with per-category detail, reading unread
+chat state, upcoming `calendar_events`, and check-in-due status via a
+new `data/HomeSummaryRepository.kt`), `ui/home/StreakHeatmap.kt` (seven
+day-cells, DONE/PARTIAL/NONE shading), and `ui/nav/SlideOutNav.kt`
+(bottom-left round button that expands into a pill row of destination
+glyphs) replace `HomeScreen`'s old flat list layout. Two things
+deliberately simplified from the mockup, stated plainly rather than
+discovered later:
+  - The mockup's pull-down *gesture* became a tap-to-expand chevron.
+    Same end state (an expanded panel with the same three categories)
+    without a hand-rolled drag gesture that has no way to be verified in
+    this environment (still no Android SDK/emulator here -- see Phase 6).
+  - The streak heatmap measures "did the client log *any* workout
+    activity that day" (a `workout_sessions` row with `completed_at` set
+    = DONE, one still in progress = PARTIAL), not "did they complete
+    what was assigned that day" -- this app has no concept of a workout
+    being scheduled for a specific day at all yet (the web dashboard's
+    own "Next up" card has the identical gap, already noted in its own
+    comment). A truer "assigned completion" streak needs real
+    scheduling built first, which is out of scope here.
+  Icons throughout (shade categories, streak markers, slide-out nav)
+  are plain emoji `Text`, matching how the rest of this Android app
+  already renders iconography (`MainActivity`'s chat "💬") -- there's no
+  `material-icons-extended` dependency in this project to draw a real
+  icon set from, and adding one to draw five icons wasn't worth it.
+  `SlideOutNav`'s Workouts/Calendar/Inbox destinations, and the shade's
+  tap-throughs to them, all land on a new `ComingSoonScreen` -- none of
+  those three exist as native Android screens yet (only "View my data",
+  Health Connect sync, and now Profile do). Building them for real is
+  future work, not silently faked. The sync/data-type/sign-out controls
+  that used to live on `HomeScreen` moved to a new `ProfileScreen`
+  (reachable from the slide-out nav), matching the mockup's "profile ->
+  settings" grouping -- weight units, data-sharing consent, and profile
+  photo (also mentioned in the mockup) are *not* editable from Android
+  yet, a real gap rather than an oversight.
+
+**Coach dashboard reskin.** No structural changes, per the user's
+explicit choice (no coach mockup existed to redesign from). Almost
+entirely automatic via the token repointing above; the one manual pass
+was swapping every UI-chrome usage of `var(--series-steps)` (the
+dataviz blue, which had been doing double duty as this app's de facto
+"primary button/link" color everywhere, coach and client side alike)
+over to the new `var(--accent)` token, across 46 files -- buttons,
+links, active-tab states, timer overlays, calendar event chips. Done as
+a scoped `sed` pass over exactly those two literal class-name patterns,
+*not* touching `StepsChart.tsx`'s actual data-bar fill color (caught and
+reverted after the first pass swept it up too -- that one genuinely
+needs to stay the dataviz blue, not become the brand accent).
+
+**Known gap, surfaced then resolved as a same-day follow-up**: the
+mockup's "Your Top 3" stat cards reference an "Avg. BG" (blood glucose)
+stat, and this app didn't sync blood glucose anywhere when this pass
+first shipped. Closed immediately after: `0024_blood_glucose.sql` adds a
+`blood_glucose` table in the current (post-0022) per-client shape
+directly -- `client_id not null` and `unique(client_id,
+health_connect_id)` from the start, no legacy anon-RLS rows to migrate
+through, plus adds `'blood_glucose'` to `client_data_consent`'s type
+check constraint. Android gets a new `SyncSpec` (`BloodGlucoseRecord`,
+90-day initial backfill matching `blood_pressure`'s window rather than
+the 14-day one used for the higher-frequency SpO2/respiratory-rate
+samples, since blood glucose readings for a non-CGM user tend to be
+sparse) plus the matching `READ_BLOOD_GLUCOSE` manifest permission
+(permissions requested at runtime are already derived automatically
+from `allSyncSpecs` -- see `HealthConnectManager.requiredPermissions` --
+but the manifest declaration is separate and has to be added by hand).
+Web: `blood_glucose` added to `DATA_POINTS` and a new
+`getDataPointSummary` case (average mg/dL over the last 7 days, same
+shape as the existing `blood_oxygen`/`respiratory_rate` cases, so it can
+actually back an "Avg. BG" stat once one gets built) -- picked up
+automatically by the AI assistant's `get_data_point_summary` tool and
+the client's data-point picker, both already generic over `DATA_POINTS`.
+The "Your Top 3" stat cards themselves are still not built -- this only
+means blood glucose is now real, synced data available whenever they
+are.
+
+**Verification**: `npx tsc --noEmit`, `npx next lint`, `npx next build`
+(dummy env) all clean on the web side. Android: manual review only, same
+posture as every other Android change in this project -- no SDK/Gradle
+wrapper in this environment to actually compile against (see Phase 6's
+opening note). Not opened in a browser or on a device -- flagged
+plainly rather than claimed as tested.
+
+**Two real bugs found on first live device test, both fixed**:
+
+1. **The redesigned client Home screen's greeting text overlapped the
+   status bar, and the slide-out nav sat half-hidden behind the system
+   navigation bar.** Root cause: the old `HomeScreen` had a `Scaffold`
+   wrapping everything, which applies window-inset padding
+   automatically; the redesign replaced it with a plain `Box`/`Column`
+   to make room for the custom notification shade at the very top, and
+   never added that padding back. With `targetSdk 36` enforcing
+   edge-to-edge regardless of any explicit opt-in, content drew straight
+   under the system bars. Fixed with a single `.safeDrawingPadding()` on
+   the outer `Box`.
+2. **The notification shade + streak heatmap could get stuck showing a
+   permanent loading spinner.** `HomeSummaryRepository.loadSummary()`
+   ran its four sub-fetches (unread messages, upcoming calendar events,
+   check-in due, week completion) with one shared, outer try/catch in
+   `MainActivity` -- any single one throwing (e.g. querying
+   `check_in_templates` against a Supabase project that hadn't had
+   `0023_check_ins.sql` applied yet) failed the *entire* summary,
+   leaving `homeSummary` permanently `null` and `HomeScreen` stuck on
+   its "still loading" spinner forever -- indistinguishable from
+   actually still being in flight, since there was no separate "failed"
+   state. Fixed by catching each of the four sub-fetches independently
+   (`runCatching` per fetch, falling back to false/empty/an all-`NONE`
+   week) so one missing table can't blank out the other three, and a
+   `HomeSummary` now always resolves to *something* non-null once the
+   fetch completes -- which is also what actually lets the UI
+   distinguish "loaded, nothing to show" from "still loading" in the
+   first place.
+
+**Confirmed fixed on device, then a third bug + a reorg request from the
+same test pass**: the status-bar overlap and stuck spinner above were
+both confirmed resolved on a rebuild (screenshot showed the shade/streak/
+nav all rendering correctly below the status bar). That same screenshot
+surfaced a third, distinct bug: the page background was plain white with
+black text regardless of the device's actual (dark) theme, while the
+hand-styled sub-components (shade, streak cells) correctly showed dark-
+theme colors -- a visible mismatch. Root cause was adjacent to bug #1 but
+different: `Scaffold` doesn't just apply inset padding, it also wraps
+content in a `Surface`, which paints `colorScheme.background` behind
+everything and sets `LocalContentColor` so every plain `Text()` picks up
+the right on-background color automatically. Dropping `Scaffold` lost
+that too -- a bare `Box`/`Column` shows the raw Android window background
+(white) and `Text()` falls back to its hardcoded-black default, while
+components that set colors explicitly off `MaterialTheme.colorScheme`
+(the shade, the heatmap cells) rendered correctly since they never
+depended on either default. Fixed by wrapping `HomeScreen`'s root in a
+`Surface(color = MaterialTheme.colorScheme.background)` alongside the
+existing inset-padding `Box`.
+
+Same round, a reorg request: data-sync controls ("Sync now", force
+re-sync, per-type last-synced status) don't belong on the client
+dashboard/home screen -- they're settings, not something to look at
+daily. Moved "Sync now" and the last-sync result text (previously still
+on `HomeScreen`) into `ProfileScreen` alongside the force-resync/data-
+type controls that had already landed there; `HomeScreen` no longer
+takes `isSyncing`/`lastResult`/`onSyncNow` at all. The existing "Data"
+screen (`DashboardScreen.kt`, steps/sleep/heart-rate charts) is
+relabeled "Stats" and moved from a button on Home into a fifth
+`SlideOutNav` destination (alongside Workouts/Calendar/Inbox/Profile),
+reusing the same `onOpenDashboard` callback that button used to call --
+no new navigation plumbing needed, since it was always just "go to
+DashboardScreen with my own id."
+
+**Real icon set, replacing the emoji placeholders.** The user supplied
+13 SVGs (`icons-and-nav-svgs.zip`) -- exactly the nav/shade categories
+this pass had been standing in for with plain emoji, plus four workout-
+equipment icons and a generic edit/delete pair. Converted with
+`svg2vectordrawable` (npm) into Android vector drawables under
+`android/app/src/main/res/drawable/`, and into React components (`fill`/
+`stroke` swapped to `currentColor`, matching the one existing inline-SVG
+convention already in this codebase -- `app/client/page.tsx`'s original
+`DumbbellIcon`) under `dashboard/components/icons/`. Two files
+(`dumbbell-icon.svg`, `bodyweight-icon.svg`) use an internal `<mask>`/
+`<clipPath>` with an `id` referenced via `url(#id)` -- a first
+mechanical pass blindly normalized every `fill="white"` to `fill="none"`
+to strip an unrelated clip-rect's fill, which also corrupted the mask's
+own `fill="white"` (mask opacity, not a visible color) and broke it;
+caught before shipping and fixed by only touching the two literal brand
+colors, never `fill="white"`. Separately, those same two id-bearing SVGs
+would collide in the DOM if their React component ever rendered twice on
+one page (`id`/`url(#id)` are global per document) -- fixed by generating
+each one's id via React's `useId()` instead of hardcoding the source
+SVG's id.
+
+Wired in: `NotificationShade`'s three category icons + expand chevron,
+`SlideOutNav`'s toggle arrow + Stats/Workouts/Calendar/Inbox icons, the
+web `NavBar`'s Calendar/Check-in/Inbox links, `app/client/page.tsx`'s
+"Next up" card (replacing its old hand-drawn dumbbell), and `CoachNotes`'
+Edit/Delete buttons. The barbell/bodyweight/kettlebell icons, and a
+wider edit/delete sweep across the rest of the app, are placed as
+assets but not wired anywhere yet -- left for whenever the real
+Workouts screen or a broader icon pass happens.
+
+**Profile placeholder icon, added same-day.** A "P" monogram avatar
+badge (filled circle + border + accent-colored letter), not a tintable
+line icon like the rest -- converted the same way but *without* the
+`currentColor` swap, since it's meant to look identical regardless of
+surrounding theme (`ProfilePlaceholderIcon.tsx` on web keeps its literal
+hex colors; the Android drawable does too). `NavDestination` gained a
+`tinted: Boolean = true` flag so `SlideOutNav` can render a destination's
+icon with its own baked-in colors (`tint = Color.Unspecified`) instead of
+recoloring it to match the nav pill -- Profile is the first and only
+caller of `tinted = false`. Closes the one real gap the icon set left
+open.
+
+**Confirmed on device (colors + icons both correct in dark theme), then
+a layout request from that same test round**: move the streak heatmap
+into the notification shade itself, collapsed-state showing a compact
+generic preview on the right (matching the mockup) rather than living in
+`HomeScreen`'s own body. `ShadeContent` gained a `weekDays` field;
+`StreakHeatmap.kt` gained a second composable, `StreakPreview` -- a
+small 7-dot row, same DONE/PARTIAL/NONE coloring as the full heatmap,
+sized to sit inline with the shade's category icons. The closed shade
+row now reads icons-left, `StreakPreview` + the expand chevron grouped
+right; expanding reveals a new "This week" section (the full
+`StreakHeatmap`) ahead of Messages/Calendar/Tasks. Caught and fixed a
+contrast bug while doing this: the heatmap's own "NONE" cell color was
+`colorScheme.surfaceVariant`, which in this theme is the *same* color as
+the shade's own background (`colorScheme.surface`) -- fine sitting on
+the page background, invisible sitting inside the shade. Both
+`StreakHeatmap` and `StreakPreview` now use a theme-independent
+`onSurface.copy(alpha = 0.12f)` for empty days instead, visible against
+either background. `HomeScreen`'s own body is now just the greeting --
+deliberately empty otherwise, until something like the mockup's "Your
+Top 3" stat cards gets built.
+
+**Second icon batch: chat icons + a size-corrected dumbbell.** Six more
+SVGs (`icon-set-2-with-updates.zip`): attach (paperclip), microphone,
+phone, a two-person "clients" glyph, an open-book "libraries" glyph, and
+a revised dumbbell. Same `svg2vectordrawable`/`currentColor`-swap
+pipeline as the first batch. The dumbbell was the one with an actual
+geometry change, not just a new asset: the old path stayed inset within
+the 24x24 box (spanning roughly x 1.25-22.75, y 6.25-17.75), so it
+rendered visibly smaller than every other nav icon at the same
+`Modifier.size()`/`className`; the new one spans the full 0-24 edge to
+edge, which is what "more size consistency in the nav" meant concretely.
+It kept the same internal `<mask>`-based hollow-stroke trick (still id
+`path-1-inside-1_815_62` in the source, still handled via `useId()` on
+the web side) -- a drop-in replacement of the same filenames
+(`ic_dumbbell.xml`, `DumbbellIcon.tsx`), so neither `SlideOutNav` (the
+Workouts destination) nor `app/client/page.tsx`'s "Next up" card needed
+any code changes.
+
+Wired the rest into their obvious targets: the chat `Composer`'s emoji
+attach/microphone buttons (📎/🎙️) became `AttachIcon`/`MicrophoneIcon`,
+`CallButton`'s 📞 became `PhoneIcon`, and the web `NavBar`'s coach-only
+"Clients"/"Library" text links picked up `ClientsIcon`/`LibrariesIcon`
+alongside their label text, matching the icon+text pattern already used
+for Calendar/Check-in. The composer's recording-stop state (⏹) was left
+as a plain filled square rather than sourcing a seventh icon -- no stop
+icon was supplied and it's a two-state toggle on one button, not worth a
+separate asset for. `npx tsc --noEmit` / `npx next lint` / dummy-env
+`npx next build` all clean; Android changes are drawable-only (no Kotlin
+touched beyond what the dumbbell replacement already covered), so same
+manual-review-only posture as the rest of this phase's Android work.
+
+**Native workout-logging flow, from a two-screen mockup ("today's
+workout" browse state + an active/logging state with a running timer and
+per-set fields).** The Workouts `SlideOutNav` destination had been a
+`ComingSoonScreen` stub since Phase 8's redesign; this replaces it with a
+real screen, reusing the web dashboard's existing "workout tracking v2"
+data model (`workout_sessions`/`workout_session_exercises`/
+`workout_session_sets`, `dashboard/lib/session-log.ts`'s lazy-seed
+pattern) rather than inventing a parallel one -- same tables, same RLS
+(client owns full CRUD on their own rows, coach select-only), reimplemented
+in Kotlin against this app's plain PostgREST client instead of the
+Supabase JS SDK. One real schema gap found and closed:
+`0025_workout_session_set_completion.sql` adds a `completed` boolean to
+`workout_session_sets` -- the mockup wants a checkmark per SET, but the
+web schema only ever tracked completion at the whole-exercise level
+(`workout_session_exercises.completed`, from `0009`). Additive, defaults
+false, and the web SessionLogger doesn't read or write it yet, so this
+doesn't touch anything already shipped.
+
+Explicitly scoped via `AskUserQuestion` before building: the mockup's
+"Warm-Up" card renders as a compact checklist with no weight/rest fields,
+visually distinct from the full per-set logging the other exercises get
+-- offered building that special case vs. uniform logging for every
+exercise. **Chose uniform** (every exercise, including warm-up items,
+gets the same reps/weight/rest/checkmark `SetRow` treatment) for a
+simpler, more consistent implementation; a coach-authored "Warm-Up" entry
+just looks like any other exercise card now, a real (accepted) departure
+from the mockup's specific rendering, not an oversight.
+
+`SupabaseRestClient` gained `insert()` (plain POST, `return=representation`,
+needed for a new session's server-assigned id and the freshly-inserted
+session-exercise/set rows) and `patch()` (PATCH-by-filter, `return=minimal`,
+for timer state and set edits) -- both were missing entirely before this
+(the client only ever upserted Health Connect data). New
+`data/WorkoutRepository.kt` mirrors `session-log.ts`'s
+`ensureSessionExercises` exactly (idempotent: only inserts what's
+missing, so re-entering an in-progress session never duplicates rows) and
+adds the timer start/pause/resume/finish calls the web's session actions
+already had. New `ui/WorkoutScreen.kt` is one screen with two states
+(not started / in progress) rather than a separate detail + session
+route -- both mockups share the same header, and re-opening this screen
+mid-workout should land straight back in the logging view. Tapping
+"Start workout" creates the session row **and** starts its timer in one
+call (`WorkoutRepository.startSession`), unlike the web flow where those
+are two separate steps on two separate pages -- the mockup goes straight
+from Start to the running-timer screen with no page in between.
+
+"Today's workout" reuses the same placeholder `app/client/page.tsx`
+already established (`assigned_program_id is null`, most recently
+assigned, ordered by `assigned_at desc`) -- there's still no real per-day
+scheduling anywhere in this app. Two more deliberate simplifications,
+stated rather than discovered later:
+- **The per-set rest countdown (the mockup's "▶ 1:30" cells) is local
+  UI state only, never persisted.** It only means something live, in the
+  moment; re-entering the screen mid-rest with no record of when it
+  started would just show a wrong countdown, so resetting to
+  "not started" on re-entry is the honest behavior.
+- **"Finish" just pops back to Home**, not a full summary screen like
+  the web's post-session summary page. Building an equivalent summary
+  view was judged out of scope for this pass given how much else this
+  feature already touches; a real gap, flagged rather than silently
+  skipped.
+
+Same manual-review-only posture as every other Android change in this
+project (no SDK/Gradle wrapper in this environment to compile against --
+see Phase 6's opening note): reviewed carefully against this file's own
+conventions and the exact web data model it mirrors, but not built or
+run on a device. One bug caught and fixed during that review, worth
+naming since it's the kind that's invisible without a device: the
+elapsed-timer display was driven by an unread `tick` counter incremented
+inside a `LaunchedEffect` -- Compose only recomposes a `Text` when it
+actually *reads* a changed `State`, and nothing read `tick`, so the
+timer would have silently frozen at its starting value forever. Fixed by
+having the effect recompute and store the actual elapsed-seconds value
+into a `State` the `Text` reads directly, instead of a side counter
+nothing depended on.
+
+**Workout completion, dashboard population, calendar + chat first
+passes.** Four features in one round, all Android-only.
+
+*Workout summary.* `WorkoutScreen` gained a third state past
+not-started/in-progress: tapping Finish sets `completed_at` and shows a
+summary (workout name, duration, a notes field, every exercise's sets
+still directly editable, plus a per-exercise PR toggle) with a
+"Save & Return to Dashboard" button. This is a deliberate departure from
+the web dashboard's own summary page, which is read-only except for
+notes (a separate "Edit sets" link goes back to the logging page for
+anything else) -- the ask here was specifically for editing abilities on
+the summary itself, so Android doesn't mirror that read-only split.
+`findActiveSession` was renamed `findTodaysSession` and its `completed_at
+is.null` filter dropped, since the session needs to stay reachable
+through the summary state even after it's marked complete -- re-entering
+the screen a different day still correctly falls through to "not
+started." Two real bugs caught in review before anything shipped: (1)
+`return@ExerciseLogCard` inside lambdas passed to a plain (non-`inline`)
+`@Composable` function isn't legal Kotlin -- non-local returns only work
+through inlined calls -- and this exact pattern was already sitting in
+last session's shipped `InProgressWorkout` code undetected, since nothing
+in this environment compiles Kotlin; fixed everywhere it appeared, by
+null-checking with `?.let {}`/`if` instead of an early return. (2)
+`elapsedSeconds()` fell back to `Instant.now()` when a session wasn't
+paused -- fine while a workout is actively running, but on the summary
+screen (session finished, `pausedAt` null) it meant "Duration" would
+silently keep climbing on every recomposition instead of showing a fixed
+number. Fixed by using `completedAt` as the cutoff once it's set.
+
+*Dashboard population ("Your Top 3" + "Your Training").* New
+`data/DataPointRepository.kt` ports `dashboard/lib/queries.ts`'s
+`getDataPointSummary` line for line (same 8 keys, same 7-day-window
+wording) so a client sees the same numbers in the app as on the web --
+one accepted gap, matching `HealthDataRepository.kt`'s own existing
+precedent: no cross-source dedup for the steps case. `ProfileRepository`
+gained `loadTopDataPoints` (reads `client_profiles.top_data_points`,
+written by the web's `DataPointPicker` -- Android has no picker UI of its
+own yet, display-only). "Your Training" is genuinely new logic, not
+ported from anywhere -- the web dashboard's own `/client` page still only
+does "most recently assigned standalone workout," its own comment
+calling that "a placeholder for real scheduling." `WorkoutRepository
+.getNextTrainingItem` prefers the client's most-recently-assigned
+program's first not-yet-completed workout (by `order_index`, cross-
+referenced against `workout_sessions.completed_at`), falling through to
+the existing standalone pick, `null` only when neither yields anything --
+rendered as the mockup's "You do not have any workouts assigned" empty
+state. `WorkoutScreen` itself now calls this same method (not the old
+standalone-only `getTodaysWorkout`) so tapping the Your Training card and
+opening Workouts from the nav land on the same workout. Both new
+`HomeSummary` fields (`topDataPoints`, `trainingItem`) follow the
+existing per-sub-fetch `runCatching` pattern, so a failure in either
+can't blank the rest of the home screen.
+
+*Calendar, first pass, read-only.* New `data/CalendarRepository.kt` +
+`ui/CalendarScreen.kt`: upcoming `calendar_events`, and Google Calendar
+connection status from `calendar_connections`. Deliberately does NOT
+implement native OAuth -- the web's connect flow
+(`app/api/calendar/google/{start,callback}`) is built entirely around a
+Next.js session *cookie*, which a Custom Tab has no way to carry from
+this app's bearer-JWT auth. Making that native would need a new,
+JWT-aware server route plus a registered deep link back into the app --
+real scope, not a drop-in for a "first pass." Until that exists,
+"Connect Google Calendar" opens the web dashboard in the device's browser
+(a new `DASHBOARD_URL` `BuildConfig` field, same `local.properties`
+pattern as `SUPABASE_URL`) and lets the client complete the connect
+there; this screen just re-reads `calendar_connections` afterward like
+everything else it shows.
+
+*Chat/Inbox, first pass, text-only.* New `data/ChatRepository.kt` +
+`ui/InboxScreen.kt`: find the client's one coach thread
+(`chat_threads` has a unique `(coach_id, client_id)`), list/send
+messages, mark read. Polls every 5 seconds while the screen is open
+rather than using the web's Supabase Realtime subscription
+(`ThreadView.tsx`'s `.channel(...).on("postgres_changes", ...)`) -- this
+app has no Realtime/websocket client set up anywhere
+(`SupabaseRestClient` is plain PostgREST-over-OkHttp), and pulling one in
+for a single screen wasn't judged worth it for a first pass. Attachments,
+reactions, replies, and pinning are all out of scope here too, same
+reasoning.
+
+Five new files (`WorkoutRepository`'s summary/training additions,
+`DataPointRepository`, `CalendarRepository`, `ChatRepository`,
+`CalendarScreen`, `InboxScreen`), all wired through new
+`workout/{clientId}`-shaped routes already established by the earlier
+Workouts pass. Same manual-review-only posture as every other Android
+change in this project.
+
 ## Standing product decisions
 
 - **One coach per client** (a `coach_id` column on `client_profiles`, not a
@@ -452,3 +1235,93 @@ picked.
   a join table cold, since every "coach's clients" query today assumes the
   single-FK model.
 - **Magic link (email OTP)** is the only auth method. No passwords.
+
+## Phase 9 -- Android home shade + nav redesign, from a second mockup pass
+
+A follow-up mockup (two screens: shade closed, shade open) revised the
+Phase 8 client home screen further. Changes, and the interpretations
+made where the mockup left something ambiguous:
+
+**Greeting moved into the shade itself.** "Hey, {name}" + today's date
+now render as the shade's own header row, not `HomeScreen`'s body text
+below it -- `NotificationShade`'s `ShadeContent` gained a `displayName`
+field. Needed a real first name to match the mockup's "Hey, Alex" (this
+screen previously only had the client's `email`) -- `ProfileRepository`
+gained `loadDisplayName`, reading `profiles.full_name` and taking the
+first word; falls back to plain "Hey" if unset.
+
+**Shade background extends to the true top of the screen.** Previously
+`HomeScreen` wrapped everything in one blanket `.safeDrawingPadding()`,
+which pushed the shade's background down below the status bar along
+with its content. Split apart: `NotificationShade` now applies
+`.statusBarsPadding()` to its own *content* only, after its background
+modifier -- the color still paints behind the status bar, only the
+greeting/icons themselves sit below it. `HomeScreen`'s outer container
+dropped the blanket inset entirely; the scrollable content column and
+`SlideOutNav` each apply their own `.navigationBarsPadding()` instead,
+since only they need bottom-inset protection now.
+
+**Centered pull-tab replaces "tap anywhere in the row."** A small,
+distinct rounded chip with the chevron, horizontally centered at the
+bottom of whatever the shade is currently showing (closed row or
+expanded panel) -- `ShadeTab`, its own composable rather than folding
+the tap target into the existing row layout as before.
+
+**Collapsed row's streak indicator: 7 dots -> 3 squares.** The mockup's
+closed state shows 3 small colored squares, not the existing
+`StreakPreview`'s full 7-dot week. Interpreted as "the last 3 days up to
+and including today" (new `MiniStreak`, replacing `StreakPreview`) --
+one from-the-mockup detail that's genuinely ambiguous (it could just as
+easily mean "3 most recent non-empty days" or something else); this is
+the most literal reading of "a short recent glance" and is easy to
+revise if wrong.
+
+**Expanded panel redesigned.** "You're on a roll" headline (static
+copy, not computed) above the full `StreakHeatmap`, which itself flipped
+day-letters from above each cell to below (matching the mockup) and
+went slightly squarer (8dp -> 6dp corner radius). Messages/Calendar/
+Tasks went from single-line `ShadeRow` text to title+subtitle preview
+cards: Messages needed an actual message body to show, so
+`HomeSummaryRepository` gained `loadLatestMessagePreview` (the thread's
+most recent message, only surfaced when it's an *incoming* one --
+`sender_role = 'coach'` -- matching the mockup's "Your Coach: ..."
+framing, not a log of the client's own last reply). Calendar's card
+additionally gets a small "OCT 13"-style date chip, derived client-side
+from the event's existing `start_time` (no new data needed). Tasks kept
+its existing copy, split into title/subtitle with a trailing arrow
+glyph.
+
+**Nav enlarged ~18% and reordered.** Button 44dp -> 52dp, icon 22dp ->
+26dp, pill corner radius 28dp -> 32dp -- roughly the requested 15-20%.
+Destination order now matches the mockup (Workouts, Calendar, Inbox,
+Stats, Profile) instead of the previous Stats-first order. The toggle
+arrow moved from the *start* of the row to the *end* -- the mockup's
+collapsed state is a single circular arrow button that visually *is*
+the expanded pill's trailing icon, not a separate leading control.
+
+**Nav's open/closed state now survives leaving and returning to Home.**
+Previously `remember`ed inside `SlideOutNav` itself, which gets torn
+down and recreated every time `AuthNavHost`'s `ROUTE_HOME` composable is
+re-entered (e.g. after visiting Workouts and tapping back) -- so the nav
+always silently re-collapsed on return, regardless of what the client
+left it as. Hoisted `expanded`/`onToggleExpanded` up to `MainActivity`
+(`rememberSaveable`, so it also survives rotation/process death) and
+threaded through `HomeScreen`. Deliberately scoped narrower than "stays
+expanded across every screen": `SlideOutNav` only renders on `HomeScreen`
+today (Calendar/Inbox/Workout/Profile/Stats don't show a bottom nav at
+all) -- putting it on every screen is a bigger structural change than
+this pass covers, so what shipped is "the state persists, ready for
+wherever the nav is shown," not "the nav is now on every screen."
+
+One real bug caught during this pass, worth naming since it's invisible
+without a device: an early draft put the destinations-to-toggle-button
+gap on the *outer* `Row`'s own `Arrangement.spacedBy`, which still
+inserts a gap between `AnimatedVisibility` and the next child even when
+that `AnimatedVisibility` has shrunk to zero width while collapsed --
+would have left the collapsed circle looking slightly off-center with a
+spurious gap baked in. Fixed by moving the gap onto the *inner* Row
+(inside `AnimatedVisibility`'s own content, as trailing end-padding), so
+it collapses to nothing together with everything else in there.
+
+Same manual-review-only posture as every other Android change in this
+project.

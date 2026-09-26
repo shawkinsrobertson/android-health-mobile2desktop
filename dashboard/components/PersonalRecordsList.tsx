@@ -51,7 +51,7 @@ export function PersonalRecordsList({
       {seeAllHref && remaining > 0 && (
         <Link
           href={seeAllHref}
-          className="mt-3 inline-block text-xs font-medium text-[color:var(--series-steps)] hover:underline"
+          className="mt-3 inline-block text-xs font-medium text-[color:var(--accent)] hover:underline"
         >
           See all {records.length} records →
         </Link>

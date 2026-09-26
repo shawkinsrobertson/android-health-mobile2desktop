@@ -100,7 +100,7 @@ export function MessageBubble({
       <div
         className={`relative max-w-[80%] rounded-lg px-3 py-2 text-sm ${
           isMine
-            ? "bg-[color:var(--series-steps)] text-white"
+            ? "bg-[color:var(--accent)] text-white"
             : "bg-[color:var(--page-plane)] text-ink-primary"
         }`}
       >

@@ -202,7 +202,7 @@ export function CalendarCard({
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+          className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
         >
           New event
         </button>
@@ -227,7 +227,7 @@ export function CalendarCard({
                   type="button"
                   onClick={handleSync}
                   disabled={syncing}
-                  className="text-[color:var(--series-steps)] hover:underline disabled:opacity-50"
+                  className="text-[color:var(--accent)] hover:underline disabled:opacity-50"
                 >
                   {syncing ? "Syncing…" : "Sync now"}
                 </button>
@@ -241,7 +241,7 @@ export function CalendarCard({
                 </button>
               </>
             ) : (
-              <a href="/api/calendar/google/start" className="text-[color:var(--series-steps)] hover:underline">
+              <a href="/api/calendar/google/start" className="text-[color:var(--accent)] hover:underline">
                 Connect Google Calendar
               </a>
             )
@@ -250,7 +250,7 @@ export function CalendarCard({
               type="button"
               onClick={handleSync}
               disabled={syncing}
-              className="text-[color:var(--series-steps)] hover:underline disabled:opacity-50"
+              className="text-[color:var(--accent)] hover:underline disabled:opacity-50"
             >
               {syncing ? "Syncing…" : "Sync now"}
             </button>
@@ -262,7 +262,7 @@ export function CalendarCard({
       {booking && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           <BookingLinkControl bookingUrl={booking.bookingUrl} />
-          <Link href={booking.availabilityHref} className="text-[color:var(--series-steps)] hover:underline">
+          <Link href={booking.availabilityHref} className="text-[color:var(--accent)] hover:underline">
             Manage availability →
           </Link>
         </div>
@@ -277,7 +277,7 @@ export function CalendarCard({
               onClick={() => setView(v)}
               className={`rounded-md px-2.5 py-1 text-xs font-medium ${
                 view === v
-                  ? "bg-[color:var(--series-steps)] text-white"
+                  ? "bg-[color:var(--accent)] text-white"
                   : "text-ink-secondary hover:bg-[color:var(--page-plane)]"
               }`}
             >

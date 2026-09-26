@@ -8,6 +8,8 @@ import {
   updateCoachNote,
   type CoachNoteRow,
 } from "@/app/dashboard/clients/[clientId]/notes-actions";
+import { EditIcon } from "@/components/icons/EditIcon";
+import { DeleteIcon } from "@/components/icons/DeleteIcon";
 
 const PREVIEW_COUNT = 3;
 
@@ -89,7 +91,7 @@ export function CoachNotes({
           <button
             type="submit"
             disabled={submitting}
-            className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
           >
             {submitting ? "Adding…" : "Add note"}
           </button>
@@ -121,15 +123,17 @@ export function CoachNotes({
                 <button
                   type="button"
                   onClick={() => setEditingNote(note)}
-                  className="text-xs text-ink-muted hover:text-ink-primary"
+                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary"
                 >
+                  <EditIcon className="h-3.5 w-3.5" />
                   Edit
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDelete(note.id)}
-                  className="text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
                 >
+                  <DeleteIcon className="h-3.5 w-3.5" />
                   Delete
                 </button>
               </div>
@@ -141,7 +145,7 @@ export function CoachNotes({
       {seeAllHref && remaining > 0 && (
         <Link
           href={seeAllHref}
-          className="mt-3 inline-block text-xs font-medium text-[color:var(--series-steps)] hover:underline"
+          className="mt-3 inline-block text-xs font-medium text-[color:var(--accent)] hover:underline"
         >
           See all {count} notes →
         </Link>
@@ -206,7 +210,7 @@ function EditNoteModal({
               <button
                 type="button"
                 onClick={() => onSaved(saved)}
-                className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white"
+                className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
               >
                 Done
               </button>
@@ -240,7 +244,7 @@ function EditNoteModal({
                 type="button"
                 onClick={handleSave}
                 disabled={submitting}
-                className="rounded-md bg-[color:var(--series-steps)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
               >
                 {submitting ? "Saving…" : "Save"}
               </button>
