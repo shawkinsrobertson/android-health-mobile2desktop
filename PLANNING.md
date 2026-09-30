@@ -1587,3 +1587,64 @@ wasn't asked for.
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean; `/dashboard/inbox/[clientId]` shows up in
 the route table alongside the existing `clients/[clientId]/chat`).
+
+**Client detail page reorg.** The largest single page in the app
+(478 lines) got restructured top to bottom per an explicit target order:
+data dashboard (tiles + graph) -> stats/PRs -> check-ins + notes ->
+assigned content -> about, with the AI assistant moved into a
+collapsible right sidebar (default minimized). Concretely:
+
+- *Data dashboard.* The old top-of-page 4-tile `StatCard` overview grid
+  (Steps today/Avg HR/Last sleep/Workouts 7d) is gone outright -- no
+  replacement tile grid at that spot. In its place, the client's own
+  chosen-3 "Featured data points" section (previously much further down
+  the page) is promoted to the top, and directly below it is one new
+  chart, `components/DataOverlayChart.tsx`, replacing the separate
+  always-on `StepsChart`/`SleepChart` sections entirely (both component
+  files deleted -- confirmed unused anywhere else first). Every one of
+  the app's 8 `DATA_POINTS` types this client has consented to share
+  gets a toggle chip; multiple can be active at once, each drawn as its
+  own line **normalized to its own 0-100% range** on one shared Y axis
+  (the locked-in overlay decision -- lets very different units like
+  steps and mg/dL sit on the same chart for pattern comparison), while
+  the tooltip looks the real value + unit back up per point so nothing
+  is actually lost to the normalization. New `lib/queries.ts` entry
+  point `getDailySeries(supabase, dataPointKey, days, clientId)` backs
+  every series from one function -- steps/sleep reuse the existing
+  `getDailySteps`/`getSleepNights` (unchanged, still used by the AI
+  assistant's tools too), and a new `SAMPLE_SERIES_CONFIG` table-driven
+  path handles the five single-numeric-reading tables (heart rate,
+  blood oxygen, blood pressure [systolic only -- it's two-valued, the
+  diastolic side is dropped from this overlay for a single comparable
+  line], respiratory rate, blood glucose) with one shared
+  bucket-by-day-and-average implementation, plus a small
+  count-per-day path for `exercise_sessions`. The dynamic column-name
+  select required casting the query builder through `unknown` --
+  Supabase's typed `select()` only parses string *literals* against the
+  schema at compile time, and a per-data-type column name is only known
+  at runtime.
+- *Check-ins + Notes*, side by side at `w-[45%]`/`w-[45%]` in a
+  `flex flex-wrap gap-[10%]` wrapper (stacks to full width below `sm`).
+- *Assigned content*: the old two separate sections ("Assign content"'s
+  three picker forms, "Assigned content"'s three list cards) are merged
+  into one card, one column per category -- each column shows its
+  assigned list first (primary, per the requirement) with a compact
+  "+ Assign &lt;type&gt;" inline form directly underneath, rather than a
+  whole separate section far below.
+- *About*: the former standalone "Data sharing" consent-list section is
+  folded into About as an added block under the existing phone/goals/
+  limitations fields, one card instead of two.
+- *AI assistant*: moved out of the main column into a new
+  `components/ClientAssistantSidebar.tsx` -- a right-edge collapsible
+  panel (same collapse shape as `LibrarySidebar`/`InboxSidebar`, mirrored
+  to the right), **default minimized** per the requirement, wrapping the
+  existing `AssistantChat` unchanged. The page's outer container became
+  a two-column flex (main content + this sidebar) -- the first
+  two-column layout on this particular page.
+- The shared calendar card and the chat-unread header icon were left in
+  their existing spots (calendar trailing at the end, chat icon in the
+  header) -- the requirement's explicit order only covered the five
+  sections above, and neither of these was called out for relocation.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
