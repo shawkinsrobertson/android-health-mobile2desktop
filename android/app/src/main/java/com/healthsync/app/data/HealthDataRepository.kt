@@ -1,7 +1,10 @@
 package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
 import org.json.JSONArray
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -22,6 +25,12 @@ data class DashboardData(
 
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
+// See TtlCache's doc comment -- DashboardScreen re-fetches from scratch on
+// every return visit since it doesn't survive Compose Navigation's
+// teardown, so a 60s cache is what makes a quick "back, then forward
+// again" feel instant instead of re-paying every query.
+private val dashboardCache = TtlCache<DashboardData>(Duration.ofSeconds(60))
+
 /**
  * Basic per-client data-viz queries for the Android dashboard -- a
  * deliberately simplified Kotlin counterpart to the web dashboard's
@@ -39,7 +48,17 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
  */
 class HealthDataRepository(private val supabase: SupabaseRestClient) {
 
+    // The four queries below are independent of each other (different
+    // tables, no shared state), so they run concurrently via async/await
+    // instead of one after another -- each pays its own network
+    // round-trip, and doing that sequentially was the single biggest
+    // contributor to this screen's slow load.
     suspend fun loadDashboard(clientId: String, days: Int = 14): DashboardData {
+        dashboardCache.get(clientId)?.let { return it }
+        return loadDashboardFresh(clientId, days).also { dashboardCache.put(clientId, it) }
+    }
+
+    private suspend fun loadDashboardFresh(clientId: String, days: Int): DashboardData = coroutineScope {
         val sinceIso = ISO_INSTANT.format(Instant.now().minusSeconds(days * 86_400L))
         val sevenDaysAgoIso = ISO_INSTANT.format(Instant.now().minusSeconds(7 * 86_400L))
         // Bucketing below uses the *device's* local date, not UTC -- a
@@ -50,48 +69,61 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         // to "today" and look like zero.
         val todayIso = LocalDate.now(ZoneId.systemDefault()).toString()
 
-        val stepsRows = supabase.select(
-            "steps",
-            mapOf(
-                "select" to "start_time,count",
-                "client_id" to "eq.$clientId",
-                "start_time" to "gte.$sinceIso",
-                "order" to "start_time.asc",
-            ),
-        )
-        val dailySteps = bucketStepsByDay(stepsRows)
+        val stepsDeferred = async {
+            supabase.select(
+                "steps",
+                mapOf(
+                    "select" to "start_time,count",
+                    "client_id" to "eq.$clientId",
+                    "start_time" to "gte.$sinceIso",
+                    "order" to "start_time.asc",
+                    // Already date-bounded to `days` -- this just avoids
+                    // select() falling back to its full-pagination path
+                    // (see SupabaseRestClient.select()'s doc comment) for a
+                    // preview that doesn't need to be exhaustive anyway.
+                    "limit" to "2000",
+                ),
+            )
+        }
+        val sleepDeferred = async {
+            supabase.select(
+                "sleep_sessions",
+                mapOf(
+                    "select" to "start_time,end_time",
+                    "client_id" to "eq.$clientId",
+                    "start_time" to "gte.$sinceIso",
+                    "order" to "start_time.asc",
+                    "limit" to "2000",
+                ),
+            )
+        }
+        val hrDeferred = async {
+            supabase.select(
+                "heart_rate_samples",
+                mapOf(
+                    "select" to "bpm",
+                    "client_id" to "eq.$clientId",
+                    "sample_time" to "gte.$sevenDaysAgoIso",
+                ),
+            )
+        }
+        val workoutDeferred = async {
+            supabase.select(
+                "workout_sessions",
+                mapOf(
+                    "select" to "id,completed_at",
+                    "client_id" to "eq.$clientId",
+                    "completed_at" to "not.is.null",
+                    "order" to "completed_at.desc",
+                    "limit" to "5",
+                ),
+            )
+        }
 
-        val sleepRows = supabase.select(
-            "sleep_sessions",
-            mapOf(
-                "select" to "start_time,end_time",
-                "client_id" to "eq.$clientId",
-                "start_time" to "gte.$sinceIso",
-                "order" to "start_time.asc",
-            ),
-        )
-        val sleepNights = bucketSleepByNight(sleepRows)
-
-        val hrRows = supabase.select(
-            "heart_rate_samples",
-            mapOf(
-                "select" to "bpm",
-                "client_id" to "eq.$clientId",
-                "sample_time" to "gte.$sevenDaysAgoIso",
-            ),
-        )
-        val avgHr = averageBpm(hrRows)
-
-        val workoutRows = supabase.select(
-            "workout_sessions",
-            mapOf(
-                "select" to "id,completed_at",
-                "client_id" to "eq.$clientId",
-                "completed_at" to "not.is.null",
-                "order" to "completed_at.desc",
-                "limit" to "5",
-            ),
-        )
+        val dailySteps = bucketStepsByDay(stepsDeferred.await())
+        val sleepNights = bucketSleepByNight(sleepDeferred.await())
+        val avgHr = averageBpm(hrDeferred.await())
+        val workoutRows = workoutDeferred.await()
         val recentWorkouts = (0 until workoutRows.length()).map { i ->
             val row = workoutRows.getJSONObject(i)
             RecentWorkout(id = row.getString("id"), completedAt = row.getString("completed_at"))
@@ -99,7 +131,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
 
         val stepsToday = dailySteps.firstOrNull { it.date == todayIso }?.count ?: 0L
 
-        return DashboardData(
+        DashboardData(
             stepsToday = stepsToday,
             avgHeartRate7d = avgHr,
             lastSleepHours = sleepNights.lastOrNull()?.hours,

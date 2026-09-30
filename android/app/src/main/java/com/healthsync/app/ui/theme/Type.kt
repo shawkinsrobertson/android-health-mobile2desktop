@@ -72,4 +72,20 @@ val HealthSyncTypography = Typography(
         fontSize = 14.sp,
         lineHeight = 20.sp,
     ),
+    // Left undefined until now, labelSmall/labelMedium fell back to
+    // Material3's stock 11sp/12sp -- below the 14px floor for functional
+    // text (set-row column headers, data-point labels, timestamps), even
+    // though they're used for exactly that, not decorative badges.
+    labelMedium = TextStyle(
+        fontFamily = OpenSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+    ),
+    labelSmall = TextStyle(
+        fontFamily = OpenSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+    ),
 )

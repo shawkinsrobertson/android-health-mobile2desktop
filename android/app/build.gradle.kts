@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // Load SUPABASE_URL / SUPABASE_ANON_KEY / DASHBOARD_URL from
@@ -61,9 +62,9 @@ android {
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+    // Compose compiler version is now managed by the
+    // org.jetbrains.kotlin.plugin.compose plugin (Kotlin 2.0+), not this
+    // composeOptions block.
 
     packaging {
         resources {

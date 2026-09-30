@@ -2,6 +2,7 @@ package com.healthsync.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +17,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.auth.AuthRepository
@@ -52,6 +60,7 @@ import com.healthsync.app.data.SessionSet
 import com.healthsync.app.data.WorkoutRepository
 import com.healthsync.app.data.WorkoutSession
 import com.healthsync.app.supabase.SupabaseRestClient
+import com.healthsync.app.ui.components.ConfirmDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -124,11 +133,12 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
                 title = { Text("Today's Workout") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←", style = MaterialTheme.typography.headlineSmall)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
+        containerColor = Color.Transparent,
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             val currentError = error
@@ -186,7 +196,10 @@ private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
         }
         Spacer(Modifier.height(20.dp))
         state.exercises.forEach { exercise ->
-            OutlinedCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                elevation = CardDefaults.outlinedCardElevation(defaultElevation = 3.dp),
+            ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(exercise.name, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(2.dp))
@@ -209,6 +222,8 @@ private fun InProgressWorkout(
     onStateChange: (WorkoutUiState) -> Unit,
 ) {
     val session = state.session!!
+    var confirmingFinish by remember { mutableStateOf(false) }
+    var finishing by remember { mutableStateOf(false) }
     var expandedExerciseId by remember(state.workout.id) {
         mutableStateOf(
             state.exercises.firstOrNull { exercise ->
@@ -270,16 +285,10 @@ private fun InProgressWorkout(
                 Text(if (session.pausedAt == null) "Pause" else "Resume")
             }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = {
-                scope.launch {
-                    repository.finishSession(session.id)
-                    // Setting completedAt locally is what flips the parent
-                    // WorkoutScreen's `when` branch over to SummaryWorkout
-                    // -- no re-fetch needed, the rest of the state (sets,
-                    // exercises) is already loaded.
-                    onStateChange(state.copy(session = session.copy(completedAt = Instant.now().toString())))
-                }
-            }) { Text("Finish") }
+            Button(
+                onClick = { confirmingFinish = true },
+                enabled = !finishing,
+            ) { Text(if (finishing) "Finishing…" else "Finish") }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -305,6 +314,27 @@ private fun InProgressWorkout(
             )
         }
     }
+
+    if (confirmingFinish) {
+        ConfirmDialog(
+            title = "Finish workout?",
+            body = "You won't be able to log any more sets for this workout after finishing.",
+            confirmLabel = "Finish",
+            onConfirm = {
+                confirmingFinish = false
+                finishing = true
+                scope.launch {
+                    repository.finishSession(session.id)
+                    // Setting completedAt locally is what flips the parent
+                    // WorkoutScreen's `when` branch over to SummaryWorkout
+                    // -- no re-fetch needed, the rest of the state (sets,
+                    // exercises) is already loaded.
+                    onStateChange(state.copy(session = session.copy(completedAt = Instant.now().toString())))
+                }
+            },
+            onDismiss = { confirmingFinish = false },
+        )
+    }
 }
 
 /**
@@ -328,7 +358,9 @@ private fun SummaryWorkout(
 ) {
     val session = state.session!!
     var notes by remember(session.id) { mutableStateOf(session.notes ?: "") }
+    var confirmingSave by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("Workout complete!", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -384,19 +416,38 @@ private fun SummaryWorkout(
 
         Spacer(Modifier.height(20.dp))
         Button(
-            onClick = {
+            onClick = { confirmingSave = true },
+            enabled = !saving && !saved,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                when {
+                    saved -> "Saved ✓"
+                    saving -> "Saving…"
+                    else -> "Save & Return to Dashboard"
+                },
+            )
+        }
+    }
+
+    if (confirmingSave) {
+        ConfirmDialog(
+            title = "Save and return to dashboard?",
+            body = "This saves your notes and PR picks and takes you back to the dashboard.",
+            confirmLabel = "Save",
+            onConfirm = {
+                confirmingSave = false
                 saving = true
                 scope.launch {
                     repository.setSessionNotes(session.id, notes.ifBlank { null })
                     saving = false
+                    saved = true
+                    delay(600)
                     onSaved()
                 }
             },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (saving) "Saving…" else "Save & Return to Dashboard")
-        }
+            onDismiss = { confirmingSave = false },
+        )
     }
 }
 
@@ -420,6 +471,7 @@ private fun ExerciseLogCard(
         } else {
             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         },
+        elevation = CardDefaults.outlinedCardElevation(defaultElevation = 3.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -474,39 +526,49 @@ private fun SetRow(
 ) {
     var reps by remember(set.id) { mutableStateOf(set.reps ?: set.durationSeconds?.let { "${it}s" } ?: "") }
     var weight by remember(set.id) { mutableStateOf(set.weight ?: "") }
+    // Brief border-color pulse on the two fields right where the user was
+    // just typing -- the only signal this row has that a commit actually
+    // landed, since it saves silently on focus-loss with no button/toast.
+    var justSaved by remember(set.id) { mutableStateOf(false) }
+    LaunchedEffect(justSaved) {
+        if (justSaved) {
+            delay(600)
+            justSaved = false
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(set.setNumber.toString(), modifier = Modifier.width(40.dp), fontWeight = FontWeight.Bold)
-        OutlinedTextField(
+        CompactNumberField(
             value = reps,
             onValueChange = { reps = it },
+            saved = justSaved,
             modifier = Modifier.weight(1f).padding(end = 4.dp).onFocusChanged { focus ->
                 if (!focus.isFocused) {
                     scope.launch {
                         repository.updateSet(set.id, reps.ifBlank { null }, weight.ifBlank { null })
                         onChanged(set.copy(reps = reps.ifBlank { null }, weight = weight.ifBlank { null }))
+                        justSaved = true
                     }
                 }
             },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall,
         )
-        OutlinedTextField(
+        CompactNumberField(
             value = weight,
             onValueChange = { weight = it },
+            saved = justSaved,
             modifier = Modifier.weight(1f).padding(end = 4.dp).onFocusChanged { focus ->
                 if (!focus.isFocused) {
                     scope.launch {
                         repository.updateSet(set.id, reps.ifBlank { null }, weight.ifBlank { null })
                         onChanged(set.copy(reps = reps.ifBlank { null }, weight = weight.ifBlank { null }))
+                        justSaved = true
                     }
                 }
             },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall,
         )
         RestCell(restSeconds = set.restSeconds, modifier = Modifier.weight(1f))
         IconButton(onClick = {
@@ -531,6 +593,48 @@ private fun SetRow(
             }
         }
     }
+}
+
+/**
+ * A short, ~28dp-tall reps/weight input -- Material3's OutlinedTextField
+ * has a hard ~56dp minimum height that can't be shrunk to fit a workout
+ * card's per-set row without clipping its label/padding, so this is a
+ * plain BasicTextField with its own thin border instead. Scoped to
+ * [SetRow] only -- not a general-purpose replacement for OutlinedTextField
+ * used elsewhere in the app.
+ */
+@Composable
+private fun CompactNumberField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    saved: Boolean = false,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(28.dp)
+            .border(
+                width = if (saved) 2.dp else 1.dp,
+                color = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(6.dp),
+            ),
+        textStyle = MaterialTheme.typography.bodySmall.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        ),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                innerTextField()
+            }
+        },
+    )
 }
 
 /**

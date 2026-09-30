@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -21,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.R
@@ -72,7 +74,16 @@ fun HomeScreen(
     // showed up testing in dark mode, where the shade/heatmap (which set
     // their own colors explicitly off MaterialTheme.colorScheme) looked
     // right while the background and greeting text didn't move at all.
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // color is Transparent (not colorScheme.background) so the shared
+    // gradient background painted once in MainActivity shows through;
+    // contentColor is passed explicitly since Surface's default derives it
+    // from `color`, and Transparent isn't a role Surface can map to an
+    // "on-X" text color the way colorScheme.background was.
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (homeSummary != null) {
@@ -168,7 +179,10 @@ fun HomeScreen(
 private fun TopDataPointsRow(dataPoints: List<TopDataPointSummary>) {
     Row(modifier = Modifier.fillMaxWidth()) {
         dataPoints.forEach { point ->
-            OutlinedCard(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            OutlinedCard(
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                elevation = CardDefaults.outlinedCardElevation(defaultElevation = 3.dp),
+            ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
                         point.label,
@@ -187,6 +201,7 @@ private fun TopDataPointsRow(dataPoints: List<TopDataPointSummary>) {
 private fun TrainingCard(trainingItem: TrainingItem?, onOpenWorkouts: () -> Unit) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth().let { if (trainingItem != null) it.clickable(onClick = onOpenWorkouts) else it },
+        elevation = CardDefaults.outlinedCardElevation(defaultElevation = 3.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
             if (trainingItem == null) {

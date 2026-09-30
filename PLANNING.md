@@ -1325,3 +1325,137 @@ it collapses to nothing together with everything else in there.
 
 Same manual-review-only posture as every other Android change in this
 project.
+
+## Phase 10 -- Android MVP design-minimums pass + two reported bugs
+
+A checklist of 7 cross-cutting design minimums plus 2 reported bugs,
+worked through with real `./gradlew compileDebugKotlin`/`lintDebug`
+verification after every change (the session-start hook from the
+previous phase makes that possible for the first time this project has
+had it). No Paparazzi screenshot tests, despite an earlier attempt --
+see the dead end noted below.
+
+**Kotlin bumped 1.9.24 -> 2.0.21** (+ the `org.jetbrains.kotlin.plugin.compose`
+Gradle plugin, replacing `app/build.gradle.kts`'s old
+`composeOptions.kotlinCompilerExtensionVersion`). Originally done solely
+to unlock Paparazzi (JVM-only Compose screenshot testing, no
+emulator/device needed -- this environment has neither `/dev/kvm` nor a
+display) targeting this project's `compileSdk 36`. Kept even after
+dropping Paparazzi: it's a clean, independently-verified upgrade, and
+reverting it for no reason would have been pure churn. Paparazzi itself
+hit a wall too deep to be worth it here: every Kotlin-1.9-compatible
+release lacks `compileSdk 36` platform data (added only in its
+`2.0.0-alpha` line); every alpha tried after that hit a *different*
+incompatibility (AGP/aapt2 version mismatch, then a Kotlin-Gradle-plugin
+binary incompatibility); and the one clean workaround AGP actually
+offers (`android.testOptions.targetSdk`, to render screenshots against a
+lower, better-supported platform than the module's real `compileSdk`) is
+restricted to library modules -- `:app` is an application module. Given
+four independent dead ends, Android verification for this pass is
+`./gradlew compileDebugKotlin`/`lintDebug` plus precise before/after code
+in review, not rendered pixels.
+
+**Screen titles + back nav.** `ProfileScreen`/`ComingSoonScreen` had
+their "Back" as a `TextButton` buried in the scrollable body -- moved
+into the `TopAppBar`'s `navigationIcon` slot, matching every other
+screen. The other four screens (`WorkoutScreen`/`CalendarScreen`/
+`InboxScreen`/`DashboardScreen`) already had a `navigationIcon`, just a
+literal `Text("←")` instead of a real `Icon` -- swapped for
+`Icons.AutoMirrored.Filled.ArrowBack` (RTL-aware, real accessibility
+semantics). `HomeScreen`/`CoachHomeScreen`/`LoginScreen` left without a
+back icon on purpose -- they're root/landing destinations with nothing
+to return to.
+
+**14px font floor.** `labelSmall`/`labelMedium` were never defined in
+`HealthSyncTypography`, silently falling back to Material3's stock
+11sp/12sp -- below the floor for real functional text (workout set-row
+column headers, home data-point labels, inbox timestamps, the calendar
+event date chip), not decorative badges. Fixed centrally in `Type.kt`
+(both now 14sp) rather than touching each of those call sites.
+
+**Card drop shadows.** All 5 `OutlinedCard` sites in the app (home
+data-point/training cards, workout browse row + `ExerciseLogCard`,
+calendar event card) used Material3's zero-elevation outlined-card
+default. Added `CardDefaults.outlinedCardElevation(defaultElevation = 3.dp)`
+to each.
+
+**Dark-theme diagonal gradient.** `background`/`surface` were flat
+`Color` tokens with no single choke point to inject a `Brush` through --
+neither `Scaffold`'s `containerColor` nor `Surface`'s `color` accept
+anything but `Color`. Solved by painting the gradient exactly once, in
+`MainActivity`, behind the whole `NavHost` (new `dashboardBackgroundBrush()`
+in `Theme.kt`, dark-theme only, top-left to bottom-right), then setting
+every screen's own `Scaffold(containerColor = Color.Transparent)` (and
+`HomeScreen`'s `Surface(color = Color.Transparent)`) so the shared
+gradient shows through instead of each screen re-painting a flat color
+over it. `HomeScreen`'s `Surface` also needed an explicit
+`contentColor = MaterialTheme.colorScheme.onBackground` passed alongside
+-- Surface normally derives `contentColor` from `color` via
+`contentColorFor()`, which doesn't know how to map `Transparent` to an
+"on-X" text color the way it mapped `colorScheme.background` before.
+
+**Workout card input height (~25-30dp).** Material3's `OutlinedTextField`
+has a hard ~56dp floor that can't be shrunk to fit. Built a narrow
+`CompactNumberField` (`BasicTextField` + a manual thin border,
+28dp-tall) scoped to `WorkoutScreen`'s per-set reps/weight inputs only --
+not a general OutlinedTextField replacement elsewhere.
+
+**Confirmation dialogs.** First `AlertDialog` anywhere in this app --
+new shared `ui/components/ConfirmDialog.kt`, reused at every site.
+Scoped to the app's actual consequential actions (there's no delete
+action anywhere in the Android app, and no literal "stop" beyond
+pause/resume, which is non-destructive): finishing a workout, saving +
+returning to the dashboard from the summary screen, signing out
+(`ProfileScreen` + `CoachHomeScreen`), and forcing a full re-sync.
+Deliberately *not* applied to per-set field edits or the per-set
+completion toggle -- confirming every single rep/weight keystroke would
+make logging a workout unusable, which the "save/edit/delete/finish/
+stop" requirement plainly isn't asking for.
+
+**Visual affordances at the point of interaction.** Finish (previously
+no saving state at all) now disables + reads "Finishing…" while in
+flight. Summary screen's Save button, which already had "Saving…", now
+also flashes "Saved ✓" for ~600ms before navigating away instead of
+jumping straight from saving to gone. Inbox's Send button and Profile's
+Force re-sync button previously only toggled `enabled` with a static
+label -- both now swap to "Sending…"/"Syncing…" like every other
+async-action button in the app already did. Per-set reps/weight field
+commits (which save silently on focus-loss, with no button of their
+own) get a brief primary-color border pulse on the two fields that just
+committed -- the only place in the row a user would actually be
+looking.
+
+**Bug: dashboard slow load (both cold launch and returning to the
+screen).** Two separate causes, both fixed. (1) `HealthDataRepository
+.loadDashboard`'s 4 queries and `HomeSummaryRepository.loadSummary`'s 7
+sub-fetches (plus its inner per-data-point loop, up to 3 more) were all
+sequential `suspend` calls -- none of them depend on each other, so all
+are now `coroutineScope { async { ... } }` + `.await()`. A client with 3
+top data points picked was paying roughly 10 sequential round trips just
+to populate the Home shade before this. Also added `"limit" to "2000"`
+to the previously-unbounded steps/sleep_sessions selects, since
+`SupabaseRestClient.select()` falls back to full auto-pagination without
+an explicit limit even though both queries are already date-windowed.
+(2) Neither `DashboardScreen` nor `HomeScreen` survive Compose
+Navigation's teardown-and-recreate when leaving and returning (the same
+lifecycle gap Phase 9 hoisted `navExpanded` out of), so every return
+visit re-ran every query from scratch regardless of (1). New
+`TtlCache<T>` (`data/TtlCache.kt`), a plain 60s in-memory
+singleton-per-repository cache keyed by `clientId` -- not a ViewModel or
+any new architecture layer, since this app deliberately has neither
+anywhere else yet.
+
+**Bug: nav icon jumps left->right on expand/collapse.** Root cause:
+`SlideOutNav`'s outer `Row` had no width of its own, only whatever its
+(changing) content added up to -- as `AnimatedVisibility` animated the
+destinations row between 0 and full width, the trailing toggle button's
+on-screen position moved right along with it. Fixed by reserving the
+pill's fully-expanded width in an outer `Box` at all times and
+end-aligning the actual Row within it, so the toggle sits at a fixed
+right edge regardless of state -- the visible pill (clip + background)
+still only covers its actual current width, just positioned flush
+against that fixed edge instead of wherever the Row happened to end.
+
+Same manual-review-plus-build posture as every other Android change in
+this project, now with a real compiler backing the review for the first
+time.

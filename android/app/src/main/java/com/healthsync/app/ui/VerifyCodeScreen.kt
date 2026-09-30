@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -40,7 +41,10 @@ fun VerifyCodeScreen(
     var resent by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Enter code") }) }) { padding ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Enter code") }) },
+        containerColor = Color.Transparent,
+    ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)

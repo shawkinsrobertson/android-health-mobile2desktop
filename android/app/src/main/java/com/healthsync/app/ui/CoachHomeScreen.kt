@@ -23,11 +23,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.ClientSummary
 import com.healthsync.app.data.ProfileRepository
 import com.healthsync.app.supabase.SupabaseRestClient
+import com.healthsync.app.ui.components.ConfirmDialog
 
 /**
  * Coach-facing landing content -- a plain roster of their clients;
@@ -46,6 +48,7 @@ fun CoachHomeScreen(
 ) {
     var clients by remember { mutableStateOf<List<ClientSummary>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmingSignOut by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val token = authRepository.getValidAccessToken()
@@ -61,7 +64,10 @@ fun CoachHomeScreen(
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Your clients") }) }) { padding ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Your clients") }) },
+        containerColor = Color.Transparent,
+    ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -90,9 +96,22 @@ fun CoachHomeScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onSignOut) {
+            TextButton(onClick = { confirmingSignOut = true }) {
                 Text("Sign out")
             }
         }
+    }
+
+    if (confirmingSignOut) {
+        ConfirmDialog(
+            title = "Sign out?",
+            body = "You'll need to verify your email again to sign back in.",
+            confirmLabel = "Sign out",
+            onConfirm = {
+                confirmingSignOut = false
+                onSignOut()
+            },
+            onDismiss = { confirmingSignOut = false },
+        )
     }
 }

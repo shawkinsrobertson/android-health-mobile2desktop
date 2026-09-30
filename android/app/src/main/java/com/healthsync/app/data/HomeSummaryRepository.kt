@@ -1,6 +1,9 @@
 package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -37,6 +40,11 @@ data class HomeSummary(
 
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
+// See TtlCache's doc comment / HealthDataRepository's matching cache --
+// HomeScreen doesn't survive Compose Navigation's teardown either, so
+// every return to Home re-ran the whole shade/streak fetch from scratch.
+private val homeSummaryCache = TtlCache<HomeSummary>(Duration.ofSeconds(60))
+
 /**
  * Feeds the redesigned client home screen's pull-down notification shade
  * (messages/calendar/tasks) and weekly streak heatmap. Deliberately
@@ -71,23 +79,42 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
     // still being in flight -- since loadSummary() itself never
     // completed, there was nothing to tell the difference.
     suspend fun loadSummary(clientId: String): HomeSummary {
-        val hasUnreadMessages = runCatching { loadUnreadMessages(clientId) }.getOrDefault(false)
-        val latestMessage = runCatching { loadLatestMessagePreview(clientId) }.getOrNull()
-        val upcomingEvents = runCatching { loadUpcomingEvents(clientId) }.getOrDefault(emptyList())
-        val checkInDue = runCatching { loadCheckInDue(clientId) }.getOrDefault(false)
-        val weekDays = runCatching { loadWeekCompletion(clientId) }.getOrDefault(emptyWeek())
-        val topDataPoints = runCatching { loadTopDataPoints(clientId) }.getOrDefault(emptyList())
-        val trainingItem = runCatching { WorkoutRepository(supabase).getNextTrainingItem(clientId) }.getOrNull()
-        return HomeSummary(hasUnreadMessages, latestMessage, upcomingEvents, checkInDue, weekDays, topDataPoints, trainingItem)
+        homeSummaryCache.get(clientId)?.let { return it }
+        return loadSummaryFresh(clientId).also { homeSummaryCache.put(clientId, it) }
     }
 
-    private suspend fun loadTopDataPoints(clientId: String): List<TopDataPointSummary> {
+    private suspend fun loadSummaryFresh(clientId: String): HomeSummary = coroutineScope {
+        // Independent tables, so these run concurrently instead of one
+        // after another -- sequentially, a client with 3 top data points
+        // picked paid roughly 10 round trips just to populate the Home
+        // shade before this.
+        val hasUnreadMessagesDeferred = async { runCatching { loadUnreadMessages(clientId) }.getOrDefault(false) }
+        val latestMessageDeferred = async { runCatching { loadLatestMessagePreview(clientId) }.getOrNull() }
+        val upcomingEventsDeferred = async { runCatching { loadUpcomingEvents(clientId) }.getOrDefault(emptyList()) }
+        val checkInDueDeferred = async { runCatching { loadCheckInDue(clientId) }.getOrDefault(false) }
+        val weekDaysDeferred = async { runCatching { loadWeekCompletion(clientId) }.getOrDefault(emptyWeek()) }
+        val topDataPointsDeferred = async { runCatching { loadTopDataPoints(clientId) }.getOrDefault(emptyList()) }
+        val trainingItemDeferred = async { runCatching { WorkoutRepository(supabase).getNextTrainingItem(clientId) }.getOrNull() }
+        HomeSummary(
+            hasUnreadMessages = hasUnreadMessagesDeferred.await(),
+            latestMessage = latestMessageDeferred.await(),
+            upcomingEvents = upcomingEventsDeferred.await(),
+            checkInDue = checkInDueDeferred.await(),
+            weekDays = weekDaysDeferred.await(),
+            topDataPoints = topDataPointsDeferred.await(),
+            trainingItem = trainingItemDeferred.await(),
+        )
+    }
+
+    private suspend fun loadTopDataPoints(clientId: String): List<TopDataPointSummary> = coroutineScope {
         val keys = ProfileRepository(supabase).loadTopDataPoints(clientId)
         val dataPoints = DataPointRepository(supabase)
-        return keys.map { key ->
-            val summary = runCatching { dataPoints.getSummary(clientId, key) }.getOrDefault("No data synced yet")
-            TopDataPointSummary(key = key, label = labelFor(key), summary = summary)
-        }
+        keys.map { key ->
+            async {
+                val summary = runCatching { dataPoints.getSummary(clientId, key) }.getOrDefault("No data synced yet")
+                TopDataPointSummary(key = key, label = labelFor(key), summary = summary)
+            }
+        }.map { it.await() }
     }
 
     private fun emptyWeek(): List<WeekDay> {

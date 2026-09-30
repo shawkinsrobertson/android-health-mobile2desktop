@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +45,7 @@ import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.ROUTE_HOME
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
 import com.healthsync.app.ui.theme.HealthSyncTheme
+import com.healthsync.app.ui.theme.dashboardBackgroundBrush
 import kotlinx.coroutines.launch
 
 /** Maps a finished manual-sync [WorkInfo] to the [SyncResult] shape the UI already knows how to render. */
@@ -77,21 +79,26 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             HealthSyncTheme {
-                // null while the session store's first read hasn't landed
-                // yet -- same "loading, then resolve" shape as
-                // hasPermissions below. Captured into a local val (not
-                // read again inline) so the compiler can actually smart-cast
-                // it to non-null Boolean past the null check -- a delegated
-                // `by collectAsState()` property can't be smart-cast at its
-                // use site otherwise.
-                val loggedIn = authRepository.isLoggedInFlow.collectAsState(initial = null).value
+                // The one place the app's background is painted -- every
+                // screen's own Scaffold/Surface sets containerColor/color
+                // to Transparent so this shows through underneath instead
+                // of each screen re-painting a flat color over it.
+                Box(Modifier.fillMaxSize().background(dashboardBackgroundBrush())) {
+                    // null while the session store's first read hasn't landed
+                    // yet -- same "loading, then resolve" shape as
+                    // hasPermissions below. Captured into a local val (not
+                    // read again inline) so the compiler can actually smart-cast
+                    // it to non-null Boolean past the null check -- a delegated
+                    // `by collectAsState()` property can't be smart-cast at its
+                    // use site otherwise.
+                    val loggedIn = authRepository.isLoggedInFlow.collectAsState(initial = null).value
 
-                if (loggedIn == null) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                    if (loggedIn == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                        return@Box
                     }
-                    return@HealthSyncTheme
-                }
 
                 val navController = rememberNavController()
                 val scope = rememberCoroutineScope()
@@ -276,6 +283,7 @@ class MainActivity : ComponentActivity() {
                             onOpenProfile = nav.onOpenProfile,
                         )
                     }
+                }
                 }
             }
         }
