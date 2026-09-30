@@ -1565,3 +1565,25 @@ detail page.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+**Inbox: persistent split view.** `/dashboard/inbox` used to be a plain
+list of client threads, each a link to a fully separate route
+(`clients/[clientId]/chat`) with its own back-navigation. New
+`app/dashboard/inbox/layout.tsx` fetches `listCoachThreads` once and
+renders a new `components/chat/InboxSidebar.tsx` (same collapsible-
+left-sidebar shape as `LibrarySidebar`, with per-client unread dots)
+alongside `{children}`; `/dashboard/inbox` itself is now a "pick a
+client" placeholder, and a new `app/dashboard/inbox/[clientId]/page.tsx`
+renders the thread (`ThreadView` + `CallProvider`, same data-fetching as
+the existing per-client chat page) inside that shared layout -- clicking
+a different client in the sidebar swaps only the thread content, the
+sidebar itself never re-fetches or re-renders. The older
+`clients/[clientId]/chat` route (and every link into it, e.g. from the
+client detail page and the dashboard's Daily Bulletin) was left as-is
+rather than redirected -- it's still a perfectly valid direct deep link
+into a single conversation, just without the sidebar, and repointing it
+wasn't asked for.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean; `/dashboard/inbox/[clientId]` shows up in
+the route table alongside the existing `clients/[clientId]/chat`).
