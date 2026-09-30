@@ -1526,3 +1526,42 @@ programmatically (the `source_kind`/`source_id` columns exist for it,
 but wiring "unread thread -> task stub" etc. automatically is follow-up
 work, not done in this pass) -- flagging that gap plainly rather than
 overclaiming it.
+
+**Libraries: persistent left sidebar.** `app/dashboard/library/` had no
+shared layout before this -- each category (`exercises`/`workouts`/
+`programs`/`documents`) was an independent top-level route, and the hub
+page at `/dashboard/library` was just a grid of four link-cards into
+them. New `app/dashboard/library/layout.tsx` wraps every
+`/dashboard/library/**` route in a two-column shell: a new
+`components/library/LibrarySidebar.tsx` (client component, first
+sidebar pattern in this app -- nothing existing to follow) on the left,
+`{children}` as the main content area on the right. The sidebar is
+persistent across category navigation (it lives in the layout, not a
+per-page component) and independently collapsible via local `useState`
+(not persisted across reloads -- a same-session convenience, not data
+worth persisting), with active-category highlighting via `usePathname()`.
+The old hub page's four-card grid is now redundant with the sidebar, so
+`/dashboard/library` itself was simplified to a plain "pick a category
+from the sidebar" placeholder rather than duplicating the same four
+links two ways.
+
+**Assign-from-library-item.** Previously the only way to assign a
+workout/program/document to a client was from the client's own detail
+page (picking the item from a dropdown there). Added the reverse
+direction: each item's own detail page
+(`library/{workouts,programs,documents}/[id]/page.tsx`) now also fetches
+this coach's client roster (same `client_profiles` join used on the
+Clients page) and renders a new `components/library/AssignToClientCard.tsx`
+-- a plain server-action form (pick a client, submit) -- at the bottom.
+New `app/dashboard/library/assign-actions.ts` holds the three
+`assignLibrary{Workout,Program,Document}ToClient` actions: a mirror
+image of the client page's existing `assign*ToClient` actions (same
+underlying `assign_*_to_client` RPCs), just with which side is bound
+(the item) vs. read from `FormData` (the client) flipped. Exercises are
+deliberately left out -- they aren't independently assignable in this
+app's data model (only workouts/programs/documents have an
+`assign_*_to_client` RPC), so no assign card was added to the exercise
+detail page.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

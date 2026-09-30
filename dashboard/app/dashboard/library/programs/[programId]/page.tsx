@@ -5,7 +5,9 @@ import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { ProgramWorkoutListEditor, type ProgramWorkoutItem } from "@/components/library/ProgramWorkoutListEditor";
+import { AssignToClientCard } from "@/components/library/AssignToClientCard";
 import { updateProgram, deleteProgram } from "../actions";
+import { assignLibraryProgramToClient } from "../../assign-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,7 @@ export default async function ProgramDetailPage({
 
   const supabase = await createClient();
 
-  const [{ data: program, error }, { data: joinRows }, { data: workouts }] = await Promise.all([
+  const [{ data: program, error }, { data: joinRows }, { data: workouts }, { data: clientRows }] = await Promise.all([
     supabase
       .from("library_programs")
       .select("id, name, description, photo_path, photo_url, video_path, video_url")
@@ -45,6 +47,10 @@ export default async function ProgramDetailPage({
       .eq("program_id", params.programId)
       .order("order_index"),
     supabase.from("library_workouts").select("id, name").eq("coach_id", profile.id).order("name"),
+    supabase
+      .from("client_profiles")
+      .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
+      .eq("coach_id", profile.id),
   ]);
 
   if (error || !program) redirect("/dashboard/library/programs");
@@ -63,6 +69,13 @@ export default async function ProgramDetailPage({
     day_of_week: row.day_of_week,
     notes: row.notes,
   }));
+
+  const clients = (
+    (clientRows ?? []) as unknown as {
+      profile_id: string;
+      profiles: { full_name: string | null; email: string } | null;
+    }[]
+  ).map((c) => ({ id: c.profile_id, name: c.profiles?.full_name || c.profiles?.email || "Unnamed client" }));
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8">
@@ -147,6 +160,13 @@ export default async function ProgramDetailPage({
           availableWorkouts={(workouts ?? []) as { id: string; name: string }[]}
         />
       </section>
+
+      <AssignToClientCard
+        itemId={program.id}
+        action={assignLibraryProgramToClient}
+        clients={clients}
+        itemLabel="program"
+      />
     </div>
   );
 }

@@ -5,8 +5,10 @@ import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { FormBuilder } from "@/components/library/FormBuilder";
+import { AssignToClientCard } from "@/components/library/AssignToClientCard";
 import type { FormSchema } from "@/lib/forms";
 import { updateDocument, deleteDocument } from "../actions";
+import { assignLibraryDocumentToClient } from "../../assign-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +24,18 @@ export default async function DocumentDetailPage({
   if (profile.role !== "coach") redirect("/client");
 
   const supabase = await createClient();
-  const { data: document, error } = await supabase
-    .from("library_documents")
-    .select("id, name, description, document_type, file_path, file_url, form_schema")
-    .eq("id", params.documentId)
-    .eq("coach_id", profile.id)
-    .single();
+  const [{ data: document, error }, { data: clientRows }] = await Promise.all([
+    supabase
+      .from("library_documents")
+      .select("id, name, description, document_type, file_path, file_url, form_schema")
+      .eq("id", params.documentId)
+      .eq("coach_id", profile.id)
+      .single(),
+    supabase
+      .from("client_profiles")
+      .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
+      .eq("coach_id", profile.id),
+  ]);
 
   if (error || !document) redirect("/dashboard/library/documents");
 
@@ -35,6 +43,13 @@ export default async function DocumentDetailPage({
     document.document_type === "file"
       ? await resolveMediaUrl(supabase, document.file_path, document.file_url)
       : null;
+
+  const clients = (
+    (clientRows ?? []) as unknown as {
+      profile_id: string;
+      profiles: { full_name: string | null; email: string } | null;
+    }[]
+  ).map((c) => ({ id: c.profile_id, name: c.profiles?.full_name || c.profiles?.email || "Unnamed client" }));
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
@@ -103,6 +118,13 @@ export default async function DocumentDetailPage({
           Save changes
         </button>
       </form>
+
+      <AssignToClientCard
+        itemId={document.id}
+        action={assignLibraryDocumentToClient}
+        clients={clients}
+        itemLabel="document"
+      />
     </div>
   );
 }
