@@ -40,6 +40,8 @@ export function CalendarCard({
   googleSync,
   creatorHasGoogleConnection,
   booking,
+  initialView = "month",
+  initialExpanded = false,
 }: {
   scope: { coachId: string } | { clientId: string };
   initialEvents: CalendarEventRow[];
@@ -52,9 +54,14 @@ export function CalendarCard({
   // Calendar connected, for the "also add to Google Calendar" checkbox.
   creatorHasGoogleConnection?: boolean;
   booking?: BookingProps;
+  // Lets the new coach Dashboard page default straight to a week view,
+  // already expanded, instead of every other call site's compact
+  // "tap to expand, starting on month" teaser.
+  initialView?: View;
+  initialExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [view, setView] = useState<View>("month");
+  const [expanded, setExpanded] = useState(initialExpanded);
+  const [view, setView] = useState<View>(initialView);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [events, setEvents] = useState(initialEvents);
   const [loading, setLoading] = useState(false);

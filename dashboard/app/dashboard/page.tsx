@@ -4,7 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { listEvents } from "@/lib/calendar";
 import { rangeForView } from "@/lib/calendar-grid";
+import { listCoachThreads } from "@/lib/chat";
+import { listTasks } from "@/lib/tasks";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
+import { DailyBulletin } from "@/components/DailyBulletin";
+import { TaskList } from "@/components/TaskList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { createInviteLink } from "./actions";
 
@@ -12,17 +16,14 @@ export const dynamic = "force-dynamic";
 
 const siteUrl = process.env.SITE_URL ?? "http://localhost:3000";
 
-interface InviteRow {
-  token: string;
-  status: string;
-  expires_at: string;
-  used_by: string | null;
-}
-
 interface ClientRow {
   profile_id: string;
-  onboarded_at: string | null;
   profiles: { full_name: string | null; email: string } | null;
+}
+
+interface RecentSessionRow {
+  client_id: string;
+  completed_at: string;
 }
 
 export default async function DashboardPage() {
@@ -32,33 +33,52 @@ export default async function DashboardPage() {
 
   const supabase = await createClient();
 
-  const [invitesRes, clientsRes, googleConnectionRes, bookingProfileRes] = await Promise.all([
-    supabase
-      .from("invite_links")
-      .select("token, status, expires_at, used_by")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("client_profiles")
-      // client_profiles has two FKs into profiles (profile_id for the
-      // client's own row, coach_id for their coach's) -- plain
-      // `profiles(...)` is ambiguous between them and PostgREST errors
-      // rather than guessing. Naming the FK explicitly picks profile_id.
-      .select("profile_id, onboarded_at, profiles!client_profiles_profile_id_fkey(full_name, email)")
-      .eq("coach_id", profile.id),
-    supabase
-      .from("calendar_connections")
-      .select("external_account_email, last_synced_at")
-      .eq("profile_id", profile.id)
-      .eq("provider", "google")
-      .maybeSingle(),
-    supabase.from("profiles").select("booking_token").eq("id", profile.id).single(),
-  ]);
+  const [clientsRes, googleConnectionRes, bookingProfileRes, recentSessionsRes, threadItems, tasks] =
+    await Promise.all([
+      supabase
+        .from("client_profiles")
+        .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
+        .eq("coach_id", profile.id),
+      supabase
+        .from("calendar_connections")
+        .select("external_account_email, last_synced_at")
+        .eq("profile_id", profile.id)
+        .eq("provider", "google")
+        .maybeSingle(),
+      supabase.from("profiles").select("booking_token").eq("id", profile.id).single(),
+      supabase
+        .from("workout_sessions")
+        .select("client_id, completed_at")
+        .eq("coach_id", profile.id)
+        .not("completed_at", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(5),
+      listCoachThreads(supabase, profile.id),
+      listTasks(supabase, profile.id),
+    ]);
 
-  const invites = (invitesRes.data ?? []) as InviteRow[];
   const clients = (clientsRes.data ?? []) as unknown as ClientRow[];
   const bookingToken = bookingProfileRes.data?.booking_token ?? null;
+  const nameByClientId = new Map(
+    clients.map((c) => [c.profile_id, c.profiles?.full_name || c.profiles?.email || "Unnamed client"]),
+  );
 
-  const initialEvents = await listEvents(supabase, { coachId: profile.id }, rangeForView("month", new Date()));
+  const recentActivity = ((recentSessionsRes.data ?? []) as RecentSessionRow[]).map((row) => ({
+    clientId: row.client_id,
+    clientName: nameByClientId.get(row.client_id) ?? "A client",
+    completedAt: row.completed_at,
+  }));
+
+  const unreadMessages = threadItems
+    .filter((item) => item.unread)
+    .map((item) => ({ clientId: item.clientId, clientName: item.clientName }));
+
+  const todayRange = rangeForView("day", new Date());
+  const todayEventsRaw = await listEvents(supabase, { coachId: profile.id }, todayRange);
+  const todayEvents = todayEventsRaw.map((e) => ({ id: e.id, title: e.title, startTime: e.start_time }));
+
+  const weekRange = rangeForView("week", new Date());
+  const initialEvents = await listEvents(supabase, { coachId: profile.id }, weekRange);
   const assignableClients = clients.map((c) => ({
     id: c.profile_id,
     name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
@@ -67,17 +87,18 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-lg font-semibold text-ink-primary">Your clients</h1>
-        <p className="text-sm text-ink-secondary">
-          Signed in as {profile.email}. Generate a link below and send it to a new client so
-          they can create their account.
-        </p>
+        <h1 className="text-lg font-semibold text-ink-primary">Dashboard</h1>
+        <p className="text-sm text-ink-secondary">Signed in as {profile.email}.</p>
       </div>
+
+      <DailyBulletin recentActivity={recentActivity} unreadMessages={unreadMessages} todayEvents={todayEvents} />
 
       <CalendarCard
         scope={{ coachId: profile.id }}
         initialEvents={initialEvents}
         assignableClients={assignableClients}
+        initialView="week"
+        initialExpanded
         googleSync={{
           targetProfileId: profile.id,
           ownAccountEmail: googleConnectionRes.data?.external_account_email ?? null,
@@ -90,81 +111,32 @@ export default async function DashboardPage() {
         }}
       />
 
+      <TaskList initialTasks={tasks} />
+
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink-primary">Invite links</h2>
+        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Quick actions</h2>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/dashboard/library/workouts/new"
+            className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-primary hover:bg-[color:var(--page-plane)]"
+          >
+            Create workout
+          </Link>
+          <Link
+            href="/dashboard/library/programs/new"
+            className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-primary hover:bg-[color:var(--page-plane)]"
+          >
+            Create program
+          </Link>
           <form action={createInviteLink}>
             <button
               type="submit"
               className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
             >
-              Generate invite link
+              Generate client link
             </button>
           </form>
         </div>
-
-        {invites.length === 0 ? (
-          <p className="text-sm text-ink-muted">No invite links yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {invites.map((invite) => {
-              const url = `${siteUrl}/join/${invite.token}`;
-              const expired = invite.status === "pending" && new Date(invite.expires_at) < new Date();
-              const label = expired ? "expired" : invite.status;
-              return (
-                <li
-                  key={invite.token}
-                  className="flex items-center gap-2 rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm"
-                >
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                      label === "used"
-                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-                        : label === "expired"
-                          ? "bg-ink-muted/20 text-ink-muted"
-                          : "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
-                    }`}
-                  >
-                    {label}
-                  </span>
-                  <code className="flex-1 truncate text-ink-secondary">{url}</code>
-                  {label === "pending" && <CopyLinkButton url={url} />}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Clients</h2>
-        {clientsRes.error ? (
-          <p className="text-sm text-red-600 dark:text-red-400">
-            Couldn&apos;t load clients: {clientsRes.error.message}
-          </p>
-        ) : clients.length === 0 ? (
-          <p className="text-sm text-ink-muted">
-            No clients yet -- send someone an invite link above.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {clients.map((client) => (
-              <li key={client.profile_id}>
-                <Link
-                  href={`/dashboard/clients/${client.profile_id}`}
-                  className="flex items-center justify-between rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm hover:bg-[color:var(--border-hairline)]"
-                >
-                  <span className="text-ink-primary">
-                    {client.profiles?.full_name || client.profiles?.email || "Unnamed client"}
-                  </span>
-                  <span className="text-xs text-ink-muted">
-                    {client.onboarded_at ? "onboarded" : "invited, not onboarded yet"}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
     </div>
   );

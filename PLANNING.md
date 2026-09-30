@@ -1459,3 +1459,70 @@ against that fixed edge instead of wherever the Row happened to end.
 Same manual-review-plus-build posture as every other Android change in
 this project, now with a real compiler backing the review for the first
 time.
+
+## Phase 11 -- Desktop MVP design-minimums pass
+
+Companion to Phase 10 -- a checklist of desktop-side restructuring:
+split the coach's landing page into a proper Dashboard + a Clients
+roster, a new task list feature, and (staged separately, in further
+sections below as each lands) a Libraries sidebar, an Inbox split view,
+and a full client-detail-page reorg.
+
+No Supabase project is available in this environment (no `.env.local`),
+so none of this could be rendered or screenshotted against real data --
+verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean) instead, same posture as Android's
+compile+lint-only verification this pass. Real visual verification is
+on whoever pulls this branch with their own `.env.local`.
+
+**Nav split: Dashboard + Clients.** `/dashboard` used to be both "the
+coach's landing page" and "the client roster" at once. Split: `/dashboard`
+is now a proper dashboard (bulletin + calendar + tasks + quick actions,
+below), and the roster moved to a new `/dashboard/clients` route.
+`NavBar.tsx` gained a new "Dashboard" tab (reusing the existing, not
+previously in use on desktop `StatsIcon`) pointing at `/dashboard`;
+"Clients" now points at `/dashboard/clients`. Every `redirect("/dashboard")`
+guard inside `app/dashboard/clients/[clientId]/**` that actually meant
+"client not found, back to the roster" (the main client page, notes,
+personal-records, chat) was repointed to `/dashboard/clients` -- the
+generic "/login"/"/client" role-redirects elsewhere were left alone,
+since `/dashboard` is still a perfectly good generic coach landing page
+for those.
+
+**New Dashboard page.** Reused rather than rebuilt: `CalendarCard`
+already supported a week view (`CalendarViews.tsx`'s `WeekGrid`) but no
+prop let a caller default to it or start expanded -- added `initialView`/
+`initialExpanded` props (both optional, defaulting to the old
+`month`/collapsed behavior so every other call site is unaffected).
+New `DailyBulletin` (recent workout completions across all this coach's
+clients, unread `chat_threads`, today's `calendar_events` -- all three
+already-fetched-elsewhere data, no new query surface) and `TaskList`
+(see below). Quick actions: create workout/program (plain links into the
+library's existing `new` routes) and generate-client-link, which now
+fires from two places (see below).
+
+**New Clients page (`/dashboard/clients`).** Took over the old
+`/dashboard` page's roster section + invite-links section verbatim,
+plus a new client-side `ClientSearchList` (filters the already-fetched
+roster by name/email as you type -- no new query, this app's client
+count doesn't call for server-side search). `createInviteLink` now
+`revalidatePath`s both `/dashboard` and `/dashboard/clients`, since
+generating a link is reachable from both (Dashboard's quick actions,
+Clients' own invite section) and both need to see a fresh list/state
+afterward.
+
+**New feature: coach task list.** Brand new, migration `0026_tasks.sql`
+-- same coach-owned-outright RLS shape as `coach_notes` (single `for all`
+policy, `coach_id = auth.uid()`, no client visibility at all). Kept
+deliberately simple per an explicit scope decision: `text` + `done`
+boolean + `created_at`, plus a nullable, non-foreign-keyed
+`source_kind`/`source_id` pair for tracing a task back to whatever
+bulletin item it came from -- no due dates, priority, or assignment.
+`lib/tasks.ts` (`listTasks`/`createTask`/`toggleTask`) +
+`app/dashboard/task-actions.ts` (`addTask`/`setTaskDone` server actions)
++ `components/TaskList.tsx` (client component, optimistic toggle via
+`useTransition`). Not yet actually pre-populated from bulletin items
+programmatically (the `source_kind`/`source_id` columns exist for it,
+but wiring "unread thread -> task stub" etc. automatically is follow-up
+work, not done in this pass) -- flagging that gap plainly rather than
+overclaiming it.

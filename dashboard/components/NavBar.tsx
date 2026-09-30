@@ -7,6 +7,7 @@ import { CalendarIcon } from "@/components/icons/CalendarIcon";
 import { TasksIcon } from "@/components/icons/TasksIcon";
 import { ClientsIcon } from "@/components/icons/ClientsIcon";
 import { LibrariesIcon } from "@/components/icons/LibrariesIcon";
+import { StatsIcon } from "@/components/icons/StatsIcon";
 
 export async function NavBar() {
   const profile = await getCurrentProfile();
@@ -25,6 +26,12 @@ export async function NavBar() {
         <nav className="flex flex-1 gap-4 text-sm text-ink-secondary">
           {profile?.role === "coach" && (
             <Link href="/dashboard" className="flex items-center gap-1.5 hover:text-ink-primary">
+              <StatsIcon className="h-4 w-4" />
+              Dashboard
+            </Link>
+          )}
+          {profile?.role === "coach" && (
+            <Link href="/dashboard/clients" className="flex items-center gap-1.5 hover:text-ink-primary">
               <ClientsIcon className="h-4 w-4" />
               Clients
             </Link>

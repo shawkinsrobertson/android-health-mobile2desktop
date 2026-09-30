@@ -52,7 +52,7 @@ export default async function ClientDetailPage({
   ]);
 
   if (!clientProfile || clientProfile.coachId !== coach.id || profileRes.error) {
-    redirect("/dashboard");
+    redirect("/dashboard/clients");
   }
 
   const client = profileRes.data;
@@ -151,7 +151,7 @@ export default async function ClientDetailPage({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <Link href="/dashboard" className="text-sm text-ink-secondary hover:text-ink-primary">
+        <Link href="/dashboard/clients" className="text-sm text-ink-secondary hover:text-ink-primary">
           ← Clients
         </Link>
         <div className="mt-1 flex items-center gap-2">
