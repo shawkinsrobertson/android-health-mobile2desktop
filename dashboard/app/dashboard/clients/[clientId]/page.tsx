@@ -16,6 +16,8 @@ import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
 import { ClientAssistantSidebar } from "@/components/ClientAssistantSidebar";
 import { getAssistantMessages } from "@/lib/assistant";
+import { ClientInsights } from "@/components/ClientInsights";
+import { getLatestInsight } from "@/lib/insights";
 import { CheckInEditor } from "@/components/CheckInEditor";
 import { getCheckInTemplate } from "@/lib/check-ins";
 
@@ -57,6 +59,7 @@ export default async function ClientDetailPage({
   const thread = await getThreadReadOnly(supabase, coach.id, params.clientId);
   const chatUnread = thread ? isThreadUnread(thread, "coach") : false;
   const checkInTemplate = await getCheckInTemplate(supabase, coach.id, params.clientId);
+  const latestInsight = await getLatestInsight(supabase, coach.id, params.clientId);
 
   const [summaries, seriesByKey] = clientProfile.onboardedAt
     ? await Promise.all([
@@ -193,6 +196,8 @@ export default async function ClientDetailPage({
             {searchParams.error && (
               <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
             )}
+
+            <ClientInsights clientId={params.clientId} initialInsight={latestInsight} />
 
             {/* Data dashboard: client's chosen tiles + one overlay graph for every shared data type. */}
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

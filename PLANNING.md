@@ -1648,3 +1648,94 @@ collapsible right sidebar (default minimized). Concretely:
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+## Phase 12 -- AI assistant coach v3: pattern observations, drafting, and action proposals
+
+Six desired outcomes, scoped with the coach up front rather than built
+blind: (1) self-efficacy-research-informed pattern observations/coaching
+suggestions, (2) coach-approved training-plan change execution, (3) draft
+chat messages, (4) draft workouts from a text prompt, (5) draft documents
+from a text prompt, (6) scheduling coaching calls. One governing rule
+across all of them: **the coach always sees and verifies before anything
+executes** -- workouts/forms are created as drafts, program changes are
+reviewed and applied (never auto-applied), and the assistant never
+assigns anything to a client (that stays a fully manual, separate coach
+action everywhere in this app already).
+
+**Architecture decision made up front, before any outcome-specific work:**
+"coach reviews before execution" can't be satisfied by prompting the
+model to ask permission -- if a tool's `run()` function touches the
+database, the model can call it mid-turn and it's already done. Every
+write-capable tool (outcomes #2-#6) will instead write a row to a new
+`ai_assistant_proposals` table and return its id; a coach-facing review
+card applies it via an ordinary server action. This guarantees the human
+gate by construction rather than by the model's good behavior, and is
+shared across every write outcome rather than reinvented per-feature
+(built in a later stage of this phase, once an outcome actually needs
+it).
+
+Build order (agreed with the coach): Stage 1 (this entry, read-only, no
+proposal infra needed) first since it reuses 100% of existing
+infrastructure and ships immediately; then the generic proposal/approval
+infra; then #3 draft messages (smallest write feature, proves the
+approval UI end-to-end); then #4 draft workouts; #5 draft documents; #2
+program-change proposals; #6 scheduling, last since it has the least
+novelty (mostly reuses existing calendar code).
+
+### Stage 1 -- pattern observations (reactive + proactive), read-only
+
+**Research grounding -- stated honestly.** The coach supplied a reading
+list (Ashford/Edmunds/French 2010; Williams & French 2011; Egele/Klopp/
+Stark 2025; Warner et al. 2014; two 2015/2016 Computers in Human Behavior
+studies; a 2025 medRxiv preprint; Hill/Smith/Myers/Feltz 2022 on
+"other-efficacy"; a PMC personal-trainer focus-group study; McAuley et
+al.; the Williams & Rhodes construct debate; the BCT Taxonomy v1).
+This environment has **no outbound web access** -- confirmed directly
+(`curl` to pmc.ncbi.nlm.nih.gov and bct-taxonomy.com both got rejected
+by the egress proxy with "organization policy," not a transient error),
+so none of those specific papers, especially the 2025 ones, could be
+fetched and verified against. `lib/coaching-guidelines.ts` is instead
+synthesized from the well-established, high-confidence parts of this
+literature already in-model: Bandura's four sources of self-efficacy and
+their relative strength (mastery > vicarious > verbal persuasion >
+physiological/affective state), the general BCT-review finding that
+feedback-on-performance/demonstration/reinforcing-effort work while
+heavy relapse-prevention and rigid graded-task framing don't, McAuley's
+adherence and single-bout findings, and the Hill et al. "other-efficacy"
+finding (a client's belief about what their coach thinks of their
+ability shapes their own self-belief -- directly actionable: anything
+drafted on the coach's behalf should state confidence in specific,
+evidence-tied terms, not generically). This file is a single editable
+source both surfaces below share -- flagged plainly as the place to
+correct or tighten if the coach verifies the newer sources independently.
+
+**Reactive.** `COACHING_GUIDELINES` folded into the existing
+`ASSISTANT_SYSTEM_PROMPT` (`lib/assistant-tools.ts`) -- the existing chat
+in `AssistantChat`/`ClientAssistantSidebar` now reasons with this framing
+automatically, no UI change needed.
+
+**New read tools** (same zero-identifier-argument pattern as every
+existing assistant tool): `get_check_in_adherence` (submitted-vs-due per
+week, not just submitted responses -- `lib/assistant.ts`'s
+`fetchCheckInAdherenceForAssistant` deliberately diffs against the
+*expected* week list, which `getCheckInHistory` doesn't do) and
+`get_workout_adherence` (sessions started vs. actually finished in a
+window, so the assistant can tell "trained less" apart from "started but
+didn't finish").
+
+**Proactive.** New `ai_client_insights` table (migration `0027`, same
+single-owner RLS shape as `ai_assistant_messages`/`coach_notes`). New
+`lib/insights.ts`: `generateInsight` runs one non-streamed Tool Runner
+turn (same tools, same guidelines, a task-specific system prompt asking
+for exactly one 2-4 sentence observation) and persists the result;
+`getLatestInsight` just reads the most recent row. New route
+`app/api/clients/[clientId]/insights` (GET latest, POST generate) and
+`components/ClientInsights.tsx`, wired into the client detail page
+directly above the data-dashboard section. The proactive behavior: the
+card auto-generates on mount if the last insight is missing or more than
+3 days old, so a coach opening a client they haven't checked on gets a
+fresh read without clicking anything; a manual Refresh is always
+available too.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

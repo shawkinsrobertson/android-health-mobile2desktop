@@ -3,14 +3,17 @@ import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import {
   fetchBusyBlocksForAssistant,
+  fetchCheckInAdherenceForAssistant,
   fetchCoachNotesForAssistant,
   fetchDataPointForAssistant,
   fetchOverviewForAssistant,
   fetchPersonalRecordsForAssistant,
   fetchSleepForAssistant,
   fetchStepsForAssistant,
+  fetchWorkoutAdherenceForAssistant,
 } from "@/lib/assistant";
 import { DATA_POINT_KEYS, labelFor } from "@/app/client/data-points";
+import { COACHING_GUIDELINES } from "@/lib/coaching-guidelines";
 
 // Data-point keys not covered by their own dedicated tool (steps and
 // sleep get richer, chart-shaped tools above) -- get_data_point_summary
@@ -34,7 +37,9 @@ The coach's own notes and questions are free text and could, in
 principle, contain the client's name or other identifying details even
 though the data you're given never does. Don't repeat back or draw
 attention to any such detail if you notice one -- focus your answer on
-the data.`;
+the data.
+
+${COACHING_GUIDELINES}`;
 
 interface AssistantToolContext {
   supabase: SupabaseClient;
@@ -122,6 +127,32 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
+  const checkInAdherence = {
+    ...betaZodTool({
+      name: "get_check_in_adherence",
+      description:
+        "Get this client's weekly check-in submission pattern -- which of the last several due weeks they submitted vs. missed. Use this for consistency/adherence patterns, not the check-in answers themselves. hasActiveTemplate is false if the coach hasn't set up a weekly check-in for this client.",
+      inputSchema: z.object({
+        weeks: z.number().int().min(1).max(26).optional().describe("How many recent weeks to include, default 8"),
+      }),
+      run: async ({ weeks }) => JSON.stringify(await fetchCheckInAdherenceForAssistant(ctx.supabase, ctx.clientId, weeks ?? 8)),
+    }),
+    eager_input_streaming: true,
+  };
+
+  const workoutAdherence = {
+    ...betaZodTool({
+      name: "get_workout_adherence",
+      description:
+        "Get this client's recent workout session pattern: how many sessions they started vs. actually finished in a recent window, with per-session dates. Use for consistency patterns -- distinguishes 'trained less' from 'started but didn't finish.'",
+      inputSchema: z.object({
+        days: z.number().int().min(1).max(180).optional().describe("How many days back to include, default 28"),
+      }),
+      run: async ({ days }) => JSON.stringify(await fetchWorkoutAdherenceForAssistant(ctx.supabase, ctx.clientId, days ?? 28)),
+    }),
+    eager_input_streaming: true,
+  };
+
   const busyBlocks = {
     ...betaZodTool({
       name: "get_busy_calendar_blocks",
@@ -139,5 +170,15 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
-  return [overview, dailySteps, sleepNights, dataPointSummary, personalRecords, coachNotes, busyBlocks];
+  return [
+    overview,
+    dailySteps,
+    sleepNights,
+    dataPointSummary,
+    personalRecords,
+    coachNotes,
+    checkInAdherence,
+    workoutAdherence,
+    busyBlocks,
+  ];
 }
