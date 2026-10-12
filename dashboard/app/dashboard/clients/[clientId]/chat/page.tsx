@@ -21,7 +21,7 @@ export default async function CoachClientChatPage({ params }: { params: { client
     .select("full_name, email")
     .eq("id", params.clientId)
     .single();
-  if (error || !client) redirect("/dashboard");
+  if (error || !client) redirect("/dashboard/clients");
 
   const thread = await getOrCreateThread(supabase, coach.id, params.clientId);
   const [{ messages, reactions }, activeCall] = await Promise.all([

@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -17,12 +21,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.healthconnect.allSyncSpecs
 import com.healthsync.app.sync.SyncResult
 import com.healthsync.app.sync.SyncStateStore
+import com.healthsync.app.ui.components.ConfirmDialog
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -44,7 +53,22 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Scaffold(topBar = { TopAppBar(title = { Text("Profile") }) }) { padding ->
+    var confirmingSignOut by remember { mutableStateOf(false) }
+    var confirmingResync by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Profile") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+        containerColor = Color.Transparent,
+    ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -59,7 +83,7 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onSignOut) { Text("Sign out") }
+            TextButton(onClick = { confirmingSignOut = true }) { Text("Sign out") }
 
             Spacer(Modifier.height(20.dp))
             Text("Sync", fontWeight = FontWeight.Bold)
@@ -82,8 +106,8 @@ fun ProfileScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            TextButton(onClick = onForceResync, enabled = !isSyncing) {
-                Text("Force full re-sync")
+            TextButton(onClick = { confirmingResync = true }, enabled = !isSyncing) {
+                Text(if (isSyncing) "Syncing…" else "Force full re-sync")
             }
             Text(
                 "Re-checks full history for every type below instead of trusting Health " +
@@ -112,9 +136,32 @@ fun ProfileScreen(
                     },
                 )
             }
-
-            Spacer(Modifier.height(20.dp))
-            TextButton(onClick = onBack) { Text("Back") }
         }
+    }
+
+    if (confirmingSignOut) {
+        ConfirmDialog(
+            title = "Sign out?",
+            body = "You'll need to verify your email again to sign back in.",
+            confirmLabel = "Sign out",
+            onConfirm = {
+                confirmingSignOut = false
+                onSignOut()
+            },
+            onDismiss = { confirmingSignOut = false },
+        )
+    }
+    if (confirmingResync) {
+        ConfirmDialog(
+            title = "Force a full re-sync?",
+            body = "Re-checks full history for every data type instead of trusting Health " +
+                "Connect's \"what changed\" cursor -- slower than a normal sync.",
+            confirmLabel = "Re-sync",
+            onConfirm = {
+                confirmingResync = false
+                onForceResync()
+            },
+            onDismiss = { confirmingResync = false },
+        )
     }
 }

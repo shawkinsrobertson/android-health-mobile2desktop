@@ -19,5 +19,8 @@ export async function createInviteLink() {
 
   if (error) throw new Error(`Failed to create invite link: ${error.message}`);
 
+  // Generate-invite-link UI is duplicated on both the Dashboard quick
+  // actions and the Clients page's own invite section.
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/clients");
 }

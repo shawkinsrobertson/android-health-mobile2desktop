@@ -2,15 +2,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import {
+  fetchAssignedWorkoutExercisesForAssistant,
+  fetchAssignedWorkoutsForAssistant,
   fetchBusyBlocksForAssistant,
+  fetchCheckInAdherenceForAssistant,
   fetchCoachNotesForAssistant,
   fetchDataPointForAssistant,
   fetchOverviewForAssistant,
   fetchPersonalRecordsForAssistant,
   fetchSleepForAssistant,
   fetchStepsForAssistant,
+  fetchWorkoutAdherenceForAssistant,
 } from "@/lib/assistant";
 import { DATA_POINT_KEYS, labelFor } from "@/app/client/data-points";
+import { COACHING_GUIDELINES } from "@/lib/coaching-guidelines";
 
 // Data-point keys not covered by their own dedicated tool (steps and
 // sleep get richer, chart-shaped tools above) -- get_data_point_summary
@@ -34,9 +39,33 @@ The coach's own notes and questions are free text and could, in
 principle, contain the client's name or other identifying details even
 though the data you're given never does. Don't repeat back or draw
 attention to any such detail if you notice one -- focus your answer on
-the data.`;
+the data.
 
-interface AssistantToolContext {
+If the coach asks you to write, draft, or suggest a message to send this
+client, call the drafting tool available to you instead of putting the
+message in your reply -- the coach needs an editable draft they can
+review and send themselves, and nothing you draft is ever sent without
+that review. After calling it, just confirm briefly that the draft is
+ready for them to check.
+
+If the coach asks you to change, adjust, or update this client's
+training plan -- a different rep range, swapping or adding an exercise,
+anything about an assigned workout -- look up the relevant assigned
+workout and its exercises first, then propose the change with the
+program-change tool rather than describing what you'd do. That tool
+only creates a pending proposal; nothing about the client's actual
+program changes until the coach reviews and applies it.
+
+If the coach asks you to schedule, book, or set up a call with this
+client, check get_busy_calendar_blocks for the window you're
+considering first, then propose a specific start/end time with the
+scheduling tool rather than just listing options in your reply. That
+tool only creates a pending proposal; nothing is actually booked on
+either calendar until the coach reviews and approves it.
+
+${COACHING_GUIDELINES}`;
+
+export interface AssistantToolContext {
   supabase: SupabaseClient;
   coachId: string;
   clientId: string;
@@ -122,6 +151,55 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
+  const checkInAdherence = {
+    ...betaZodTool({
+      name: "get_check_in_adherence",
+      description:
+        "Get this client's weekly check-in submission pattern -- which of the last several due weeks they submitted vs. missed. Use this for consistency/adherence patterns, not the check-in answers themselves. hasActiveTemplate is false if the coach hasn't set up a weekly check-in for this client.",
+      inputSchema: z.object({
+        weeks: z.number().int().min(1).max(26).optional().describe("How many recent weeks to include, default 8"),
+      }),
+      run: async ({ weeks }) => JSON.stringify(await fetchCheckInAdherenceForAssistant(ctx.supabase, ctx.clientId, weeks ?? 8)),
+    }),
+    eager_input_streaming: true,
+  };
+
+  const workoutAdherence = {
+    ...betaZodTool({
+      name: "get_workout_adherence",
+      description:
+        "Get this client's recent workout session pattern: how many sessions they started vs. actually finished in a recent window, with per-session dates. Use for consistency patterns -- distinguishes 'trained less' from 'started but didn't finish.'",
+      inputSchema: z.object({
+        days: z.number().int().min(1).max(180).optional().describe("How many days back to include, default 28"),
+      }),
+      run: async ({ days }) => JSON.stringify(await fetchWorkoutAdherenceForAssistant(ctx.supabase, ctx.clientId, days ?? 28)),
+    }),
+    eager_input_streaming: true,
+  };
+
+  const assignedWorkouts = {
+    ...betaZodTool({
+      name: "get_assigned_workouts",
+      description: "List this client's currently assigned workouts (id, name, when assigned). Use before proposing a program change, to find the right assignedWorkoutId.",
+      inputSchema: z.object({}),
+      run: async () => JSON.stringify(await fetchAssignedWorkoutsForAssistant(ctx.supabase, ctx.clientId)),
+    }),
+    eager_input_streaming: true,
+  };
+
+  const assignedWorkoutExercises = {
+    ...betaZodTool({
+      name: "get_assigned_workout_exercises",
+      description: "List the exercises in one of this client's assigned workouts, with their current sets/reps/rest/tempo/notes and each exercise's id.",
+      inputSchema: z.object({
+        assignedWorkoutId: z.string().describe("An id from get_assigned_workouts"),
+      }),
+      run: async ({ assignedWorkoutId }) =>
+        JSON.stringify(await fetchAssignedWorkoutExercisesForAssistant(ctx.supabase, ctx.clientId, assignedWorkoutId)),
+    }),
+    eager_input_streaming: true,
+  };
+
   const busyBlocks = {
     ...betaZodTool({
       name: "get_busy_calendar_blocks",
@@ -139,5 +217,17 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
-  return [overview, dailySteps, sleepNights, dataPointSummary, personalRecords, coachNotes, busyBlocks];
+  return [
+    overview,
+    dailySteps,
+    sleepNights,
+    dataPointSummary,
+    personalRecords,
+    coachNotes,
+    checkInAdherence,
+    workoutAdherence,
+    assignedWorkouts,
+    assignedWorkoutExercises,
+    busyBlocks,
+  ];
 }

@@ -8,9 +8,11 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -68,63 +70,81 @@ fun SlideOutNav(
     onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(PILL_RADIUS))
-            .background(MaterialTheme.colorScheme.primary)
-            .padding(PILL_PADDING),
-        verticalAlignment = Alignment.CenterVertically,
+    // Bug fix: the toggle button used to visibly jump left<->right when
+    // expanding/collapsing. Root cause was that the outer Row had no
+    // independent width of its own -- it was sized purely by its
+    // (changing) content, so as AnimatedVisibility animated the
+    // destinations row between 0 and full width, the trailing toggle
+    // button's on-screen X position moved right along with it. Fix:
+    // reserve the pill's fully-expanded width in an outer Box at all
+    // times, and end-align the actual (shrinking/growing) Row within it --
+    // the toggle then sits at this Box's fixed right edge regardless of
+    // state, since the Box's own size (and thus its right edge's screen
+    // position, given the fixed-left-corner placement HomeScreen anchors
+    // it with) never changes.
+    val expandedWidth = PILL_PADDING * 2 + BUTTON_SIZE * (destinations.size + 1) + ITEM_SPACING * destinations.size
+    Box(
+        modifier = modifier.width(expandedWidth),
+        contentAlignment = Alignment.CenterEnd,
     ) {
-        // The trailing spacer is INSIDE AnimatedVisibility's content, not
-        // on the outer Row (an earlier draft put ITEM_SPACING on the
-        // outer Row's own Arrangement.spacedBy, which left a spurious gap
-        // baked into the collapsed pill -- AnimatedVisibility still
-        // counts as a layout child at zero width when invisible, so
-        // spacedBy still inserted a gap before the toggle button even
-        // with nothing expanded to justify it). Keeping the spacer inside
-        // means it collapses to nothing right along with everything else
-        // in here.
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandHorizontally() + fadeIn(),
-            exit = shrinkHorizontally() + fadeOut(),
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(PILL_RADIUS))
+                .background(MaterialTheme.colorScheme.primary)
+                .padding(PILL_PADDING),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(end = ITEM_SPACING),
-                horizontalArrangement = Arrangement.spacedBy(ITEM_SPACING),
+            // The trailing spacer is INSIDE AnimatedVisibility's content, not
+            // on the outer Row (an earlier draft put ITEM_SPACING on the
+            // outer Row's own Arrangement.spacedBy, which left a spurious gap
+            // baked into the collapsed pill -- AnimatedVisibility still
+            // counts as a layout child at zero width when invisible, so
+            // spacedBy still inserted a gap before the toggle button even
+            // with nothing expanded to justify it). Keeping the spacer inside
+            // means it collapses to nothing right along with everything else
+            // in here.
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandHorizontally() + fadeIn(),
+                exit = shrinkHorizontally() + fadeOut(),
             ) {
-                destinations.forEach { destination ->
-                    if (destination.iconRes != null) {
-                        NavIconButton(
-                            iconRes = destination.iconRes,
-                            contentDescription = destination.label,
-                            contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
-                            onClick = {
-                                onToggleExpanded()
-                                destination.onClick()
-                            },
-                        )
-                    } else {
-                        NavGlyphButton(
-                            glyph = destination.glyph.orEmpty(),
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            onClick = {
-                                onToggleExpanded()
-                                destination.onClick()
-                            },
-                        )
+                Row(
+                    modifier = Modifier.padding(end = ITEM_SPACING),
+                    horizontalArrangement = Arrangement.spacedBy(ITEM_SPACING),
+                ) {
+                    destinations.forEach { destination ->
+                        if (destination.iconRes != null) {
+                            NavIconButton(
+                                iconRes = destination.iconRes,
+                                contentDescription = destination.label,
+                                contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
+                                onClick = {
+                                    onToggleExpanded()
+                                    destination.onClick()
+                                },
+                            )
+                        } else {
+                            NavGlyphButton(
+                                glyph = destination.glyph.orEmpty(),
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                onClick = {
+                                    onToggleExpanded()
+                                    destination.onClick()
+                                },
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        NavIconButton(
-            iconRes = R.drawable.ic_nav_toggle,
-            contentDescription = if (expanded) "Close menu" else "Open menu",
-            rotationDegrees = if (expanded) 180f else 0f,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            onClick = onToggleExpanded,
-        )
+            NavIconButton(
+                iconRes = R.drawable.ic_nav_toggle,
+                contentDescription = if (expanded) "Close menu" else "Open menu",
+                rotationDegrees = if (expanded) 180f else 0f,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                onClick = onToggleExpanded,
+            )
+        }
     }
 }
 

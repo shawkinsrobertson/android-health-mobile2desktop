@@ -1325,3 +1325,677 @@ it collapses to nothing together with everything else in there.
 
 Same manual-review-only posture as every other Android change in this
 project.
+
+## Phase 10 -- Android MVP design-minimums pass + two reported bugs
+
+A checklist of 7 cross-cutting design minimums plus 2 reported bugs,
+worked through with real `./gradlew compileDebugKotlin`/`lintDebug`
+verification after every change (the session-start hook from the
+previous phase makes that possible for the first time this project has
+had it). No Paparazzi screenshot tests, despite an earlier attempt --
+see the dead end noted below.
+
+**Kotlin bumped 1.9.24 -> 2.0.21** (+ the `org.jetbrains.kotlin.plugin.compose`
+Gradle plugin, replacing `app/build.gradle.kts`'s old
+`composeOptions.kotlinCompilerExtensionVersion`). Originally done solely
+to unlock Paparazzi (JVM-only Compose screenshot testing, no
+emulator/device needed -- this environment has neither `/dev/kvm` nor a
+display) targeting this project's `compileSdk 36`. Kept even after
+dropping Paparazzi: it's a clean, independently-verified upgrade, and
+reverting it for no reason would have been pure churn. Paparazzi itself
+hit a wall too deep to be worth it here: every Kotlin-1.9-compatible
+release lacks `compileSdk 36` platform data (added only in its
+`2.0.0-alpha` line); every alpha tried after that hit a *different*
+incompatibility (AGP/aapt2 version mismatch, then a Kotlin-Gradle-plugin
+binary incompatibility); and the one clean workaround AGP actually
+offers (`android.testOptions.targetSdk`, to render screenshots against a
+lower, better-supported platform than the module's real `compileSdk`) is
+restricted to library modules -- `:app` is an application module. Given
+four independent dead ends, Android verification for this pass is
+`./gradlew compileDebugKotlin`/`lintDebug` plus precise before/after code
+in review, not rendered pixels.
+
+**Screen titles + back nav.** `ProfileScreen`/`ComingSoonScreen` had
+their "Back" as a `TextButton` buried in the scrollable body -- moved
+into the `TopAppBar`'s `navigationIcon` slot, matching every other
+screen. The other four screens (`WorkoutScreen`/`CalendarScreen`/
+`InboxScreen`/`DashboardScreen`) already had a `navigationIcon`, just a
+literal `Text("←")` instead of a real `Icon` -- swapped for
+`Icons.AutoMirrored.Filled.ArrowBack` (RTL-aware, real accessibility
+semantics). `HomeScreen`/`CoachHomeScreen`/`LoginScreen` left without a
+back icon on purpose -- they're root/landing destinations with nothing
+to return to.
+
+**14px font floor.** `labelSmall`/`labelMedium` were never defined in
+`HealthSyncTypography`, silently falling back to Material3's stock
+11sp/12sp -- below the floor for real functional text (workout set-row
+column headers, home data-point labels, inbox timestamps, the calendar
+event date chip), not decorative badges. Fixed centrally in `Type.kt`
+(both now 14sp) rather than touching each of those call sites.
+
+**Card drop shadows.** All 5 `OutlinedCard` sites in the app (home
+data-point/training cards, workout browse row + `ExerciseLogCard`,
+calendar event card) used Material3's zero-elevation outlined-card
+default. Added `CardDefaults.outlinedCardElevation(defaultElevation = 3.dp)`
+to each.
+
+**Dark-theme diagonal gradient.** `background`/`surface` were flat
+`Color` tokens with no single choke point to inject a `Brush` through --
+neither `Scaffold`'s `containerColor` nor `Surface`'s `color` accept
+anything but `Color`. Solved by painting the gradient exactly once, in
+`MainActivity`, behind the whole `NavHost` (new `dashboardBackgroundBrush()`
+in `Theme.kt`, dark-theme only, top-left to bottom-right), then setting
+every screen's own `Scaffold(containerColor = Color.Transparent)` (and
+`HomeScreen`'s `Surface(color = Color.Transparent)`) so the shared
+gradient shows through instead of each screen re-painting a flat color
+over it. `HomeScreen`'s `Surface` also needed an explicit
+`contentColor = MaterialTheme.colorScheme.onBackground` passed alongside
+-- Surface normally derives `contentColor` from `color` via
+`contentColorFor()`, which doesn't know how to map `Transparent` to an
+"on-X" text color the way it mapped `colorScheme.background` before.
+
+**Workout card input height (~25-30dp).** Material3's `OutlinedTextField`
+has a hard ~56dp floor that can't be shrunk to fit. Built a narrow
+`CompactNumberField` (`BasicTextField` + a manual thin border,
+28dp-tall) scoped to `WorkoutScreen`'s per-set reps/weight inputs only --
+not a general OutlinedTextField replacement elsewhere.
+
+**Confirmation dialogs.** First `AlertDialog` anywhere in this app --
+new shared `ui/components/ConfirmDialog.kt`, reused at every site.
+Scoped to the app's actual consequential actions (there's no delete
+action anywhere in the Android app, and no literal "stop" beyond
+pause/resume, which is non-destructive): finishing a workout, saving +
+returning to the dashboard from the summary screen, signing out
+(`ProfileScreen` + `CoachHomeScreen`), and forcing a full re-sync.
+Deliberately *not* applied to per-set field edits or the per-set
+completion toggle -- confirming every single rep/weight keystroke would
+make logging a workout unusable, which the "save/edit/delete/finish/
+stop" requirement plainly isn't asking for.
+
+**Visual affordances at the point of interaction.** Finish (previously
+no saving state at all) now disables + reads "Finishing…" while in
+flight. Summary screen's Save button, which already had "Saving…", now
+also flashes "Saved ✓" for ~600ms before navigating away instead of
+jumping straight from saving to gone. Inbox's Send button and Profile's
+Force re-sync button previously only toggled `enabled` with a static
+label -- both now swap to "Sending…"/"Syncing…" like every other
+async-action button in the app already did. Per-set reps/weight field
+commits (which save silently on focus-loss, with no button of their
+own) get a brief primary-color border pulse on the two fields that just
+committed -- the only place in the row a user would actually be
+looking.
+
+**Bug: dashboard slow load (both cold launch and returning to the
+screen).** Two separate causes, both fixed. (1) `HealthDataRepository
+.loadDashboard`'s 4 queries and `HomeSummaryRepository.loadSummary`'s 7
+sub-fetches (plus its inner per-data-point loop, up to 3 more) were all
+sequential `suspend` calls -- none of them depend on each other, so all
+are now `coroutineScope { async { ... } }` + `.await()`. A client with 3
+top data points picked was paying roughly 10 sequential round trips just
+to populate the Home shade before this. Also added `"limit" to "2000"`
+to the previously-unbounded steps/sleep_sessions selects, since
+`SupabaseRestClient.select()` falls back to full auto-pagination without
+an explicit limit even though both queries are already date-windowed.
+(2) Neither `DashboardScreen` nor `HomeScreen` survive Compose
+Navigation's teardown-and-recreate when leaving and returning (the same
+lifecycle gap Phase 9 hoisted `navExpanded` out of), so every return
+visit re-ran every query from scratch regardless of (1). New
+`TtlCache<T>` (`data/TtlCache.kt`), a plain 60s in-memory
+singleton-per-repository cache keyed by `clientId` -- not a ViewModel or
+any new architecture layer, since this app deliberately has neither
+anywhere else yet.
+
+**Bug: nav icon jumps left->right on expand/collapse.** Root cause:
+`SlideOutNav`'s outer `Row` had no width of its own, only whatever its
+(changing) content added up to -- as `AnimatedVisibility` animated the
+destinations row between 0 and full width, the trailing toggle button's
+on-screen position moved right along with it. Fixed by reserving the
+pill's fully-expanded width in an outer `Box` at all times and
+end-aligning the actual Row within it, so the toggle sits at a fixed
+right edge regardless of state -- the visible pill (clip + background)
+still only covers its actual current width, just positioned flush
+against that fixed edge instead of wherever the Row happened to end.
+
+Same manual-review-plus-build posture as every other Android change in
+this project, now with a real compiler backing the review for the first
+time.
+
+## Phase 11 -- Desktop MVP design-minimums pass
+
+Companion to Phase 10 -- a checklist of desktop-side restructuring:
+split the coach's landing page into a proper Dashboard + a Clients
+roster, a new task list feature, and (staged separately, in further
+sections below as each lands) a Libraries sidebar, an Inbox split view,
+and a full client-detail-page reorg.
+
+No Supabase project is available in this environment (no `.env.local`),
+so none of this could be rendered or screenshotted against real data --
+verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean) instead, same posture as Android's
+compile+lint-only verification this pass. Real visual verification is
+on whoever pulls this branch with their own `.env.local`.
+
+**Nav split: Dashboard + Clients.** `/dashboard` used to be both "the
+coach's landing page" and "the client roster" at once. Split: `/dashboard`
+is now a proper dashboard (bulletin + calendar + tasks + quick actions,
+below), and the roster moved to a new `/dashboard/clients` route.
+`NavBar.tsx` gained a new "Dashboard" tab (reusing the existing, not
+previously in use on desktop `StatsIcon`) pointing at `/dashboard`;
+"Clients" now points at `/dashboard/clients`. Every `redirect("/dashboard")`
+guard inside `app/dashboard/clients/[clientId]/**` that actually meant
+"client not found, back to the roster" (the main client page, notes,
+personal-records, chat) was repointed to `/dashboard/clients` -- the
+generic "/login"/"/client" role-redirects elsewhere were left alone,
+since `/dashboard` is still a perfectly good generic coach landing page
+for those.
+
+**New Dashboard page.** Reused rather than rebuilt: `CalendarCard`
+already supported a week view (`CalendarViews.tsx`'s `WeekGrid`) but no
+prop let a caller default to it or start expanded -- added `initialView`/
+`initialExpanded` props (both optional, defaulting to the old
+`month`/collapsed behavior so every other call site is unaffected).
+New `DailyBulletin` (recent workout completions across all this coach's
+clients, unread `chat_threads`, today's `calendar_events` -- all three
+already-fetched-elsewhere data, no new query surface) and `TaskList`
+(see below). Quick actions: create workout/program (plain links into the
+library's existing `new` routes) and generate-client-link, which now
+fires from two places (see below).
+
+**New Clients page (`/dashboard/clients`).** Took over the old
+`/dashboard` page's roster section + invite-links section verbatim,
+plus a new client-side `ClientSearchList` (filters the already-fetched
+roster by name/email as you type -- no new query, this app's client
+count doesn't call for server-side search). `createInviteLink` now
+`revalidatePath`s both `/dashboard` and `/dashboard/clients`, since
+generating a link is reachable from both (Dashboard's quick actions,
+Clients' own invite section) and both need to see a fresh list/state
+afterward.
+
+**New feature: coach task list.** Brand new, migration `0026_tasks.sql`
+-- same coach-owned-outright RLS shape as `coach_notes` (single `for all`
+policy, `coach_id = auth.uid()`, no client visibility at all). Kept
+deliberately simple per an explicit scope decision: `text` + `done`
+boolean + `created_at`, plus a nullable, non-foreign-keyed
+`source_kind`/`source_id` pair for tracing a task back to whatever
+bulletin item it came from -- no due dates, priority, or assignment.
+`lib/tasks.ts` (`listTasks`/`createTask`/`toggleTask`) +
+`app/dashboard/task-actions.ts` (`addTask`/`setTaskDone` server actions)
++ `components/TaskList.tsx` (client component, optimistic toggle via
+`useTransition`). Not yet actually pre-populated from bulletin items
+programmatically (the `source_kind`/`source_id` columns exist for it,
+but wiring "unread thread -> task stub" etc. automatically is follow-up
+work, not done in this pass) -- flagging that gap plainly rather than
+overclaiming it.
+
+**Libraries: persistent left sidebar.** `app/dashboard/library/` had no
+shared layout before this -- each category (`exercises`/`workouts`/
+`programs`/`documents`) was an independent top-level route, and the hub
+page at `/dashboard/library` was just a grid of four link-cards into
+them. New `app/dashboard/library/layout.tsx` wraps every
+`/dashboard/library/**` route in a two-column shell: a new
+`components/library/LibrarySidebar.tsx` (client component, first
+sidebar pattern in this app -- nothing existing to follow) on the left,
+`{children}` as the main content area on the right. The sidebar is
+persistent across category navigation (it lives in the layout, not a
+per-page component) and independently collapsible via local `useState`
+(not persisted across reloads -- a same-session convenience, not data
+worth persisting), with active-category highlighting via `usePathname()`.
+The old hub page's four-card grid is now redundant with the sidebar, so
+`/dashboard/library` itself was simplified to a plain "pick a category
+from the sidebar" placeholder rather than duplicating the same four
+links two ways.
+
+**Assign-from-library-item.** Previously the only way to assign a
+workout/program/document to a client was from the client's own detail
+page (picking the item from a dropdown there). Added the reverse
+direction: each item's own detail page
+(`library/{workouts,programs,documents}/[id]/page.tsx`) now also fetches
+this coach's client roster (same `client_profiles` join used on the
+Clients page) and renders a new `components/library/AssignToClientCard.tsx`
+-- a plain server-action form (pick a client, submit) -- at the bottom.
+New `app/dashboard/library/assign-actions.ts` holds the three
+`assignLibrary{Workout,Program,Document}ToClient` actions: a mirror
+image of the client page's existing `assign*ToClient` actions (same
+underlying `assign_*_to_client` RPCs), just with which side is bound
+(the item) vs. read from `FormData` (the client) flipped. Exercises are
+deliberately left out -- they aren't independently assignable in this
+app's data model (only workouts/programs/documents have an
+`assign_*_to_client` RPC), so no assign card was added to the exercise
+detail page.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+**Inbox: persistent split view.** `/dashboard/inbox` used to be a plain
+list of client threads, each a link to a fully separate route
+(`clients/[clientId]/chat`) with its own back-navigation. New
+`app/dashboard/inbox/layout.tsx` fetches `listCoachThreads` once and
+renders a new `components/chat/InboxSidebar.tsx` (same collapsible-
+left-sidebar shape as `LibrarySidebar`, with per-client unread dots)
+alongside `{children}`; `/dashboard/inbox` itself is now a "pick a
+client" placeholder, and a new `app/dashboard/inbox/[clientId]/page.tsx`
+renders the thread (`ThreadView` + `CallProvider`, same data-fetching as
+the existing per-client chat page) inside that shared layout -- clicking
+a different client in the sidebar swaps only the thread content, the
+sidebar itself never re-fetches or re-renders. The older
+`clients/[clientId]/chat` route (and every link into it, e.g. from the
+client detail page and the dashboard's Daily Bulletin) was left as-is
+rather than redirected -- it's still a perfectly valid direct deep link
+into a single conversation, just without the sidebar, and repointing it
+wasn't asked for.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean; `/dashboard/inbox/[clientId]` shows up in
+the route table alongside the existing `clients/[clientId]/chat`).
+
+**Client detail page reorg.** The largest single page in the app
+(478 lines) got restructured top to bottom per an explicit target order:
+data dashboard (tiles + graph) -> stats/PRs -> check-ins + notes ->
+assigned content -> about, with the AI assistant moved into a
+collapsible right sidebar (default minimized). Concretely:
+
+- *Data dashboard.* The old top-of-page 4-tile `StatCard` overview grid
+  (Steps today/Avg HR/Last sleep/Workouts 7d) is gone outright -- no
+  replacement tile grid at that spot. In its place, the client's own
+  chosen-3 "Featured data points" section (previously much further down
+  the page) is promoted to the top, and directly below it is one new
+  chart, `components/DataOverlayChart.tsx`, replacing the separate
+  always-on `StepsChart`/`SleepChart` sections entirely (both component
+  files deleted -- confirmed unused anywhere else first). Every one of
+  the app's 8 `DATA_POINTS` types this client has consented to share
+  gets a toggle chip; multiple can be active at once, each drawn as its
+  own line **normalized to its own 0-100% range** on one shared Y axis
+  (the locked-in overlay decision -- lets very different units like
+  steps and mg/dL sit on the same chart for pattern comparison), while
+  the tooltip looks the real value + unit back up per point so nothing
+  is actually lost to the normalization. New `lib/queries.ts` entry
+  point `getDailySeries(supabase, dataPointKey, days, clientId)` backs
+  every series from one function -- steps/sleep reuse the existing
+  `getDailySteps`/`getSleepNights` (unchanged, still used by the AI
+  assistant's tools too), and a new `SAMPLE_SERIES_CONFIG` table-driven
+  path handles the five single-numeric-reading tables (heart rate,
+  blood oxygen, blood pressure [systolic only -- it's two-valued, the
+  diastolic side is dropped from this overlay for a single comparable
+  line], respiratory rate, blood glucose) with one shared
+  bucket-by-day-and-average implementation, plus a small
+  count-per-day path for `exercise_sessions`. The dynamic column-name
+  select required casting the query builder through `unknown` --
+  Supabase's typed `select()` only parses string *literals* against the
+  schema at compile time, and a per-data-type column name is only known
+  at runtime.
+- *Check-ins + Notes*, side by side at `w-[45%]`/`w-[45%]` in a
+  `flex flex-wrap gap-[10%]` wrapper (stacks to full width below `sm`).
+- *Assigned content*: the old two separate sections ("Assign content"'s
+  three picker forms, "Assigned content"'s three list cards) are merged
+  into one card, one column per category -- each column shows its
+  assigned list first (primary, per the requirement) with a compact
+  "+ Assign &lt;type&gt;" inline form directly underneath, rather than a
+  whole separate section far below.
+- *About*: the former standalone "Data sharing" consent-list section is
+  folded into About as an added block under the existing phone/goals/
+  limitations fields, one card instead of two.
+- *AI assistant*: moved out of the main column into a new
+  `components/ClientAssistantSidebar.tsx` -- a right-edge collapsible
+  panel (same collapse shape as `LibrarySidebar`/`InboxSidebar`, mirrored
+  to the right), **default minimized** per the requirement, wrapping the
+  existing `AssistantChat` unchanged. The page's outer container became
+  a two-column flex (main content + this sidebar) -- the first
+  two-column layout on this particular page.
+- The shared calendar card and the chat-unread header icon were left in
+  their existing spots (calendar trailing at the end, chat icon in the
+  header) -- the requirement's explicit order only covered the five
+  sections above, and neither of these was called out for relocation.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+## Phase 12 -- AI assistant coach v3: pattern observations, drafting, and action proposals
+
+Six desired outcomes, scoped with the coach up front rather than built
+blind: (1) self-efficacy-research-informed pattern observations/coaching
+suggestions, (2) coach-approved training-plan change execution, (3) draft
+chat messages, (4) draft workouts from a text prompt, (5) draft documents
+from a text prompt, (6) scheduling coaching calls. One governing rule
+across all of them: **the coach always sees and verifies before anything
+executes** -- workouts/forms are created as drafts, program changes are
+reviewed and applied (never auto-applied), and the assistant never
+assigns anything to a client (that stays a fully manual, separate coach
+action everywhere in this app already).
+
+**Architecture decision made up front, before any outcome-specific work:**
+"coach reviews before execution" can't be satisfied by prompting the
+model to ask permission -- if a tool's `run()` function touches the
+database, the model can call it mid-turn and it's already done. Every
+write-capable tool (outcomes #2-#6) will instead write a row to a new
+`ai_assistant_proposals` table and return its id; a coach-facing review
+card applies it via an ordinary server action. This guarantees the human
+gate by construction rather than by the model's good behavior, and is
+shared across every write outcome rather than reinvented per-feature
+(built in a later stage of this phase, once an outcome actually needs
+it).
+
+Build order (agreed with the coach): Stage 1 (this entry, read-only, no
+proposal infra needed) first since it reuses 100% of existing
+infrastructure and ships immediately; then the generic proposal/approval
+infra; then #3 draft messages (smallest write feature, proves the
+approval UI end-to-end); then #4 draft workouts; #5 draft documents; #2
+program-change proposals; #6 scheduling, last since it has the least
+novelty (mostly reuses existing calendar code).
+
+### Stage 1 -- pattern observations (reactive + proactive), read-only
+
+**Research grounding -- stated honestly.** The coach supplied a reading
+list (Ashford/Edmunds/French 2010; Williams & French 2011; Egele/Klopp/
+Stark 2025; Warner et al. 2014; two 2015/2016 Computers in Human Behavior
+studies; a 2025 medRxiv preprint; Hill/Smith/Myers/Feltz 2022 on
+"other-efficacy"; a PMC personal-trainer focus-group study; McAuley et
+al.; the Williams & Rhodes construct debate; the BCT Taxonomy v1).
+This environment has **no outbound web access** -- confirmed directly
+(`curl` to pmc.ncbi.nlm.nih.gov and bct-taxonomy.com both got rejected
+by the egress proxy with "organization policy," not a transient error),
+so none of those specific papers, especially the 2025 ones, could be
+fetched and verified against. `lib/coaching-guidelines.ts` is instead
+synthesized from the well-established, high-confidence parts of this
+literature already in-model: Bandura's four sources of self-efficacy and
+their relative strength (mastery > vicarious > verbal persuasion >
+physiological/affective state), the general BCT-review finding that
+feedback-on-performance/demonstration/reinforcing-effort work while
+heavy relapse-prevention and rigid graded-task framing don't, McAuley's
+adherence and single-bout findings, and the Hill et al. "other-efficacy"
+finding (a client's belief about what their coach thinks of their
+ability shapes their own self-belief -- directly actionable: anything
+drafted on the coach's behalf should state confidence in specific,
+evidence-tied terms, not generically). This file is a single editable
+source both surfaces below share -- flagged plainly as the place to
+correct or tighten if the coach verifies the newer sources independently.
+
+**Reactive.** `COACHING_GUIDELINES` folded into the existing
+`ASSISTANT_SYSTEM_PROMPT` (`lib/assistant-tools.ts`) -- the existing chat
+in `AssistantChat`/`ClientAssistantSidebar` now reasons with this framing
+automatically, no UI change needed.
+
+**New read tools** (same zero-identifier-argument pattern as every
+existing assistant tool): `get_check_in_adherence` (submitted-vs-due per
+week, not just submitted responses -- `lib/assistant.ts`'s
+`fetchCheckInAdherenceForAssistant` deliberately diffs against the
+*expected* week list, which `getCheckInHistory` doesn't do) and
+`get_workout_adherence` (sessions started vs. actually finished in a
+window, so the assistant can tell "trained less" apart from "started but
+didn't finish").
+
+**Proactive.** New `ai_client_insights` table (migration `0027`, same
+single-owner RLS shape as `ai_assistant_messages`/`coach_notes`). New
+`lib/insights.ts`: `generateInsight` runs one non-streamed Tool Runner
+turn (same tools, same guidelines, a task-specific system prompt asking
+for exactly one 2-4 sentence observation) and persists the result;
+`getLatestInsight` just reads the most recent row. New route
+`app/api/clients/[clientId]/insights` (GET latest, POST generate) and
+`components/ClientInsights.tsx`, wired into the client detail page
+directly above the data-dashboard section. The proactive behavior: the
+card auto-generates on mount if the last insight is missing or more than
+3 days old, so a coach opening a client they haven't checked on gets a
+fresh read without clicking anything; a manual Refresh is always
+available too.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 2 -- generic proposal/approval infrastructure
+
+The reusable "coach reviews before execution" gate every write outcome
+from here on needs. New `ai_assistant_proposals` table (migration
+`0028`), scoped to the three outcomes that have no existing list to
+stage inside of -- `draft_message`, `program_change`, `schedule_call`.
+Draft workouts and documents (Stage 4/5) deliberately do **not** use this
+table: per the coach's own decision earlier in this phase, those stage
+directly on `library_workouts`/`library_documents` via a status column so
+a draft shows up right in the existing Workouts/Documents list, not a
+separate queue. This table is for the three outcomes that have nowhere
+else to live.
+
+`lib/proposals.ts`: `createProposal` (called from a tool's `run()`,
+never from the review UI), `listPendingProposals`/`getProposal`,
+`rejectProposal` (generic -- discarding is identical for every type,
+since nothing was ever applied), and `markProposalApplied` (a helper
+each outcome's own apply action calls *after* it performs the real side
+effect -- this file has no idea how to send a message, change a program,
+or book a call, by design). New `app/dashboard/clients/[clientId]/
+proposal-actions.ts` wraps `rejectProposal` as a coach-gated server
+action (`discardProposal`) -- the only action that belongs here, since
+approving is type-specific and lands with each outcome.
+
+New `components/ProposalCard.tsx`: a generic, reusable review-card shell
+(type badge, summary, created time, a children slot for type-specific
+detail rendering, Approve/Discard buttons) with no knowledge of what any
+proposal type actually contains. It has no caller yet -- Stage 3 is its
+first consumer, wiring in both the first proposal type (`draft_message`)
+and the client-page list section that renders pending ones, since
+building that list now would mean guessing at a renderer for a payload
+shape that doesn't exist yet.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 3 -- draft chat messages (outcome #3)
+
+The first real write outcome, and the one that proves Stage 2's
+approval pattern end to end.
+
+New `lib/assistant-write-tools.ts`, deliberately **not** merged into
+`buildAssistantTools()`: that function is shared by the interactive chat
+route and the proactive insight generator (`lib/insights.ts`), and the
+insight generator must never gain the ability to take actions on its
+own just because it reuses the same read-only tool set. Write tools are
+a separate `buildWriteTools()`, added to the tools array only in
+`app/api/clients/[clientId]/assistant/route.ts`. Its one tool so far,
+`draft_message_to_client`, does nothing but call `createProposal` --
+the model cannot send a message itself even if it tried, by
+construction, not by prompting. A new system-prompt paragraph tells the
+model to call this tool instead of putting a drafted message in its own
+reply, whenever the coach asks for one.
+
+Approving: `approveDraftMessageProposal` (`proposal-actions.ts`) sends
+the message through the *existing* `sendChatMessage` action (same path
+a coach typing in the Inbox uses) and then calls `markProposalApplied`
+with a payload patch recording what was actually sent. The original AI
+draft (`payload.body`) and the coach's final, possibly-edited version
+(`payload.sentBody`) both end up on the same row -- this is the "LLM
+output vs. coach's edited draft" record the coach asked to be able to
+see, with no separate table needed.
+
+UI: `PendingProposals` (first real consumer of `ProposalCard`) now
+renders in the client detail page below the Coaching insight card, with
+an editable textarea pre-filled from the draft for `draft_message` rows
+and an "Send" / "Discard" pair. `program_change`/`schedule_call` rows
+fall through to a plain summary-only card for now -- no tool creates
+those yet, so that path isn't reachable, but a future stage's proposal
+won't silently vanish from the list the moment it's created ahead of
+its own apply action landing. `AssistantChat` calls `router.refresh()`
+after any turn that used a proposal-creating tool, since this
+server-rendered list has no other way to learn a new draft exists.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 4 -- draft workouts from a text prompt (outcome #4)
+
+The first outcome that isn't client-scoped: workouts are coach-level
+library content, not tied to any one client, so this doesn't go through
+the per-client `AssistantChat`/`buildAssistantTools` machinery at all.
+New `lib/workout-drafting.ts` runs its own small, self-contained
+tool-calling turn (two tools: `get_library_exercises` to read, and
+`propose_workout` to write) from a coach-level prompt box
+(`DraftWorkoutPrompt`) on the Workouts list page, via a new
+`/api/library/workouts/draft` route.
+
+Per the coach's own earlier decision, this does **not** go through
+`ai_assistant_proposals` -- `propose_workout`'s `run()` writes directly
+into `library_workouts`/`library_workout_exercises` with
+`status = 'draft'` (migration `0029`), and the Workouts list page now
+renders a Drafts section above Published, so a draft is exactly as
+discoverable and editable as anything a coach built by hand. A "Publish"
+button (`publishWorkout` action) flips the flag.
+
+**Enforcing "no client assignment" here is a filter, not a flag check.**
+A `draft` row is otherwise a completely ordinary `library_workouts` row --
+nothing stops a coach from opening it, editing it, or even deleting it
+while it's a draft, same as any workout. What actually keeps it away
+from a client is that every assignment picker now filters to
+`status = 'published'`: the client page's "Assign content" dropdown, the
+program editor's "add a workout to this program" list, and the workout
+detail page's own `AssignToClientCard`, which is replaced by a plain
+"Publish this workout before assigning it" message while a workout is
+still a draft. Three separate filters, each independently necessary --
+missing any one of them would have left a path for an unreviewed
+AI-drafted workout to reach a client.
+
+**Exercise matching.** `propose_workout` matches each drafted exercise
+name against the coach's existing `library_exercises` (case-insensitive)
+before falling back to creating a new one -- new exercises are created
+as ordinary (non-draft) rows, since an individual exercise is a much
+lower-stakes building block than a whole workout a client might see, and
+a coach manually building a workout already has to create exercises
+on the fly the same way. The system prompt asks the model to check
+`get_library_exercises` first specifically to avoid duplicate near-same
+exercise entries accumulating over repeated drafts.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 5 -- draft documents from a text prompt (outcome #5)
+
+Mechanically identical to Stage 4, applied to `library_documents`: new
+`lib/document-drafting.ts` (one tool, `propose_document_form`), a
+`DraftDocumentPrompt` box on the Documents list page, a new
+`/api/library/documents/draft` route, a `status` column (migration
+`0030`) with the same Drafts-section-above-Published list treatment, a
+`publishDocument` action, and the same "publish before assigning" guard
+replacing `AssignToClientCard` on a draft. The client page's document
+assign picker gets the same `status='published'` filter as the workout
+one from Stage 4.
+
+**Scoped to form-type documents only.** `library_documents` also covers
+plain uploaded files (`document_type = 'file'`), but drafting one from a
+text prompt would mean generating an actual file, which this has no way
+to do -- `propose_document_form` always creates `document_type = 'form'`.
+Each drafted field gets a server-generated id (`field-${Date.now()}-${i}`)
+rather than trusting the model to produce valid, unique ones -- the
+existing form schema/renderer (`lib/forms.ts`) only requires ids to be
+unique within the document, not any particular format.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 6 -- program/training-plan change proposals (outcome #2)
+
+Uses the Stage 2 `ai_assistant_proposals` infrastructure directly (the
+`program_change` type was already defined in migration `0028`, unused
+until now) rather than a new staging table -- there's no natural "draft"
+home for a single prescription edit the way there is for a whole workout
+or document.
+
+**Read side** (`lib/assistant.ts`, `lib/assistant-tools.ts`): two new
+read-only tools, `get_assigned_workouts` (list a client's currently
+assigned workouts) and `get_assigned_workout_exercises` (list one
+assigned workout's exercises with their current sets/reps/rest/tempo/
+notes and ids). The system prompt now tells the model to look both up
+before proposing anything, so the proposal it creates always references
+real, current ids rather than guessing.
+
+**Write side** (`lib/assistant-write-tools.ts`): `propose_program_change`
+takes an `assignedWorkoutId` plus a list of `update`/`add`/`remove`
+changes, scoped intentionally to single-exercise prescription edits only
+-- no block/superset restructuring, which stays a manual edit for now.
+Rather than let the review UI look up "current" state live (fragile if
+the coach edits the program in between proposing and reviewing), `run()`
+fetches and embeds a self-contained snapshot into the payload at creation
+time: `before`/`after` for `update`, just `prescription` for `add`/
+`remove`. The tool never touches `assigned_workout_exercises` itself --
+it only ever calls `createProposal`.
+
+**Apply side** (`proposal-actions.ts`'s new `approveProgramChangeProposal`):
+the one place that actually mutates `assigned_workout_exercises`,
+triggered only by an explicit coach approval click. Applies each change
+sequentially (`update` partial-updates by exercise id, `remove` deletes
+by id, `add` inserts with a locally-incremented `order_index` so multiple
+adds in one proposal don't collide), then calls `markProposalApplied`
+with no patch -- unlike draft messages, the before/after snapshot was
+already captured at proposal-creation time, so there's nothing new to
+merge in at apply time.
+
+**UI** (`PendingProposals.tsx`): replaced the generic placeholder for
+`program_change` with a real diff view -- `update` shows only the fields
+that actually changed (before → after), `add`/`remove` show the full
+prescription/name since there's no prior or resulting state to narrow
+against. Approving calls `approveProgramChangeProposal` directly; there's
+no draft text to edit here the way there is for messages, since the
+"editable" part of a program change is accept-or-reject per proposal, not
+per field.
+
+This completes outcome #2 under the same standing rule as every other
+outcome: the assistant can suggest a program change, but nothing about a
+client's actual assigned workout changes until the coach reviews the
+diff and clicks Apply.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
+
+### Stage 7 -- schedule coaching calls (outcome #6)
+
+The last outcome, and -- as expected going in -- the lowest-novelty
+stage: it reuses the Stage 2 `ai_assistant_proposals` infrastructure
+(the `schedule_call` type, also defined in migration `0028` and unused
+until now) plus the calendar/video-call infrastructure that already
+existed from earlier phases, rather than introducing anything new of its
+own.
+
+**Read side**: no new tool needed -- `get_busy_calendar_blocks`
+(`lib/assistant.ts`'s `fetchBusyBlocksForAssistant`, added back in the
+original Phase 11 assistant build) already returns a client's busy
+windows for a date range without leaking event titles/details, exactly
+the shape needed to sanity-check a proposed time. The system prompt
+(`lib/assistant-tools.ts`) now tells the model to call it before
+proposing a time.
+
+**Write side** (`lib/assistant-write-tools.ts`): `propose_schedule_call`
+takes a `startTime`/`endTime` pair plus an optional `title` (defaults to
+the client-anonymous "Coaching call") and `notes`. `run()` rejects an
+inverted range before staging anything, then calls `createProposal` with
+the time/title/notes as payload -- same as every other write tool, it
+never touches `calendar_events` itself.
+
+**Apply side** (`proposal-actions.ts`'s new `approveScheduleCallProposal`):
+calls the *existing* `createEvent` server action from
+`lib/calendar-actions.ts` unchanged -- the same one the coach's manual
+"new event" modal already uses -- with `hasVideoCall: true`, since a
+"coaching call" implies the Daily.co room every other video-enabled
+event on this calendar already gets for free. `createEvent` resolves the
+current coach from the session itself and handles the room creation, so
+there was nothing calendar-specific left to write here beyond validating
+the proposal and handing off the staged fields.
+
+**UI** (`PendingProposals.tsx`): added a `schedule_call` branch (the
+generic placeholder from Stages 3-5 is now fully retired -- every
+proposal type has a real renderer) showing the proposed title and a
+formatted date/time window, with any notes shown as body text. Approving
+books the call directly; there's nothing to edit inline the way a draft
+message is, so, like program changes, the coach's only choices are
+approve or discard.
+
+**`AssistantChat.tsx` fix folded in**: `PROPOSAL_CREATING_TOOLS` -- the
+set of tool names that should trigger a `router.refresh()` so the
+server-rendered "Pending review" section picks up a newly created row --
+had only ever had `draft_message_to_client` in it; Stage 6 should have
+added `propose_program_change` but didn't. Both that and the new
+`propose_schedule_call` are added now.
+
+This completes all six desired outcomes from the original spec under
+the one standing rule that governed every stage: the assistant can
+observe, draft, and suggest, but a coach's explicit review and approval
+is the only thing that ever turns a proposal into a real side effect --
+a sent message, a changed program, a created workout/document, or a
+booked call -- and no proposal or draft is ever auto-assigned to a
+client.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

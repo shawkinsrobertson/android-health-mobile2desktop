@@ -466,3 +466,113 @@ export async function getDataPointSummary(
       return "No data synced yet";
   }
 }
+
+export interface DataSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export function unitFor(key: string): string {
+  switch (key) {
+    case "steps":
+      return "steps";
+    case "heart_rate_samples":
+      return "bpm";
+    case "sleep_sessions":
+      return "h";
+    case "exercise_sessions":
+      return "sessions";
+    case "blood_oxygen":
+      return "% SpO2";
+    case "blood_pressure":
+      return "mmHg (systolic)";
+    case "respiratory_rate":
+      return "breaths/min";
+    case "blood_glucose":
+      return "mg/dL";
+    default:
+      return "";
+  }
+}
+
+// sample_time-keyed tables with one plain numeric reading per row --
+// bucketed to a daily average, same shape as getDailySteps/getSleepNights,
+// so all eight DATA_POINTS keys can feed one overlay chart
+// (components/DataOverlayChart.tsx) through a single entry point.
+const SAMPLE_SERIES_CONFIG: Record<string, { table: string; valueCol: string }> = {
+  heart_rate_samples: { table: "heart_rate_samples", valueCol: "bpm" },
+  blood_oxygen: { table: "blood_oxygen", valueCol: "percentage" },
+  blood_pressure: { table: "blood_pressure", valueCol: "systolic_mmhg" },
+  respiratory_rate: { table: "respiratory_rate", valueCol: "breaths_per_minute" },
+  blood_glucose: { table: "blood_glucose", valueCol: "level_mg_dl" },
+};
+
+export async function getDailySeries(
+  supabase: SupabaseClient,
+  dataPointKey: string,
+  days = 14,
+  clientId?: string,
+): Promise<DataSeriesPoint[]> {
+  if (dataPointKey === "steps") {
+    const steps = await getDailySteps(supabase, days, clientId);
+    return steps.map((s) => ({ date: s.date, value: s.count }));
+  }
+
+  if (dataPointKey === "sleep_sessions") {
+    const nights = await getSleepNights(supabase, days, clientId);
+    return nights.map((n) => ({ date: n.date, value: n.hours }));
+  }
+
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  if (dataPointKey === "exercise_sessions") {
+    let query = supabase
+      .from("exercise_sessions")
+      .select("start_time")
+      .gte("start_time", since.toISOString())
+      .order("start_time", { ascending: true });
+    if (clientId) query = query.eq("client_id", clientId);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    const byDay = new Map<string, number>();
+    for (const row of (data ?? []) as { start_time: string }[]) {
+      const day = row.start_time.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    }
+    return Array.from(byDay.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({ date, value }));
+  }
+
+  const config = SAMPLE_SERIES_CONFIG[dataPointKey];
+  if (!config) return [];
+
+  const rows = await fetchAllRows<Record<string, unknown>>((from, to) => {
+    // Supabase's select() type-parses its argument against the schema at
+    // compile time, which only works for string literals -- the column
+    // name here is only known at runtime (config.valueCol varies per data
+    // type), so the builder is cast through `any` to select it dynamically.
+    let query = (supabase.from(config.table) as unknown as { select: (columns: string) => any })
+      .select(`sample_time, ${config.valueCol}`)
+      .gte("sample_time", since.toISOString())
+      .order("sample_time", { ascending: true })
+      .range(from, to);
+    if (clientId) query = query.eq("client_id", clientId);
+    return query;
+  });
+
+  const byDay = new Map<string, { sum: number; count: number }>();
+  for (const row of rows) {
+    const day = String(row.sample_time).slice(0, 10);
+    const bucket = byDay.get(day) ?? { sum: 0, count: 0 };
+    bucket.sum += Number(row[config.valueCol]);
+    bucket.count += 1;
+    byDay.set(day, bucket);
+  }
+
+  return Array.from(byDay.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, { sum, count }]) => ({ date, value: Math.round((sum / count) * 10) / 10 }));
+}

@@ -3,6 +3,7 @@ import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 import { appendAssistantMessage, getAssistantMessages, getConsentMap } from "@/lib/assistant";
 import { ASSISTANT_SYSTEM_PROMPT, buildAssistantTools } from "@/lib/assistant-tools";
+import { buildWriteTools } from "@/lib/assistant-write-tools";
 
 // Not named api/chat -- that path used to bypass middleware.ts's auth
 // gate for a since-deleted feature (see PLANNING.md's Phase 5 section).
@@ -70,7 +71,8 @@ export async function POST(request: Request, { params }: { params: { clientId: s
     getConsentMap(supabase, params.clientId),
   ]);
 
-  const tools = buildAssistantTools({ supabase, coachId: coach.id, clientId: params.clientId, consent });
+  const toolCtx = { supabase, coachId: coach.id, clientId: params.clientId, consent };
+  const tools = [...buildAssistantTools(toolCtx), ...buildWriteTools(toolCtx)];
 
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
 

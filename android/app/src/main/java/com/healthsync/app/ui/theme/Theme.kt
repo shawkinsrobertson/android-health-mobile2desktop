@@ -5,6 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 // Material3 role mapping for the design-system tokens (see Color.kt):
 // primary/onPrimary -> Accent, since Material's "primary" role is the
@@ -49,4 +53,23 @@ private val DarkColors = darkColorScheme(
 fun HealthSyncTheme(content: @Composable () -> Unit) {
     val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
     MaterialTheme(colorScheme = colors, typography = HealthSyncTypography, content = content)
+}
+
+// Applied once, behind the whole app (see MainActivity), rather than
+// per-screen -- every screen's own Scaffold/Surface sets its background to
+// Color.Transparent so this shows through consistently instead of each one
+// painting over it with a flat color. Light theme keeps the flat
+// background per the design spec (gradient is dark-only); a barely-lighter
+// tone top-left to background color bottom-right keeps it "slight" rather
+// than a visible band.
+@Composable
+fun dashboardBackgroundBrush(): Brush {
+    val background = MaterialTheme.colorScheme.background
+    if (!isSystemInDarkTheme()) return Brush.linearGradient(listOf(background, background))
+    val lighter = lerp(background, Color.White, 0.06f)
+    return Brush.linearGradient(
+        colors = listOf(lighter, background),
+        start = Offset.Zero,
+        end = Offset.Infinite,
+    )
 }

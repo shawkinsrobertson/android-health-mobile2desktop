@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -61,6 +62,16 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
+// Tool names whose run() creates a pending ai_assistant_proposals row
+// (see lib/assistant-write-tools.ts) -- when one fires, the client page's
+// server-rendered "Pending review" section is stale until the next
+// router.refresh(), since this component has no other link to it.
+const PROPOSAL_CREATING_TOOLS = new Set([
+  "draft_message_to_client",
+  "propose_program_change",
+  "propose_schedule_call",
+]);
+
 const INTRO: ChatMessage = {
   role: "assistant",
   content:
@@ -84,6 +95,7 @@ export function AssistantChat({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -107,6 +119,7 @@ export function AssistantChat({
     setSending(true);
     setError(null);
     setStatus(null);
+    let createdProposal = false;
 
     try {
       const res = await fetch(`/api/clients/${clientId}/assistant`, {
@@ -145,7 +158,12 @@ export function AssistantChat({
             setStatus(null);
             replaceLastAssistant((prev) => prev + event.text);
           } else if (event.type === "tool_use") {
-            setStatus("Checking " + event.name.replace(/^get_/, "").replace(/_/g, " ") + "…");
+            if (PROPOSAL_CREATING_TOOLS.has(event.name)) {
+              createdProposal = true;
+              setStatus("Drafting…");
+            } else {
+              setStatus("Checking " + event.name.replace(/^get_/, "").replace(/_/g, " ") + "…");
+            }
           } else if (event.type === "error") {
             setError(event.message);
           }
@@ -156,6 +174,10 @@ export function AssistantChat({
     } finally {
       setStatus(null);
       setSending(false);
+      // The server-rendered "Pending review" section on this page has no
+      // other way to learn a new proposal exists -- refetch it without
+      // losing this panel's own local message state.
+      if (createdProposal) router.refresh();
     }
   }
 

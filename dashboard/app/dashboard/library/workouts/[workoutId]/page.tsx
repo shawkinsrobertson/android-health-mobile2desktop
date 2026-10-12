@@ -9,7 +9,9 @@ import {
   type WorkoutBlock,
   type WorkoutExerciseItem,
 } from "@/components/library/WorkoutExerciseListEditor";
-import { updateWorkout, deleteWorkout } from "../actions";
+import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { updateWorkout, deleteWorkout, publishWorkout } from "../actions";
+import { assignLibraryWorkoutToClient } from "../../assign-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +44,11 @@ export default async function WorkoutDetailPage({
 
   const supabase = await createClient();
 
-  const [{ data: workout, error }, { data: joinRows }, { data: blockRows }, { count: usedInPrograms }, { data: exercises }] =
+  const [{ data: workout, error }, { data: joinRows }, { data: blockRows }, { count: usedInPrograms }, { data: exercises }, { data: clientRows }] =
     await Promise.all([
       supabase
         .from("library_workouts")
-        .select("id, name, description, photo_path, photo_url, video_path, video_url")
+        .select("id, name, description, photo_path, photo_url, video_path, video_url, status")
         .eq("id", params.workoutId)
         .eq("coach_id", profile.id)
         .single(),
@@ -69,6 +71,10 @@ export default async function WorkoutDetailPage({
       // NULL) exercises alongside this coach's own, so they show up as
       // addable options too (see supabase/migrations/0006_shared_exercises.sql).
       supabase.from("library_exercises").select("id, name, coach_id").order("name"),
+      supabase
+        .from("client_profiles")
+        .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
+        .eq("coach_id", profile.id),
     ]);
 
   if (error || !workout) redirect("/dashboard/library/workouts");
@@ -96,6 +102,13 @@ export default async function WorkoutDetailPage({
 
   const blocks = (blockRows ?? []) as WorkoutBlock[];
 
+  const clients = (
+    (clientRows ?? []) as unknown as {
+      profile_id: string;
+      profiles: { full_name: string | null; email: string } | null;
+    }[]
+  ).map((c) => ({ id: c.profile_id, name: c.profiles?.full_name || c.profiles?.email || "Unnamed client" }));
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8">
       <div className="flex items-center justify-between">
@@ -106,21 +119,40 @@ export default async function WorkoutDetailPage({
           >
             ← Workouts
           </Link>
-          <h1 className="mt-1 text-lg font-semibold text-ink-primary">{workout.name}</h1>
+          <div className="mt-1 flex items-center gap-1.5">
+            <h1 className="text-lg font-semibold text-ink-primary">{workout.name}</h1>
+            {workout.status === "draft" && (
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+                Draft
+              </span>
+            )}
+          </div>
           {!!usedInPrograms && (
             <p className="text-xs text-ink-muted">
               Used in {usedInPrograms} program{usedInPrograms === 1 ? "" : "s"}
             </p>
           )}
         </div>
-        <form action={deleteWorkout.bind(null, workout.id)}>
-          <button
-            type="submit"
-            className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
-          >
-            Delete
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          {workout.status === "draft" && (
+            <form action={publishWorkout.bind(null, workout.id)}>
+              <button
+                type="submit"
+                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+              >
+                Publish
+              </button>
+            </form>
+          )}
+          <form action={deleteWorkout.bind(null, workout.id)}>
+            <button
+              type="submit"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+            >
+              Delete
+            </button>
+          </form>
+        </div>
       </div>
 
       {searchParams.error && (
@@ -187,6 +219,19 @@ export default async function WorkoutDetailPage({
           )}
         />
       </section>
+
+      {workout.status === "draft" ? (
+        <p className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-sm text-ink-muted">
+          Publish this workout before assigning it to a client.
+        </p>
+      ) : (
+        <AssignToClientCard
+          itemId={workout.id}
+          action={assignLibraryWorkoutToClient}
+          clients={clients}
+          itemLabel="workout"
+        />
+      )}
     </div>
   );
 }

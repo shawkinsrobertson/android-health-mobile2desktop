@@ -26,7 +26,7 @@ export default async function ClientNotesPage({ params }: { params: { clientId: 
   ]);
 
   if (!clientProfile || clientProfile.coachId !== coach.id || profileRes.error) {
-    redirect("/dashboard");
+    redirect("/dashboard/clients");
   }
 
   const client = profileRes.data;
