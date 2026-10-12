@@ -253,3 +253,78 @@ export async function fetchWorkoutAdherenceForAssistant(
     sessions,
   };
 }
+
+export interface AssignedWorkoutSummary {
+  id: string;
+  name: string;
+  assignedAt: string;
+}
+
+// For program-change proposals (outcome #2) -- the assistant needs to see
+// what's currently assigned before it can propose a change to it. Reads
+// only, same as everything else in this file; lib/assistant-write-tools.ts
+// is where a proposed change actually gets staged.
+export async function fetchAssignedWorkoutsForAssistant(
+  supabase: SupabaseClient,
+  clientId: string,
+): Promise<AssignedWorkoutSummary[]> {
+  const { data, error } = await supabase
+    .from("assigned_workouts")
+    .select("id, name, assigned_at")
+    .eq("client_id", clientId)
+    .order("assigned_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to load assigned workouts: ${error.message}`);
+  return ((data ?? []) as { id: string; name: string; assigned_at: string }[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    assignedAt: row.assigned_at,
+  }));
+}
+
+export interface AssignedExerciseSummary {
+  id: string;
+  name: string;
+  sets: number | null;
+  reps: string | null;
+  weightNote: string | null;
+  restSeconds: number | null;
+  tempo: string | null;
+  notes: string | null;
+}
+
+export async function fetchAssignedWorkoutExercisesForAssistant(
+  supabase: SupabaseClient,
+  clientId: string,
+  assignedWorkoutId: string,
+): Promise<AssignedExerciseSummary[]> {
+  const { data, error } = await supabase
+    .from("assigned_workout_exercises")
+    .select("id, name, sets, reps, weight_note, rest_seconds, tempo, notes")
+    .eq("client_id", clientId)
+    .eq("assigned_workout_id", assignedWorkoutId)
+    .order("order_index");
+
+  if (error) throw new Error(`Failed to load assigned workout exercises: ${error.message}`);
+  return (
+    (data ?? []) as {
+      id: string;
+      name: string;
+      sets: number | null;
+      reps: string | null;
+      weight_note: string | null;
+      rest_seconds: number | null;
+      tempo: string | null;
+      notes: string | null;
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    name: row.name,
+    sets: row.sets,
+    reps: row.reps,
+    weightNote: row.weight_note,
+    restSeconds: row.rest_seconds,
+    tempo: row.tempo,
+    notes: row.notes,
+  }));
+}

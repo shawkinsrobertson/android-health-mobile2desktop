@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import {
+  fetchAssignedWorkoutExercisesForAssistant,
+  fetchAssignedWorkoutsForAssistant,
   fetchBusyBlocksForAssistant,
   fetchCheckInAdherenceForAssistant,
   fetchCoachNotesForAssistant,
@@ -45,6 +47,14 @@ message in your reply -- the coach needs an editable draft they can
 review and send themselves, and nothing you draft is ever sent without
 that review. After calling it, just confirm briefly that the draft is
 ready for them to check.
+
+If the coach asks you to change, adjust, or update this client's
+training plan -- a different rep range, swapping or adding an exercise,
+anything about an assigned workout -- look up the relevant assigned
+workout and its exercises first, then propose the change with the
+program-change tool rather than describing what you'd do. That tool
+only creates a pending proposal; nothing about the client's actual
+program changes until the coach reviews and applies it.
 
 ${COACHING_GUIDELINES}`;
 
@@ -160,6 +170,29 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
+  const assignedWorkouts = {
+    ...betaZodTool({
+      name: "get_assigned_workouts",
+      description: "List this client's currently assigned workouts (id, name, when assigned). Use before proposing a program change, to find the right assignedWorkoutId.",
+      inputSchema: z.object({}),
+      run: async () => JSON.stringify(await fetchAssignedWorkoutsForAssistant(ctx.supabase, ctx.clientId)),
+    }),
+    eager_input_streaming: true,
+  };
+
+  const assignedWorkoutExercises = {
+    ...betaZodTool({
+      name: "get_assigned_workout_exercises",
+      description: "List the exercises in one of this client's assigned workouts, with their current sets/reps/rest/tempo/notes and each exercise's id.",
+      inputSchema: z.object({
+        assignedWorkoutId: z.string().describe("An id from get_assigned_workouts"),
+      }),
+      run: async ({ assignedWorkoutId }) =>
+        JSON.stringify(await fetchAssignedWorkoutExercisesForAssistant(ctx.supabase, ctx.clientId, assignedWorkoutId)),
+    }),
+    eager_input_streaming: true,
+  };
+
   const busyBlocks = {
     ...betaZodTool({
       name: "get_busy_calendar_blocks",
@@ -186,6 +219,8 @@ export function buildAssistantTools(ctx: AssistantToolContext) {
     coachNotes,
     checkInAdherence,
     workoutAdherence,
+    assignedWorkouts,
+    assignedWorkoutExercises,
     busyBlocks,
   ];
 }

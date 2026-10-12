@@ -1885,3 +1885,57 @@ unique within the document, not any particular format.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 6 -- program/training-plan change proposals (outcome #2)
+
+Uses the Stage 2 `ai_assistant_proposals` infrastructure directly (the
+`program_change` type was already defined in migration `0028`, unused
+until now) rather than a new staging table -- there's no natural "draft"
+home for a single prescription edit the way there is for a whole workout
+or document.
+
+**Read side** (`lib/assistant.ts`, `lib/assistant-tools.ts`): two new
+read-only tools, `get_assigned_workouts` (list a client's currently
+assigned workouts) and `get_assigned_workout_exercises` (list one
+assigned workout's exercises with their current sets/reps/rest/tempo/
+notes and ids). The system prompt now tells the model to look both up
+before proposing anything, so the proposal it creates always references
+real, current ids rather than guessing.
+
+**Write side** (`lib/assistant-write-tools.ts`): `propose_program_change`
+takes an `assignedWorkoutId` plus a list of `update`/`add`/`remove`
+changes, scoped intentionally to single-exercise prescription edits only
+-- no block/superset restructuring, which stays a manual edit for now.
+Rather than let the review UI look up "current" state live (fragile if
+the coach edits the program in between proposing and reviewing), `run()`
+fetches and embeds a self-contained snapshot into the payload at creation
+time: `before`/`after` for `update`, just `prescription` for `add`/
+`remove`. The tool never touches `assigned_workout_exercises` itself --
+it only ever calls `createProposal`.
+
+**Apply side** (`proposal-actions.ts`'s new `approveProgramChangeProposal`):
+the one place that actually mutates `assigned_workout_exercises`,
+triggered only by an explicit coach approval click. Applies each change
+sequentially (`update` partial-updates by exercise id, `remove` deletes
+by id, `add` inserts with a locally-incremented `order_index` so multiple
+adds in one proposal don't collide), then calls `markProposalApplied`
+with no patch -- unlike draft messages, the before/after snapshot was
+already captured at proposal-creation time, so there's nothing new to
+merge in at apply time.
+
+**UI** (`PendingProposals.tsx`): replaced the generic placeholder for
+`program_change` with a real diff view -- `update` shows only the fields
+that actually changed (before → after), `add`/`remove` show the full
+prescription/name since there's no prior or resulting state to narrow
+against. Approving calls `approveProgramChangeProposal` directly; there's
+no draft text to edit here the way there is for messages, since the
+"editable" part of a program change is accept-or-reject per proposal, not
+per field.
+
+This completes outcome #2 under the same standing rule as every other
+outcome: the assistant can suggest a program change, but nothing about a
+client's actual assigned workout changes until the coach reviews the
+diff and clicks Apply.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

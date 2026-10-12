@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { ProposalCard } from "./ProposalCard";
-import { approveDraftMessageProposal, discardProposal } from "@/app/dashboard/clients/[clientId]/proposal-actions";
+import {
+  approveDraftMessageProposal,
+  approveProgramChangeProposal,
+  discardProposal,
+} from "@/app/dashboard/clients/[clientId]/proposal-actions";
 import type { Proposal } from "@/lib/proposals";
 
 const TYPE_LABELS: Record<Proposal["type"], string> = {
@@ -11,9 +15,94 @@ const TYPE_LABELS: Record<Proposal["type"], string> = {
   schedule_call: "Schedule call",
 };
 
-// First real consumer of ProposalCard -- see lib/proposals.ts for why
-// program_change/schedule_call fall through to a plain summary-only card
-// for now (their own apply actions land in Stage 6/7).
+interface ExercisePrescription {
+  sets: number | null;
+  reps: string | null;
+  weightNote: string | null;
+  restSeconds: number | null;
+  tempo: string | null;
+  notes: string | null;
+}
+
+interface ProgramChangeItem {
+  action: "update" | "add" | "remove";
+  exerciseId?: string;
+  exerciseName?: string;
+  name?: string;
+  before?: ExercisePrescription;
+  after?: ExercisePrescription;
+  prescription?: ExercisePrescription;
+}
+
+interface ProgramChangePayload {
+  assignedWorkoutId: string;
+  assignedWorkoutName: string;
+  changes: ProgramChangeItem[];
+}
+
+const PRESCRIPTION_LABELS: { key: keyof ExercisePrescription; label: string }[] = [
+  { key: "sets", label: "Sets" },
+  { key: "reps", label: "Reps" },
+  { key: "weightNote", label: "Weight" },
+  { key: "restSeconds", label: "Rest (s)" },
+  { key: "tempo", label: "Tempo" },
+  { key: "notes", label: "Notes" },
+];
+
+// Renders one proposed change's diff -- update shows only the fields that
+// actually changed (before -> after), add/remove show the full
+// prescription since there's no "before" (add) or no "after" (remove) to
+// narrow against.
+function ProgramChangeDiff({ change }: { change: ProgramChangeItem }) {
+  if (change.action === "add") {
+    const fields = PRESCRIPTION_LABELS.filter(({ key }) => change.prescription?.[key] != null);
+    return (
+      <div className="text-sm text-ink-primary">
+        <span className="font-medium">+ Add {change.name}</span>
+        {fields.length > 0 && (
+          <ul className="mt-0.5 ml-4 list-disc text-ink-secondary">
+            {fields.map(({ key, label }) => (
+              <li key={key}>
+                {label}: {change.prescription?.[key]}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  if (change.action === "remove") {
+    return (
+      <div className="text-sm text-ink-primary">
+        <span className="font-medium">- Remove {change.exerciseName}</span>
+      </div>
+    );
+  }
+
+  const fields = PRESCRIPTION_LABELS.filter(
+    ({ key }) => change.before?.[key] !== change.after?.[key],
+  );
+  return (
+    <div className="text-sm text-ink-primary">
+      <span className="font-medium">{change.exerciseName}</span>
+      {fields.length > 0 ? (
+        <ul className="mt-0.5 ml-4 list-disc text-ink-secondary">
+          {fields.map(({ key, label }) => (
+            <li key={key}>
+              {label}: {String(change.before?.[key] ?? "--")} → {String(change.after?.[key] ?? "--")}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="ml-1 text-ink-secondary">(no change)</span>
+      )}
+    </div>
+  );
+}
+
+// First real consumer of ProposalCard. schedule_call still falls through
+// to a plain summary-only card (its apply action lands in Stage 7).
 export function PendingProposals({ clientId, initialProposals }: { clientId: string; initialProposals: Proposal[] }) {
   const [proposals, setProposals] = useState(initialProposals);
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -65,11 +154,38 @@ export function PendingProposals({ clientId, initialProposals }: { clientId: str
             );
           }
 
-          // program_change / schedule_call: created by no tool yet
-          // (Stage 6/7), so this path isn't reachable today -- kept so a
-          // row of a future type still renders something instead of
-          // silently vanishing from the list once those stages add tools
-          // that create them ahead of their own apply action landing.
+          if (proposal.type === "program_change") {
+            const { assignedWorkoutName, changes } = proposal.payload as ProgramChangePayload;
+            return (
+              <ProposalCard
+                key={proposal.id}
+                typeLabel={typeLabel}
+                summary={`${proposal.summary} (${assignedWorkoutName})`}
+                createdAt={proposal.createdAt}
+                approveLabel="Apply to program"
+                onApprove={async () => {
+                  await approveProgramChangeProposal(clientId, proposal.id);
+                  remove(proposal.id);
+                }}
+                onDiscard={async () => {
+                  await discardProposal(clientId, proposal.id);
+                  remove(proposal.id);
+                }}
+              >
+                <div className="mb-1 flex flex-col gap-1.5">
+                  {changes.map((change, i) => (
+                    <ProgramChangeDiff key={change.exerciseId ?? `${change.action}-${i}`} change={change} />
+                  ))}
+                </div>
+              </ProposalCard>
+            );
+          }
+
+          // schedule_call: created by no tool yet (Stage 7), so this path
+          // isn't reachable today -- kept so a row of that future type
+          // still renders something instead of silently vanishing from
+          // the list once that stage adds a tool that creates it ahead of
+          // its own apply action landing.
           return (
             <ProposalCard
               key={proposal.id}
