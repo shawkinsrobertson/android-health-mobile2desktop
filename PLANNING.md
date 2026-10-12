@@ -1861,3 +1861,27 @@ exercise entries accumulating over repeated drafts.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 5 -- draft documents from a text prompt (outcome #5)
+
+Mechanically identical to Stage 4, applied to `library_documents`: new
+`lib/document-drafting.ts` (one tool, `propose_document_form`), a
+`DraftDocumentPrompt` box on the Documents list page, a new
+`/api/library/documents/draft` route, a `status` column (migration
+`0030`) with the same Drafts-section-above-Published list treatment, a
+`publishDocument` action, and the same "publish before assigning" guard
+replacing `AssignToClientCard` on a draft. The client page's document
+assign picker gets the same `status='published'` filter as the workout
+one from Stage 4.
+
+**Scoped to form-type documents only.** `library_documents` also covers
+plain uploaded files (`document_type = 'file'`), but drafting one from a
+text prompt would mean generating an actual file, which this has no way
+to do -- `propose_document_form` always creates `document_type = 'form'`.
+Each drafted field gets a server-generated id (`field-${Date.now()}-${i}`)
+rather than trusting the model to produce valid, unique ones -- the
+existing form schema/renderer (`lib/forms.ts`) only requires ids to be
+unique within the document, not any particular format.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

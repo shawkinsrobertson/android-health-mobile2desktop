@@ -156,3 +156,21 @@ export async function deleteDocument(documentId: string) {
   revalidatePath(LIST_PATH);
   redirect(LIST_PATH);
 }
+
+// AI-drafted documents (lib/document-drafting.ts) land with
+// status='draft', which excludes them from the client page's assign
+// picker -- see Stage 4's identical publishWorkout for the full
+// reasoning.
+export async function publishDocument(documentId: string) {
+  const coach = await requireCoach();
+  const supabase = await createClient();
+
+  await supabase
+    .from("library_documents")
+    .update({ status: "published" })
+    .eq("id", documentId)
+    .eq("coach_id", coach.id);
+
+  revalidatePath(LIST_PATH);
+  revalidatePath(`${LIST_PATH}/${documentId}`);
+}

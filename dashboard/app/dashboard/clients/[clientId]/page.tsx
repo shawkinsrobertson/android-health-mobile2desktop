@@ -98,7 +98,8 @@ export default async function ClientDetailPage({
     // can't be assigned to a client until the coach reviews and publishes it.
     supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
     supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
-    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
+    // status='published' only -- same reasoning as the workout picker above.
+    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
     supabase
       .from("assigned_workouts")
       .select("id, name, assigned_at")

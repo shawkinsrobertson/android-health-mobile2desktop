@@ -7,7 +7,7 @@ import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { FormBuilder } from "@/components/library/FormBuilder";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
 import type { FormSchema } from "@/lib/forms";
-import { updateDocument, deleteDocument } from "../actions";
+import { updateDocument, deleteDocument, publishDocument } from "../actions";
 import { assignLibraryDocumentToClient } from "../../assign-actions";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export default async function DocumentDetailPage({
   const [{ data: document, error }, { data: clientRows }] = await Promise.all([
     supabase
       .from("library_documents")
-      .select("id, name, description, document_type, file_path, file_url, form_schema")
+      .select("id, name, description, document_type, file_path, file_url, form_schema, status")
       .eq("id", params.documentId)
       .eq("coach_id", profile.id)
       .single(),
@@ -61,16 +61,35 @@ export default async function DocumentDetailPage({
           >
             ← Documents
           </Link>
-          <h1 className="mt-1 text-lg font-semibold text-ink-primary">{document.name}</h1>
+          <div className="mt-1 flex items-center gap-1.5">
+            <h1 className="text-lg font-semibold text-ink-primary">{document.name}</h1>
+            {document.status === "draft" && (
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+                Draft
+              </span>
+            )}
+          </div>
         </div>
-        <form action={deleteDocument.bind(null, document.id)}>
-          <button
-            type="submit"
-            className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
-          >
-            Delete
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          {document.status === "draft" && (
+            <form action={publishDocument.bind(null, document.id)}>
+              <button
+                type="submit"
+                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+              >
+                Publish
+              </button>
+            </form>
+          )}
+          <form action={deleteDocument.bind(null, document.id)}>
+            <button
+              type="submit"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+            >
+              Delete
+            </button>
+          </form>
+        </div>
       </div>
 
       <form action={updateDocument.bind(null, document.id)} className="flex flex-col gap-4">
@@ -119,12 +138,18 @@ export default async function DocumentDetailPage({
         </button>
       </form>
 
-      <AssignToClientCard
-        itemId={document.id}
-        action={assignLibraryDocumentToClient}
-        clients={clients}
-        itemLabel="document"
-      />
+      {document.status === "draft" ? (
+        <p className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-sm text-ink-muted">
+          Publish this document before assigning it to a client.
+        </p>
+      ) : (
+        <AssignToClientCard
+          itemId={document.id}
+          action={assignLibraryDocumentToClient}
+          clients={clients}
+          itemLabel="document"
+        />
+      )}
     </div>
   );
 }
