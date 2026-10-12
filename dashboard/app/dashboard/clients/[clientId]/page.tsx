@@ -18,6 +18,8 @@ import { ClientAssistantSidebar } from "@/components/ClientAssistantSidebar";
 import { getAssistantMessages } from "@/lib/assistant";
 import { ClientInsights } from "@/components/ClientInsights";
 import { getLatestInsight } from "@/lib/insights";
+import { PendingProposals } from "@/components/PendingProposals";
+import { listPendingProposals } from "@/lib/proposals";
 import { CheckInEditor } from "@/components/CheckInEditor";
 import { getCheckInTemplate } from "@/lib/check-ins";
 
@@ -60,6 +62,7 @@ export default async function ClientDetailPage({
   const chatUnread = thread ? isThreadUnread(thread, "coach") : false;
   const checkInTemplate = await getCheckInTemplate(supabase, coach.id, params.clientId);
   const latestInsight = await getLatestInsight(supabase, coach.id, params.clientId);
+  const pendingProposals = await listPendingProposals(supabase, coach.id, params.clientId);
 
   const [summaries, seriesByKey] = clientProfile.onboardedAt
     ? await Promise.all([
@@ -198,6 +201,8 @@ export default async function ClientDetailPage({
             )}
 
             <ClientInsights clientId={params.clientId} initialInsight={latestInsight} />
+
+            <PendingProposals clientId={params.clientId} initialProposals={pendingProposals} />
 
             {/* Data dashboard: client's chosen tiles + one overlay graph for every shared data type. */}
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

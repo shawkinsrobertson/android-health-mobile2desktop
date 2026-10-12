@@ -112,11 +112,31 @@ export async function rejectProposal(supabase: SupabaseClient, coachId: string, 
 
 // Called by a type-specific apply action immediately after it performs
 // the real side effect (sends the message, applies the program change,
-// books the call) -- never on its own.
-export async function markProposalApplied(supabase: SupabaseClient, coachId: string, proposalId: string): Promise<void> {
+// books the call) -- never on its own. `payloadPatch`, when given, is
+// merged into the stored payload -- e.g. recording what was actually
+// sent/applied alongside the original AI draft, so both are visible on
+// the same row later (the "LLM output vs. coach's edited draft" the
+// coach asked to be able to see).
+export async function markProposalApplied(
+  supabase: SupabaseClient,
+  coachId: string,
+  proposalId: string,
+  payloadPatch?: Record<string, unknown>,
+): Promise<void> {
+  let payload: object | undefined;
+  if (payloadPatch) {
+    const { data: current } = await supabase
+      .from("ai_assistant_proposals")
+      .select("payload")
+      .eq("id", proposalId)
+      .eq("coach_id", coachId)
+      .single();
+    payload = { ...(current?.payload as object | undefined), ...payloadPatch };
+  }
+
   const { error } = await supabase
     .from("ai_assistant_proposals")
-    .update({ status: "applied", reviewed_at: new Date().toISOString() })
+    .update({ status: "applied", reviewed_at: new Date().toISOString(), ...(payload ? { payload } : {}) })
     .eq("id", proposalId)
     .eq("coach_id", coachId)
     .eq("status", "pending");

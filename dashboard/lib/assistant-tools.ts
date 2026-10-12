@@ -39,9 +39,16 @@ though the data you're given never does. Don't repeat back or draw
 attention to any such detail if you notice one -- focus your answer on
 the data.
 
+If the coach asks you to write, draft, or suggest a message to send this
+client, call the drafting tool available to you instead of putting the
+message in your reply -- the coach needs an editable draft they can
+review and send themselves, and nothing you draft is ever sent without
+that review. After calling it, just confirm briefly that the draft is
+ready for them to check.
+
 ${COACHING_GUIDELINES}`;
 
-interface AssistantToolContext {
+export interface AssistantToolContext {
   supabase: SupabaseClient;
   coachId: string;
   clientId: string;

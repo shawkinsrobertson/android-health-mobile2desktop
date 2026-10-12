@@ -1775,3 +1775,44 @@ shape that doesn't exist yet.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 3 -- draft chat messages (outcome #3)
+
+The first real write outcome, and the one that proves Stage 2's
+approval pattern end to end.
+
+New `lib/assistant-write-tools.ts`, deliberately **not** merged into
+`buildAssistantTools()`: that function is shared by the interactive chat
+route and the proactive insight generator (`lib/insights.ts`), and the
+insight generator must never gain the ability to take actions on its
+own just because it reuses the same read-only tool set. Write tools are
+a separate `buildWriteTools()`, added to the tools array only in
+`app/api/clients/[clientId]/assistant/route.ts`. Its one tool so far,
+`draft_message_to_client`, does nothing but call `createProposal` --
+the model cannot send a message itself even if it tried, by
+construction, not by prompting. A new system-prompt paragraph tells the
+model to call this tool instead of putting a drafted message in its own
+reply, whenever the coach asks for one.
+
+Approving: `approveDraftMessageProposal` (`proposal-actions.ts`) sends
+the message through the *existing* `sendChatMessage` action (same path
+a coach typing in the Inbox uses) and then calls `markProposalApplied`
+with a payload patch recording what was actually sent. The original AI
+draft (`payload.body`) and the coach's final, possibly-edited version
+(`payload.sentBody`) both end up on the same row -- this is the "LLM
+output vs. coach's edited draft" record the coach asked to be able to
+see, with no separate table needed.
+
+UI: `PendingProposals` (first real consumer of `ProposalCard`) now
+renders in the client detail page below the Coaching insight card, with
+an editable textarea pre-filled from the draft for `draft_message` rows
+and an "Send" / "Discard" pair. `program_change`/`schedule_call` rows
+fall through to a plain summary-only card for now -- no tool creates
+those yet, so that path isn't reachable, but a future stage's proposal
+won't silently vanish from the list the moment it's created ahead of
+its own apply action landing. `AssistantChat` calls `router.refresh()`
+after any turn that used a proposal-creating tool, since this
+server-rendered list has no other way to learn a new draft exists.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
