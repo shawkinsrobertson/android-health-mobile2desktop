@@ -1816,3 +1816,48 @@ server-rendered list has no other way to learn a new draft exists.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 4 -- draft workouts from a text prompt (outcome #4)
+
+The first outcome that isn't client-scoped: workouts are coach-level
+library content, not tied to any one client, so this doesn't go through
+the per-client `AssistantChat`/`buildAssistantTools` machinery at all.
+New `lib/workout-drafting.ts` runs its own small, self-contained
+tool-calling turn (two tools: `get_library_exercises` to read, and
+`propose_workout` to write) from a coach-level prompt box
+(`DraftWorkoutPrompt`) on the Workouts list page, via a new
+`/api/library/workouts/draft` route.
+
+Per the coach's own earlier decision, this does **not** go through
+`ai_assistant_proposals` -- `propose_workout`'s `run()` writes directly
+into `library_workouts`/`library_workout_exercises` with
+`status = 'draft'` (migration `0029`), and the Workouts list page now
+renders a Drafts section above Published, so a draft is exactly as
+discoverable and editable as anything a coach built by hand. A "Publish"
+button (`publishWorkout` action) flips the flag.
+
+**Enforcing "no client assignment" here is a filter, not a flag check.**
+A `draft` row is otherwise a completely ordinary `library_workouts` row --
+nothing stops a coach from opening it, editing it, or even deleting it
+while it's a draft, same as any workout. What actually keeps it away
+from a client is that every assignment picker now filters to
+`status = 'published'`: the client page's "Assign content" dropdown, the
+program editor's "add a workout to this program" list, and the workout
+detail page's own `AssignToClientCard`, which is replaced by a plain
+"Publish this workout before assigning it" message while a workout is
+still a draft. Three separate filters, each independently necessary --
+missing any one of them would have left a path for an unreviewed
+AI-drafted workout to reach a client.
+
+**Exercise matching.** `propose_workout` matches each drafted exercise
+name against the coach's existing `library_exercises` (case-insensitive)
+before falling back to creating a new one -- new exercises are created
+as ordinary (non-draft) rows, since an individual exercise is a much
+lower-stakes building block than a whole workout a client might see, and
+a coach manually building a workout already has to create exercises
+on the fly the same way. The system prompt asks the model to check
+`get_library_exercises` first specifically to avoid duplicate near-same
+exercise entries accumulating over repeated drafts.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

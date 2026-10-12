@@ -46,7 +46,9 @@ export default async function ProgramDetailPage({
       .select("id, workout_id, order_index, week_number, day_of_week, notes, library_workouts(name)")
       .eq("program_id", params.programId)
       .order("order_index"),
-    supabase.from("library_workouts").select("id, name").eq("coach_id", profile.id).order("name"),
+    // status='published' only -- see the same filter and comment on the
+    // client page's workout picker.
+    supabase.from("library_workouts").select("id, name").eq("coach_id", profile.id).eq("status", "published").order("name"),
     supabase
       .from("client_profiles")
       .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")

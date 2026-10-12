@@ -94,7 +94,9 @@ export default async function ClientDetailPage({
     coachNotesCountRes,
     coachGoogleConnectionRes,
   ] = await Promise.all([
-    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).order("name"),
+    // status='published' only -- an AI-drafted workout (lib/workout-drafting.ts)
+    // can't be assigned to a client until the coach reviews and publishes it.
+    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
     supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).order("name"),
     supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).order("name"),
     supabase

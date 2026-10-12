@@ -165,6 +165,24 @@ export async function deleteWorkout(workoutId: string) {
   redirect(LIST_PATH);
 }
 
+// AI-drafted workouts (lib/workout-drafting.ts) land with status='draft',
+// which excludes them from every assignment picker -- this is the one
+// step that makes a workout eligible for a client to ever see, and it's
+// always a coach action, never something the assistant calls itself.
+export async function publishWorkout(workoutId: string) {
+  const coach = await requireCoach();
+  const supabase = await createClient();
+
+  await supabase
+    .from("library_workouts")
+    .update({ status: "published" })
+    .eq("id", workoutId)
+    .eq("coach_id", coach.id);
+
+  revalidatePath(LIST_PATH);
+  revalidatePath(`${LIST_PATH}/${workoutId}`);
+}
+
 // ---------------------------------------------------------------------------
 // Workout <-> exercise join rows (the exercises a workout prescribes)
 // ---------------------------------------------------------------------------
