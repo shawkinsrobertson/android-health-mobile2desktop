@@ -1939,3 +1939,63 @@ diff and clicks Apply.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 7 -- schedule coaching calls (outcome #6)
+
+The last outcome, and -- as expected going in -- the lowest-novelty
+stage: it reuses the Stage 2 `ai_assistant_proposals` infrastructure
+(the `schedule_call` type, also defined in migration `0028` and unused
+until now) plus the calendar/video-call infrastructure that already
+existed from earlier phases, rather than introducing anything new of its
+own.
+
+**Read side**: no new tool needed -- `get_busy_calendar_blocks`
+(`lib/assistant.ts`'s `fetchBusyBlocksForAssistant`, added back in the
+original Phase 11 assistant build) already returns a client's busy
+windows for a date range without leaking event titles/details, exactly
+the shape needed to sanity-check a proposed time. The system prompt
+(`lib/assistant-tools.ts`) now tells the model to call it before
+proposing a time.
+
+**Write side** (`lib/assistant-write-tools.ts`): `propose_schedule_call`
+takes a `startTime`/`endTime` pair plus an optional `title` (defaults to
+the client-anonymous "Coaching call") and `notes`. `run()` rejects an
+inverted range before staging anything, then calls `createProposal` with
+the time/title/notes as payload -- same as every other write tool, it
+never touches `calendar_events` itself.
+
+**Apply side** (`proposal-actions.ts`'s new `approveScheduleCallProposal`):
+calls the *existing* `createEvent` server action from
+`lib/calendar-actions.ts` unchanged -- the same one the coach's manual
+"new event" modal already uses -- with `hasVideoCall: true`, since a
+"coaching call" implies the Daily.co room every other video-enabled
+event on this calendar already gets for free. `createEvent` resolves the
+current coach from the session itself and handles the room creation, so
+there was nothing calendar-specific left to write here beyond validating
+the proposal and handing off the staged fields.
+
+**UI** (`PendingProposals.tsx`): added a `schedule_call` branch (the
+generic placeholder from Stages 3-5 is now fully retired -- every
+proposal type has a real renderer) showing the proposed title and a
+formatted date/time window, with any notes shown as body text. Approving
+books the call directly; there's nothing to edit inline the way a draft
+message is, so, like program changes, the coach's only choices are
+approve or discard.
+
+**`AssistantChat.tsx` fix folded in**: `PROPOSAL_CREATING_TOOLS` -- the
+set of tool names that should trigger a `router.refresh()` so the
+server-rendered "Pending review" section picks up a newly created row --
+had only ever had `draft_message_to_client` in it; Stage 6 should have
+added `propose_program_change` but didn't. Both that and the new
+`propose_schedule_call` are added now.
+
+This completes all six desired outcomes from the original spec under
+the one standing rule that governed every stage: the assistant can
+observe, draft, and suggest, but a coach's explicit review and approval
+is the only thing that ever turns a proposal into a real side effect --
+a sent message, a changed program, a created workout/document, or a
+booked call -- and no proposal or draft is ever auto-assigned to a
+client.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

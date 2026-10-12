@@ -66,7 +66,11 @@ function MarkdownMessage({ content }: { content: string }) {
 // (see lib/assistant-write-tools.ts) -- when one fires, the client page's
 // server-rendered "Pending review" section is stale until the next
 // router.refresh(), since this component has no other link to it.
-const PROPOSAL_CREATING_TOOLS = new Set(["draft_message_to_client"]);
+const PROPOSAL_CREATING_TOOLS = new Set([
+  "draft_message_to_client",
+  "propose_program_change",
+  "propose_schedule_call",
+]);
 
 const INTRO: ChatMessage = {
   role: "assistant",

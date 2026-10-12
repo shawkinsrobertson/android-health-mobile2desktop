@@ -5,6 +5,7 @@ import { ProposalCard } from "./ProposalCard";
 import {
   approveDraftMessageProposal,
   approveProgramChangeProposal,
+  approveScheduleCallProposal,
   discardProposal,
 } from "@/app/dashboard/clients/[clientId]/proposal-actions";
 import type { Proposal } from "@/lib/proposals";
@@ -38,6 +39,22 @@ interface ProgramChangePayload {
   assignedWorkoutId: string;
   assignedWorkoutName: string;
   changes: ProgramChangeItem[];
+}
+
+interface ScheduleCallPayload {
+  startTime: string;
+  endTime: string;
+  title: string;
+  notes: string | null;
+}
+
+function formatCallWindow(startTime: string, endTime: string): string {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const dateLabel = start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const startLabel = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const endLabel = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel}, ${startLabel} - ${endLabel}`;
 }
 
 const PRESCRIPTION_LABELS: { key: keyof ExercisePrescription; label: string }[] = [
@@ -101,8 +118,8 @@ function ProgramChangeDiff({ change }: { change: ProgramChangeItem }) {
   );
 }
 
-// First real consumer of ProposalCard. schedule_call still falls through
-// to a plain summary-only card (its apply action lands in Stage 7).
+// First real consumer of ProposalCard -- one branch per proposal type,
+// each wired to its own outcome-specific apply action.
 export function PendingProposals({ clientId, initialProposals }: { clientId: string; initialProposals: Proposal[] }) {
   const [proposals, setProposals] = useState(initialProposals);
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -181,25 +198,26 @@ export function PendingProposals({ clientId, initialProposals }: { clientId: str
             );
           }
 
-          // schedule_call: created by no tool yet (Stage 7), so this path
-          // isn't reachable today -- kept so a row of that future type
-          // still renders something instead of silently vanishing from
-          // the list once that stage adds a tool that creates it ahead of
-          // its own apply action landing.
+          // schedule_call is the only remaining type.
+          const { startTime, endTime, title, notes } = proposal.payload as ScheduleCallPayload;
           return (
             <ProposalCard
               key={proposal.id}
               typeLabel={typeLabel}
-              summary={proposal.summary}
+              summary={`${title} -- ${formatCallWindow(startTime, endTime)}`}
               createdAt={proposal.createdAt}
+              approveLabel="Book call"
               onApprove={async () => {
-                throw new Error("Approving this proposal type isn't available yet.");
+                await approveScheduleCallProposal(clientId, proposal.id);
+                remove(proposal.id);
               }}
               onDiscard={async () => {
                 await discardProposal(clientId, proposal.id);
                 remove(proposal.id);
               }}
-            />
+            >
+              {notes && <p className="mb-1 text-sm text-ink-secondary">{notes}</p>}
+            </ProposalCard>
           );
         })}
       </div>

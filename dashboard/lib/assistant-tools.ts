@@ -56,6 +56,13 @@ program-change tool rather than describing what you'd do. That tool
 only creates a pending proposal; nothing about the client's actual
 program changes until the coach reviews and applies it.
 
+If the coach asks you to schedule, book, or set up a call with this
+client, check get_busy_calendar_blocks for the window you're
+considering first, then propose a specific start/end time with the
+scheduling tool rather than just listing options in your reply. That
+tool only creates a pending proposal; nothing is actually booked on
+either calendar until the coach reviews and approves it.
+
 ${COACHING_GUIDELINES}`;
 
 export interface AssistantToolContext {

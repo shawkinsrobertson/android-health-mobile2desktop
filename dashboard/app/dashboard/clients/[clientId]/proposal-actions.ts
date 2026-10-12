@@ -7,6 +7,7 @@ import { getCurrentProfile } from "@/lib/profile";
 import { getProposal, markProposalApplied, rejectProposal } from "@/lib/proposals";
 import { getOrCreateThread } from "@/lib/chat";
 import { sendChatMessage } from "@/lib/chat-actions";
+import { createEvent } from "@/lib/calendar-actions";
 
 async function requireCoach() {
   const profile = await getCurrentProfile();
@@ -150,4 +151,43 @@ export async function approveProgramChangeProposal(clientId: string, proposalId:
 
   revalidatePath(`/dashboard/clients/${clientId}`);
   revalidatePath(`/dashboard/clients/${clientId}/assigned/workouts/${assignedWorkoutId}`);
+}
+
+interface ScheduleCallPayload {
+  startTime: string;
+  endTime: string;
+  title: string;
+  notes: string | null;
+}
+
+// createEvent (lib/calendar-actions.ts) is the one place a calendar_events
+// row actually gets created -- it reads the current coach from the
+// session itself, same as every other action in this file, so there's
+// nothing proposal-specific to duplicate here beyond validating the
+// proposal and handing it the staged time/title.
+export async function approveScheduleCallProposal(clientId: string, proposalId: string): Promise<void> {
+  const coach = await requireCoach();
+  const supabase = await createClient();
+
+  const proposal = await getProposal(supabase, coach.id, proposalId);
+  if (!proposal || proposal.type !== "schedule_call" || proposal.status !== "pending" || proposal.clientId !== clientId) {
+    throw new Error("This proposal is no longer pending.");
+  }
+
+  const { startTime, endTime, title, notes } = proposal.payload as ScheduleCallPayload;
+
+  await createEvent({
+    title,
+    description: notes ?? undefined,
+    startTime,
+    endTime,
+    hasVideoCall: true,
+    clientId,
+  });
+
+  await markProposalApplied(supabase, coach.id, proposalId);
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
 }

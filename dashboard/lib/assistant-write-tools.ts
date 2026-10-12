@@ -157,5 +157,35 @@ export function buildWriteTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
-  return [draftMessage, proposeProgramChange];
+  const proposeScheduleCall = {
+    ...betaZodTool({
+      name: "propose_schedule_call",
+      description:
+        "Propose a specific time for a coaching call with this client. This does NOT book anything -- it creates a pending proposal the coach must review and approve first. Call get_busy_calendar_blocks first to check the client isn't already busy at the proposed time.",
+      inputSchema: z.object({
+        startTime: z.string().describe("ISO 8601 date/time for the proposed call's start"),
+        endTime: z.string().describe("ISO 8601 date/time for the proposed call's end"),
+        title: z.string().optional().describe("Short event title, defaults to 'Coaching call'"),
+        notes: z.string().optional().describe("Optional agenda or notes for the call"),
+        summary: z.string().min(1).describe("One sentence summarizing the proposed time, for the coach to scan"),
+      }),
+      run: async ({ startTime, endTime, title, notes, summary }) => {
+        if (new Date(endTime).getTime() <= new Date(startTime).getTime()) {
+          throw new Error("endTime must be after startTime");
+        }
+
+        const { id } = await createProposal(ctx.supabase, {
+          coachId: ctx.coachId,
+          clientId: ctx.clientId,
+          type: "schedule_call",
+          summary,
+          payload: { startTime, endTime, title: title?.trim() || "Coaching call", notes: notes ?? null },
+        });
+        return JSON.stringify({ proposalId: id, status: "pending_review" });
+      },
+    }),
+    eager_input_streaming: true,
+  };
+
+  return [draftMessage, proposeProgramChange, proposeScheduleCall];
 }
