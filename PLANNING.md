@@ -1739,3 +1739,39 @@ available too.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 2 -- generic proposal/approval infrastructure
+
+The reusable "coach reviews before execution" gate every write outcome
+from here on needs. New `ai_assistant_proposals` table (migration
+`0028`), scoped to the three outcomes that have no existing list to
+stage inside of -- `draft_message`, `program_change`, `schedule_call`.
+Draft workouts and documents (Stage 4/5) deliberately do **not** use this
+table: per the coach's own decision earlier in this phase, those stage
+directly on `library_workouts`/`library_documents` via a status column so
+a draft shows up right in the existing Workouts/Documents list, not a
+separate queue. This table is for the three outcomes that have nowhere
+else to live.
+
+`lib/proposals.ts`: `createProposal` (called from a tool's `run()`,
+never from the review UI), `listPendingProposals`/`getProposal`,
+`rejectProposal` (generic -- discarding is identical for every type,
+since nothing was ever applied), and `markProposalApplied` (a helper
+each outcome's own apply action calls *after* it performs the real side
+effect -- this file has no idea how to send a message, change a program,
+or book a call, by design). New `app/dashboard/clients/[clientId]/
+proposal-actions.ts` wraps `rejectProposal` as a coach-gated server
+action (`discardProposal`) -- the only action that belongs here, since
+approving is type-specific and lands with each outcome.
+
+New `components/ProposalCard.tsx`: a generic, reusable review-card shell
+(type badge, summary, created time, a children slot for type-specific
+detail rendering, Approve/Discard buttons) with no knowledge of what any
+proposal type actually contains. It has no caller yet -- Stage 3 is its
+first consumer, wiring in both the first proposal type (`draft_message`)
+and the client-page list section that renders pending ones, since
+building that list now would mean guessing at a renderer for a payload
+shape that doesn't exist yet.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).
