@@ -6,7 +6,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { ProgramWorkoutListEditor, type ProgramWorkoutItem } from "@/components/library/ProgramWorkoutListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
-import { updateProgram, deleteProgram } from "../actions";
+import { updateProgram, deleteProgram, publishProgram } from "../actions";
 import { assignLibraryProgramToClient } from "../../assign-actions";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function ProgramDetailPage({
   const [{ data: program, error }, { data: joinRows }, { data: workouts }, { data: clientRows }] = await Promise.all([
     supabase
       .from("library_programs")
-      .select("id, name, description, photo_path, photo_url, video_path, video_url")
+      .select("id, name, description, photo_path, photo_url, video_path, video_url, status")
       .eq("id", params.programId)
       .eq("coach_id", profile.id)
       .single(),
@@ -89,16 +89,35 @@ export default async function ProgramDetailPage({
           >
             ← Programs
           </Link>
-          <h1 className="mt-1 text-lg font-semibold text-ink-primary">{program.name}</h1>
+          <div className="mt-1 flex items-center gap-1.5">
+            <h1 className="text-lg font-semibold text-ink-primary">{program.name}</h1>
+            {program.status === "draft" && (
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+                Draft
+              </span>
+            )}
+          </div>
         </div>
-        <form action={deleteProgram.bind(null, program.id)}>
-          <button
-            type="submit"
-            className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
-          >
-            Delete
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          {program.status === "draft" && (
+            <form action={publishProgram.bind(null, program.id)}>
+              <button
+                type="submit"
+                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+              >
+                Publish
+              </button>
+            </form>
+          )}
+          <form action={deleteProgram.bind(null, program.id)}>
+            <button
+              type="submit"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+            >
+              Delete
+            </button>
+          </form>
+        </div>
       </div>
 
       {searchParams.error && (
@@ -163,12 +182,18 @@ export default async function ProgramDetailPage({
         />
       </section>
 
-      <AssignToClientCard
-        itemId={program.id}
-        action={assignLibraryProgramToClient}
-        clients={clients}
-        itemLabel="program"
-      />
+      {program.status === "draft" ? (
+        <p className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-sm text-ink-muted">
+          Publish this program before assigning it to a client.
+        </p>
+      ) : (
+        <AssignToClientCard
+          itemId={program.id}
+          action={assignLibraryProgramToClient}
+          clients={clients}
+          itemLabel="program"
+        />
+      )}
     </div>
   );
 }

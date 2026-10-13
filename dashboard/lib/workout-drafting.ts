@@ -3,10 +3,16 @@ import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Draft workouts from a text prompt (outcome #4). Unlike the client-scoped
-// assistant (lib/assistant-tools.ts), this isn't tied to any one client --
-// workouts are coach-level library content -- so it's a separate, smaller
-// tool-calling turn rather than reusing buildAssistantTools/buildWriteTools.
+// Draft workouts from a text prompt (outcome #4). A drafted workout is
+// coach-level library content, not tied to any one client, so this still
+// gets its own standalone tool-calling turn below (draftWorkoutFromPrompt,
+// used by the Workouts list page's prompt box) rather than being folded
+// into buildAssistantTools's client-scoped read loop. buildWorkoutDraftTools
+// itself is exported, though, so the per-client assistant's write tools
+// (lib/assistant-write-tools.ts) and the program-drafting flow
+// (lib/program-drafting.ts) can reuse it directly -- a drafted workout
+// still never gets assigned to any client by either path, it's always a
+// coach-level draft they review on the real Workouts page.
 //
 // Per the coach's own decision on how drafts should stage: this writes
 // directly into library_workouts/library_workout_exercises with
@@ -34,7 +40,15 @@ This creates a draft only -- nothing is visible to any client and it
 can't be assigned to one until the coach reviews and publishes it, so
 use your best judgment rather than asking a clarifying question back.`;
 
-function buildWorkoutDraftTools(supabase: SupabaseClient, coachId: string, onCreated: (workoutId: string) => void) {
+// Exported so both the standalone drafting turn below and the per-client
+// assistant's write tools (lib/assistant-write-tools.ts) -- directly, and
+// via lib/program-drafting.ts's buildProgramDraftTools -- can create a
+// draft workout without duplicating the exercise-matching logic.
+export function buildWorkoutDraftTools(
+  supabase: SupabaseClient,
+  coachId: string,
+  onCreated?: (workoutId: string) => void,
+) {
   const getLibraryExercises = {
     ...betaZodTool({
       name: "get_library_exercises",
@@ -110,7 +124,7 @@ function buildWorkoutDraftTools(supabase: SupabaseClient, coachId: string, onCre
           });
         }
 
-        onCreated(workout.id);
+        onCreated?.(workout.id);
         return JSON.stringify({ workoutId: workout.id, exerciseCount: exercises.length });
       },
     }),
