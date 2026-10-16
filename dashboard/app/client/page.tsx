@@ -157,7 +157,7 @@ export default async function ClientDashboardPage() {
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">Recent workouts</h2>
           <Link href="/client/history" className="text-xs text-[color:var(--accent)] hover:underline">
             See all
@@ -187,7 +187,7 @@ export default async function ClientDashboardPage() {
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">Personal records</h2>
           {personalRecords.length > 3 && (
             <Link
@@ -217,7 +217,7 @@ export default async function ClientDashboardPage() {
       />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Connect your phone</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Connect your phone</h2>
         <p className="mb-3 text-sm text-ink-secondary">
           Open the Health Sync app and sign in with this email. You&apos;ll get an 8-digit code
           by email each time -- no password, and nothing to type in on the phone beyond that
@@ -232,12 +232,12 @@ export default async function ClientDashboardPage() {
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Your top data points</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Your top data points</h2>
         <DataPointPicker initialSelected={clientProfile.topDataPoints} />
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Weight units</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Weight units</h2>
         <p className="mb-3 text-xs text-ink-secondary">Used when logging weight during a workout.</p>
         <form action={updateWeightUnit} className="flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-sm text-ink-primary">
@@ -268,7 +268,7 @@ export default async function ClientDashboardPage() {
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Data sharing</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Data sharing</h2>
         <p className="mb-3 text-xs text-ink-secondary">
           Choose what your coach can see. Turning something off here is visible to your coach, but
           doesn&apos;t yet stop it from syncing from your phone.

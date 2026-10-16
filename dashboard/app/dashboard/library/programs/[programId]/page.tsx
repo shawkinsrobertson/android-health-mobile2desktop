@@ -125,7 +125,7 @@ export default async function ProgramDetailPage({
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Details</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Details</h2>
         <form action={updateProgram.bind(null, program.id)} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink-primary">
             Name
@@ -174,7 +174,7 @@ export default async function ProgramDetailPage({
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Workouts</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Workouts</h2>
         <ProgramWorkoutListEditor
           programId={program.id}
           items={items}

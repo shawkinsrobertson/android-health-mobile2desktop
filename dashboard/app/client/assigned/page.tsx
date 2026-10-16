@@ -69,7 +69,7 @@ function Section({
 }) {
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">{title}</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">{title}</h2>
       {items.length === 0 ? (
         <p className="text-sm text-ink-muted">Nothing here yet.</p>
       ) : (

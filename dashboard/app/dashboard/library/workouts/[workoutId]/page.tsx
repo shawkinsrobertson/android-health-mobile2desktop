@@ -160,7 +160,7 @@ export default async function WorkoutDetailPage({
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Details</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Details</h2>
         <form action={updateWorkout.bind(null, workout.id)} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink-primary">
             Name
@@ -209,7 +209,7 @@ export default async function WorkoutDetailPage({
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <WorkoutExerciseListEditor
           workoutId={workout.id}
           items={items}

@@ -120,7 +120,7 @@ export function ProgramWorkoutListEditor({
                       type="button"
                       disabled={idx === 0 || isPending}
                       onClick={() => move(item.id, -1)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
                     >
                       ↑
                     </button>
@@ -128,14 +128,14 @@ export function ProgramWorkoutListEditor({
                       type="button"
                       disabled={idx === items.length - 1 || isPending}
                       onClick={() => move(item.id, 1)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
                     >
                       ↓
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingId(item.id)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
                     >
                       Edit
                     </button>
@@ -143,7 +143,7 @@ export function ProgramWorkoutListEditor({
                       type="button"
                       disabled={isPending}
                       onClick={() => startTransition(() => removeProgramWorkout(programId, item.id))}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-danger"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger"
                     >
                       Remove
                     </button>

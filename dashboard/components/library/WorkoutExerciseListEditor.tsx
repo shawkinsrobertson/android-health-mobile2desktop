@@ -191,7 +191,7 @@ function ExerciseRow({
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+          className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
         >
           Edit
         </button>
@@ -199,7 +199,7 @@ function ExerciseRow({
           type="button"
           disabled={isPending}
           onClick={onRemove}
-          className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-danger"
+          className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger"
         >
           Remove
         </button>
@@ -307,7 +307,7 @@ export function WorkoutExerciseListEditor({
                       <button
                         type="button"
                         onClick={() => setEditingBlockId(editingBlockId === unit.block.id ? null : unit.block.id)}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
                       >
                         Edit
                       </button>
@@ -315,7 +315,7 @@ export function WorkoutExerciseListEditor({
                         type="button"
                         disabled={isPending}
                         onClick={() => startTransition(() => ungroupWorkoutBlock(workoutId, unit.block.id))}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
                       >
                         Ungroup
                       </button>
@@ -323,7 +323,7 @@ export function WorkoutExerciseListEditor({
                         type="button"
                         disabled={isPending}
                         onClick={() => startTransition(() => deleteWorkoutBlock(workoutId, unit.block.id))}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-danger"
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger"
                       >
                         Delete
                       </button>
@@ -504,7 +504,7 @@ function UnitMoveButtons({
         type="button"
         disabled={disabledUp}
         onClick={onUp}
-        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
       >
         ↑
       </button>
@@ -512,7 +512,7 @@ function UnitMoveButtons({
         type="button"
         disabled={disabledDown}
         onClick={onDown}
-        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
       >
         ↓
       </button>

@@ -87,7 +87,7 @@ export function AvailabilityEditor({
             key={day.dayOfWeek}
             className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4"
           >
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-sm font-medium text-ink-primary">
                 <input
                   type="checkbox"
@@ -113,7 +113,7 @@ export function AvailabilityEditor({
                   <p className="text-xs text-ink-muted">No time blocks yet -- add one above.</p>
                 ) : (
                   day.timeBlocks.map((block, i) => (
-                    <div key={i} className="flex items-center gap-2">
+                    <div key={i} className="flex flex-wrap items-center gap-2">
                       <TimeCombobox
                         value={block.start}
                         onChange={(t) => updateBlock(day.dayOfWeek, i, { start: t })}

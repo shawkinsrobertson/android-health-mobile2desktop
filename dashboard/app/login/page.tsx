@@ -23,7 +23,7 @@ export default async function LoginPage({
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Sign in or sign up</h1>
+      <h1 className="mb-2 text-lg font-semibold text-ink-primary">Sign in or sign up</h1>
       <p className="mb-6 text-sm text-ink-secondary">
         Coaches: enter your email below. If you don&apos;t have an account yet, this creates one
         for you -- there&apos;s no separate sign-up. Clients: this is also where you sign back in

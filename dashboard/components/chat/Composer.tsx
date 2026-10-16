@@ -87,7 +87,12 @@ export function Composer({
           <span className="truncate">
             Replying to: {replyTo.body || (replyTo.attachment_kind ? `[${replyTo.attachment_kind}]` : "")}
           </span>
-          <button type="button" onClick={onCancelReply} className="ml-2 text-ink-muted hover:text-ink-primary">
+          <button
+            type="button"
+            onClick={onCancelReply}
+            aria-label="Cancel reply"
+            className="ml-2 shrink-0 rounded-md p-2 text-ink-muted hover:text-ink-primary"
+          >
             ✕
           </button>
         </div>
@@ -98,7 +103,8 @@ export function Composer({
           <button
             type="button"
             onClick={() => setPendingFile(null)}
-            className="ml-2 text-ink-muted hover:text-ink-primary"
+            aria-label="Remove attachment"
+            className="ml-2 shrink-0 rounded-md p-2 text-ink-muted hover:text-ink-primary"
           >
             ✕
           </button>
@@ -128,7 +134,7 @@ export function Composer({
           aria-label="Attach a file"
           className="rounded-md border border-[color:var(--border-hairline)] p-2 text-ink-secondary hover:text-ink-primary"
         >
-          <AttachIcon className="h-4 w-4" />
+          <AttachIcon className="h-6 w-6" />
         </button>
         <input
           ref={fileInputRef}
@@ -151,7 +157,7 @@ export function Composer({
               : "border-[color:var(--border-hairline)] text-ink-secondary hover:text-ink-primary"
           }`}
         >
-          {recording ? <span className="block h-4 w-4 rounded-sm bg-current" /> : <MicrophoneIcon className="h-4 w-4" />}
+          {recording ? <span className="block h-6 w-6 rounded-sm bg-current" /> : <MicrophoneIcon className="h-6 w-6" />}
         </button>
         <textarea
           value={text}

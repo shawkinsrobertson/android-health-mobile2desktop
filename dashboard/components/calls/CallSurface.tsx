@@ -18,7 +18,7 @@ export function CallSurface({ counterpartName }: { counterpartName: string }) {
   if (call.status === "ringing") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-6">
-        <div className="w-full max-w-sm rounded-xl bg-surface p-6 text-center">
+        <div className="w-full max-w-sm rounded-xl bg-surface p-5 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent)]/20 text-3xl">
             📞
           </div>

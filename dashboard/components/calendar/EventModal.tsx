@@ -214,10 +214,10 @@ export function EventModal({
                 className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
               />
 
-              <div className="flex gap-2">
-                <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
+              <div className="flex flex-wrap gap-2">
+                <label className="flex min-w-[160px] flex-1 flex-col gap-1 text-xs text-ink-secondary">
                   Starts
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <input
                       type="date"
                       value={startDate}
@@ -231,9 +231,9 @@ export function EventModal({
                     />
                   </div>
                 </label>
-                <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
+                <label className="flex min-w-[160px] flex-1 flex-col gap-1 text-xs text-ink-secondary">
                   Ends
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <input
                       type="date"
                       value={endDate}
@@ -325,20 +325,20 @@ export function EventModal({
 
             {error && <p className="mt-3 text-xs text-danger">{error}</p>}
 
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               {isEdit ? (
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
                   disabled={submitting}
-                  className="text-xs text-ink-muted hover:text-danger"
+                  className="rounded-md p-2 text-xs text-ink-muted hover:text-danger"
                 >
                   Delete
                 </button>
               ) : (
                 <span />
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={onClose}

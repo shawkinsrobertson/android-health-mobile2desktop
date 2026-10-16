@@ -41,7 +41,7 @@ export default async function JoinPage({
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">
+      <h1 className="mb-2 text-lg font-semibold text-ink-primary">
         Join {invite.coach_name || "your coach"}
       </h1>
       <p className="mb-6 text-sm text-ink-secondary">

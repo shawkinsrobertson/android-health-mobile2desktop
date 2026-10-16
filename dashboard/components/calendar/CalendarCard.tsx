@@ -198,7 +198,7 @@ export function CalendarCard({
 
   return (
     <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
           onClick={() => setExpanded(false)}
@@ -275,14 +275,14 @@ export function CalendarCard({
         </div>
       )}
 
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex gap-1">
           {(["agenda", "day", "week", "month"] as View[]).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setView(v)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+              className={`rounded-md px-2.5 py-2 text-xs font-medium ${
                 view === v
                   ? "bg-[color:var(--accent)] text-white"
                   : "text-ink-secondary hover:bg-[color:var(--page-plane)]"

@@ -126,14 +126,14 @@ export function CalendarWorkspace({
         </div>
 
         <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-          <h2 className="mb-3 text-sm font-semibold text-ink-primary">This month</h2>
+          <h2 className="mb-2 text-sm font-semibold text-ink-primary">This month</h2>
           {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
           <AgendaList events={events} onSelect={setEditingEvent} onJoin={handleJoin} />
         </div>
       </div>
 
       <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 lg:col-span-2">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => step(-1)} className="text-ink-secondary hover:text-ink-primary">
               ‹

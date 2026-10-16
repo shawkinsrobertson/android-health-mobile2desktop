@@ -19,7 +19,7 @@ export default async function BookPage({ params }: { params: { token: string } }
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">
+      <h1 className="mb-2 text-lg font-semibold text-ink-primary">
         Book time with {coach.fullName || "your coach"}
       </h1>
       <p className="mb-6 text-sm text-ink-secondary">Pick a date, then an open time.</p>

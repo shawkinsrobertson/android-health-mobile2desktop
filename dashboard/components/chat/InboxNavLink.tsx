@@ -57,7 +57,7 @@ export function InboxNavLink({
 
   return (
     <Link href={href} className="relative flex items-center gap-1.5 hover:text-ink-primary">
-      <InboxIcon className="h-4 w-4" />
+      <InboxIcon className="h-6 w-6" />
       Inbox
       {unread && (
         <span className="absolute -right-2 -top-1 h-2 w-2 rounded-full bg-yellow-400" aria-label="Unread messages" />

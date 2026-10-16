@@ -151,7 +151,7 @@ export default async function WorkoutSessionSummaryPage({
       </div>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">What you logged</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">What you logged</h2>
         {units.length === 0 ? (
           <p className="text-sm text-ink-muted">No exercises in this workout.</p>
         ) : (

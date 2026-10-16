@@ -30,7 +30,7 @@ export function FinishWorkoutForm({
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session notes</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">Session notes</h2>
       <div className="flex flex-col gap-3">
         <textarea
           rows={3}

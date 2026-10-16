@@ -14,7 +14,7 @@ export function CallButton() {
       className="flex items-center gap-1 rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs font-medium text-ink-secondary hover:text-ink-primary disabled:opacity-50"
       aria-label="Start a call"
     >
-      <PhoneIcon className="h-3.5 w-3.5" />
+      <PhoneIcon className="h-6 w-6" />
       Call
     </button>
   );

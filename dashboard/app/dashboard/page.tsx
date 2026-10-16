@@ -114,7 +114,7 @@ export default async function DashboardPage() {
       <TaskList initialTasks={tasks} />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Quick actions</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Quick actions</h2>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/dashboard/library/workouts/new"

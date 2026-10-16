@@ -102,12 +102,12 @@ export default async function ClientAssignedWorkoutPage({
       </form>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <AssignedExerciseList exercises={exercises} blocks={blocks} media={media} />
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Past sessions</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Past sessions</h2>
         {sessions.length === 0 ? (
           <p className="text-sm text-ink-muted">Nothing logged yet.</p>
         ) : (

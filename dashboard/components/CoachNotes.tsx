@@ -125,7 +125,7 @@ export function CoachNotes({
                   onClick={() => setEditingNote(note)}
                   className="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary"
                 >
-                  <EditIcon className="h-3.5 w-3.5" />
+                  <EditIcon className="h-6 w-6" />
                   Edit
                 </button>
                 <button
@@ -133,7 +133,7 @@ export function CoachNotes({
                   onClick={() => handleDelete(note.id)}
                   className="flex items-center gap-1 text-xs text-ink-muted hover:text-danger"
                 >
-                  <DeleteIcon className="h-3.5 w-3.5" />
+                  <DeleteIcon className="h-6 w-6" />
                   Delete
                 </button>
               </div>

@@ -116,7 +116,7 @@ export default async function CoachWorkoutSessionPage({
       </div>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <SessionExerciseList
           exercises={exercises}
           blocks={blocks}

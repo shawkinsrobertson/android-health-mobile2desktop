@@ -29,7 +29,7 @@ export function LibrarySidebar() {
         aria-label="Expand library sidebar"
         className="h-fit rounded-lg border border-[color:var(--border-hairline)] bg-surface p-2 text-ink-secondary hover:bg-[color:var(--page-plane)]"
       >
-        <ChevronDownIcon className="h-4 w-4 -rotate-90" />
+        <ChevronDownIcon className="h-6 w-6 -rotate-90" />
       </button>
     );
   }
@@ -42,9 +42,9 @@ export function LibrarySidebar() {
           type="button"
           onClick={() => setCollapsed(true)}
           aria-label="Collapse library sidebar"
-          className="text-ink-muted hover:text-ink-primary"
+          className="rounded-md p-1 text-ink-muted hover:text-ink-primary"
         >
-          <ChevronDownIcon className="h-4 w-4 rotate-90" />
+          <ChevronDownIcon className="h-6 w-6 rotate-90" />
         </button>
       </div>
       {SECTIONS.map((section) => {

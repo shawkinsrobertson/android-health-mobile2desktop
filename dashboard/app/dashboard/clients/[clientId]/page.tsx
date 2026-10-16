@@ -211,7 +211,7 @@ export default async function ClientDetailPage({
 
             {/* Data dashboard: client's chosen tiles + one overlay graph for every shared data type. */}
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-              <h2 className="mb-3 text-sm font-semibold text-ink-primary">
+              <h2 className="mb-2 text-sm font-semibold text-ink-primary">
                 Featured data points (client&apos;s picks)
               </h2>
               {summaries.length === 0 ? (
@@ -239,7 +239,7 @@ export default async function ClientDetailPage({
             </section>
 
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-ink-primary">Personal records</h2>
                 {personalRecords.length > 3 && (
                   <Link
@@ -259,7 +259,7 @@ export default async function ClientDetailPage({
 
             <div className="flex flex-wrap gap-[10%]">
               <section className="w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 sm:w-[45%]">
-                <h2 className="mb-1 text-sm font-semibold text-ink-primary">Weekly check-in</h2>
+                <h2 className="mb-2 text-sm font-semibold text-ink-primary">Weekly check-in</h2>
                 <p className="mb-3 text-xs text-ink-muted">
                   A recurring set of questions this client answers each week -- shows up in their Tasks.
                 </p>
@@ -279,7 +279,7 @@ export default async function ClientDetailPage({
               </section>
 
               <section className="w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 sm:w-[45%]">
-                <h2 className="mb-1 text-sm font-semibold text-ink-primary">Coach notes</h2>
+                <h2 className="mb-2 text-sm font-semibold text-ink-primary">Coach notes</h2>
                 <p className="mb-3 text-xs text-ink-muted">
                   Only you see these. Mark a note private to keep it out of the AI assistant&apos;s context too.
                 </p>
@@ -293,7 +293,7 @@ export default async function ClientDetailPage({
             </div>
 
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-              <h2 className="mb-3 text-sm font-semibold text-ink-primary">Assigned content</h2>
+              <h2 className="mb-2 text-sm font-semibold text-ink-primary">Assigned content</h2>
               <div className="grid gap-4 sm:grid-cols-3">
                 <AssignedCategory
                   title="Workouts"
@@ -329,7 +329,7 @@ export default async function ClientDetailPage({
             </section>
 
             <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-              <h2 className="mb-3 text-sm font-semibold text-ink-primary">About</h2>
+              <h2 className="mb-2 text-sm font-semibold text-ink-primary">About</h2>
               <dl className="mb-4 grid gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <dt className="text-ink-muted">Phone</dt>

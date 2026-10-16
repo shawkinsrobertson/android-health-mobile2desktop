@@ -25,7 +25,7 @@ export function ClientAssistantSidebar({
         aria-label="Expand AI assistant"
         className="flex h-fit shrink-0 items-center gap-1.5 rounded-lg border border-[color:var(--border-hairline)] bg-surface px-2 py-2 text-ink-secondary hover:bg-[color:var(--page-plane)]"
       >
-        <ChevronDownIcon className="h-4 w-4 rotate-90" />
+        <ChevronDownIcon className="h-6 w-6 rotate-90" />
         <span className="text-xs font-medium [writing-mode:vertical-rl]">AI assistant</span>
       </button>
     );
@@ -39,9 +39,9 @@ export function ClientAssistantSidebar({
           type="button"
           onClick={() => setCollapsed(true)}
           aria-label="Collapse AI assistant"
-          className="text-ink-muted hover:text-ink-primary"
+          className="rounded-md p-1 text-ink-muted hover:text-ink-primary"
         >
-          <ChevronDownIcon className="h-4 w-4 -rotate-90" />
+          <ChevronDownIcon className="h-6 w-6 -rotate-90" />
         </button>
       </div>
       <p className="text-xs text-ink-muted">

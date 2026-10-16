@@ -89,7 +89,7 @@ export default async function AssignedProgramPage({
       <VideoPreview path={program.video_path} url={program.video_url} resolvedUrl={videoUrl} />
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Workouts</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Workouts</h2>
         {workouts.length === 0 ? (
           <p className="text-sm text-ink-muted">No workouts in this program.</p>
         ) : (
