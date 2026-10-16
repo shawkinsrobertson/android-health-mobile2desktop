@@ -1999,3 +1999,57 @@ client.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+### Stage 8 -- draft workouts/programs from the per-client chat, plus draft programs (follow-up)
+
+Testing surfaced a real gap: Stage 4's workout drafting only ever lived
+on the Workouts list page, so asking the per-client assistant to draft a
+new workout (e.g. "write this client a running program") correctly, but
+unhelpfully, failed -- it had no tool for it at all. Separately, that
+specific ask was for a multi-workout *program*, which Stage 4 never
+built drafting for in the first place (only single workouts). This
+stage closes both gaps, by the coach's explicit choice to keep the
+existing library-only entry points *and* add chat access alongside them,
+plus add program drafting as its own capability.
+
+**Program drafting is new** (outcome #4, extended): same draft/review/
+publish pattern as workouts/documents -- a `status` column on
+`library_programs` (migration `0031`), excluded from the client page's
+program picker until published, same as the existing workout/document
+filters. `lib/program-drafting.ts`'s `buildProgramDraftTools` reuses
+`buildWorkoutDraftTools` (now exported from `lib/workout-drafting.ts`,
+with its `onCreated` callback made optional) rather than re-implementing
+exercise matching, and adds two more tools: `get_library_workouts` (so
+the model can reuse an existing published workout instead of drafting a
+duplicate) and `propose_program` (creates the draft `library_programs`
+row plus its `library_program_workouts` join rows, in order). The system
+prompt tells the model that a plain weekly-repeating pattern ("3 days a
+week") only needs `dayOfWeek` set per workout, with `weekNumber` reserved
+for programs that actually differ week to week. `draftProgramFromPrompt`
+mirrors `draftWorkoutFromPrompt`'s standalone tool-calling turn, behind a
+new `/api/library/programs/draft` route and `DraftProgramPrompt` on the
+Programs list page (Drafts/Published split, `publishProgram` action,
+guarded `AssignToClientCard` -- all identical in shape to Stage 4/5's
+workout/document versions).
+
+**Chat access is the other half**: `buildWriteTools()`
+(`lib/assistant-write-tools.ts`) now also spreads in
+`buildProgramDraftTools(ctx.supabase, ctx.coachId)` -- a superset that
+includes workout-only drafting (`get_library_exercises`/
+`propose_workout`) alongside the new program tools, so the per-client
+assistant can handle "draft a workout" and "draft a program" asks with
+the same tool set, picking the right depth itself. Deliberately not
+parameterized by `ctx.clientId` at all: a workout or program drafted
+through a client's chat is exactly as client-agnostic as one drafted
+from the Workouts/Programs page directly -- it lands in the coach's
+library as an ordinary draft, and the "no client assignment" rule is
+enforced the same way it always has been, by the assignment pickers'
+`status='published'` filters, not by anything in this chat path. The
+system prompt now explicitly distinguishes this from the Stage 6
+program-*change* tool: changing an already-assigned workout's
+prescription is a different thing from drafting a brand-new workout or
+program from scratch, and the model is told which tool-set answers
+which.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` (all clean).

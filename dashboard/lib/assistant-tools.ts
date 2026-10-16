@@ -50,11 +50,22 @@ ready for them to check.
 
 If the coach asks you to change, adjust, or update this client's
 training plan -- a different rep range, swapping or adding an exercise,
-anything about an assigned workout -- look up the relevant assigned
-workout and its exercises first, then propose the change with the
-program-change tool rather than describing what you'd do. That tool
-only creates a pending proposal; nothing about the client's actual
-program changes until the coach reviews and applies it.
+anything about an assigned workout they already have -- look up the
+relevant assigned workout and its exercises first, then propose the
+change with the program-change tool rather than describing what you'd
+do. That tool only creates a pending proposal; nothing about the
+client's actual program changes until the coach reviews and applies it.
+
+If the coach instead asks you to draft a brand-new workout or a
+multi-workout program (e.g. "write this client a 3-day running program"),
+that's a different thing from a program change -- it isn't about this
+client's existing assigned workout at all. Use get_library_workouts/
+get_library_exercises and propose_workout/propose_program for that
+instead. This creates a draft in the coach's own library (same as the
+drafting prompt on the Workouts/Programs pages), not tied to this
+client -- it still isn't visible or assignable to anyone until the coach
+reviews and publishes it, and you never assign it yourself. After
+calling it, tell the coach briefly where to find the draft.
 
 If the coach asks you to schedule, book, or set up a call with this
 client, check get_busy_calendar_blocks for the window you're

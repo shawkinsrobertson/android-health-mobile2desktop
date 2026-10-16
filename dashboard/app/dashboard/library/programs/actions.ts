@@ -141,6 +141,20 @@ export async function updateProgram(programId: string, formData: FormData) {
   revalidatePath(`${LIST_PATH}/${programId}`);
 }
 
+export async function publishProgram(programId: string) {
+  const coach = await requireCoach();
+  const supabase = await createClient();
+
+  await supabase
+    .from("library_programs")
+    .update({ status: "published" })
+    .eq("id", programId)
+    .eq("coach_id", coach.id);
+
+  revalidatePath(LIST_PATH);
+  revalidatePath(`${LIST_PATH}/${programId}`);
+}
+
 export async function deleteProgram(programId: string) {
   const coach = await requireCoach();
   const supabase = await createClient();

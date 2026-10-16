@@ -1,6 +1,7 @@
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { createProposal } from "@/lib/proposals";
+import { buildProgramDraftTools } from "@/lib/program-drafting";
 import type { AssistantToolContext } from "@/lib/assistant-tools";
 
 // Write-capable tools, deliberately kept separate from
@@ -8,8 +9,17 @@ import type { AssistantToolContext } from "@/lib/assistant-tools";
 // proactive insight generator (lib/insights.ts) reuses that read-only
 // set directly and must never gain the ability to take actions on its
 // own, so these are only added to the interactive chat route's tool
-// list. Every tool here creates a pending ai_assistant_proposals row and
-// nothing else -- see lib/proposals.ts for why.
+// list.
+//
+// Most tools here create a pending ai_assistant_proposals row and
+// nothing else -- see lib/proposals.ts for why. The workout/program
+// drafting tools pulled in below are the exception: they follow the
+// Stage 4/5/8 convention instead, writing a real status='draft' row
+// directly into library_workouts/library_programs (reviewed on the real
+// Workouts/Programs pages, not a proposal queue) -- but the one thing
+// both patterns share is the same guarantee this file exists to
+// enforce: nothing here ever assigns anything to a client, and nothing
+// becomes visible to one without an explicit, separate coach action.
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -187,5 +197,14 @@ export function buildWriteTools(ctx: AssistantToolContext) {
     eager_input_streaming: true,
   };
 
-  return [draftMessage, proposeProgramChange, proposeScheduleCall];
+  // Superset of buildWorkoutDraftTools -- includes get_library_exercises
+  // and propose_workout alongside get_library_workouts/propose_program,
+  // so the coach can ask this chat to draft either a single workout or a
+  // full multi-workout program and the model picks the right depth. Not
+  // tied to ctx.clientId at all: a drafted workout/program is coach-level
+  // library content the coach reviews and assigns themselves afterward,
+  // same as drafting one from the Workouts/Programs list pages directly.
+  const draftingTools = buildProgramDraftTools(ctx.supabase, ctx.coachId);
+
+  return [draftMessage, proposeProgramChange, proposeScheduleCall, ...draftingTools];
 }
