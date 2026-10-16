@@ -6,6 +6,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { ProgramWorkoutListEditor, type ProgramWorkoutItem } from "@/components/library/ProgramWorkoutListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
 import { updateProgram, deleteProgram, publishProgram } from "../actions";
 import { assignLibraryProgramToClient } from "../../assign-actions";
 
@@ -98,26 +99,13 @@ export default async function ProgramDetailPage({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {program.status === "draft" && (
-            <form action={publishProgram.bind(null, program.id)}>
-              <button
-                type="submit"
-                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-              >
-                Publish
-              </button>
-            </form>
-          )}
-          <form action={deleteProgram.bind(null, program.id)}>
-            <button
-              type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
-            >
-              Delete
-            </button>
-          </form>
-        </div>
+        <PublishDeleteActions
+          id={program.id}
+          itemLabel="program"
+          isDraft={program.status === "draft"}
+          onPublish={publishProgram}
+          onDelete={deleteProgram}
+        />
       </div>
 
       {searchParams.error && (

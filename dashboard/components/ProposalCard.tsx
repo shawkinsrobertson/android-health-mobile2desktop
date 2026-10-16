@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Generic review shell for one pending ai_assistant_proposals row.
 // Type-specific detail rendering is the children slot; type-specific
@@ -27,6 +28,7 @@ export function ProposalCard({
 }) {
   const [pending, setPending] = useState<"approve" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<"approve" | "discard" | null>(null);
 
   async function handle(action: "approve" | "discard", fn: () => Promise<void>) {
     setPending(action);
@@ -54,7 +56,7 @@ export function ProposalCard({
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          onClick={() => handle("approve", onApprove)}
+          onClick={() => setConfirming("approve")}
           disabled={pending !== null}
           className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
         >
@@ -62,13 +64,31 @@ export function ProposalCard({
         </button>
         <button
           type="button"
-          onClick={() => handle("discard", onDiscard)}
+          onClick={() => setConfirming("discard")}
           disabled={pending !== null}
           className="rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-ink-primary disabled:opacity-50"
         >
           {pending === "discard" ? "Working…" : "Discard"}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={!!confirming}
+        title={confirming === "approve" ? `Approve this ${typeLabel.toLowerCase()}?` : `Discard this ${typeLabel.toLowerCase()}?`}
+        body={
+          confirming === "approve"
+            ? "This commits it right away."
+            : "This can't be undone -- nothing was applied."
+        }
+        confirmLabel={confirming === "approve" ? approveLabel : "Discard"}
+        destructive={confirming === "discard"}
+        onConfirm={() => {
+          const action = confirming;
+          setConfirming(null);
+          if (action) handle(action, action === "approve" ? onApprove : onDiscard);
+        }}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   );
 }

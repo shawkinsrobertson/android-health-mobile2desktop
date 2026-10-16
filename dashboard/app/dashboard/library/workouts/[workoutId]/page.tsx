@@ -10,6 +10,7 @@ import {
   type WorkoutExerciseItem,
 } from "@/components/library/WorkoutExerciseListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
 import { updateWorkout, deleteWorkout, publishWorkout } from "../actions";
 import { assignLibraryWorkoutToClient } from "../../assign-actions";
 
@@ -133,26 +134,13 @@ export default async function WorkoutDetailPage({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {workout.status === "draft" && (
-            <form action={publishWorkout.bind(null, workout.id)}>
-              <button
-                type="submit"
-                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-              >
-                Publish
-              </button>
-            </form>
-          )}
-          <form action={deleteWorkout.bind(null, workout.id)}>
-            <button
-              type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
-            >
-              Delete
-            </button>
-          </form>
-        </div>
+        <PublishDeleteActions
+          id={workout.id}
+          itemLabel="workout"
+          isDraft={workout.status === "draft"}
+          onPublish={publishWorkout}
+          onDelete={deleteWorkout}
+        />
       </div>
 
       {searchParams.error && (

@@ -13,9 +13,10 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { PersonalRecordsList } from "@/components/PersonalRecordsList";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DATA_POINTS, labelFor } from "./data-points";
-import { updateWeightUnit, updateDataConsent } from "./actions";
+import { updateDataConsent } from "./actions";
 import { getCurrentCheckIn } from "@/lib/check-ins";
 import { DumbbellIcon } from "@/components/icons/DumbbellIcon";
+import { WeightUnitForm } from "@/components/WeightUnitForm";
 
 export const dynamic = "force-dynamic";
 
@@ -239,32 +240,7 @@ export default async function ClientDashboardPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-primary">Weight units</h2>
         <p className="mb-3 text-xs text-ink-secondary">Used when logging weight during a workout.</p>
-        <form action={updateWeightUnit} className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-ink-primary">
-            <input
-              type="radio"
-              name="preferred_weight_unit"
-              value="lbs"
-              defaultChecked={clientProfile.preferredWeightUnit === "lbs"}
-            />
-            lbs
-          </label>
-          <label className="flex items-center gap-1.5 text-sm text-ink-primary">
-            <input
-              type="radio"
-              name="preferred_weight_unit"
-              value="kg"
-              defaultChecked={clientProfile.preferredWeightUnit === "kg"}
-            />
-            kg
-          </label>
-          <button
-            type="submit"
-            className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-          >
-            Save
-          </button>
-        </form>
+        <WeightUnitForm initialUnit={clientProfile.preferredWeightUnit} />
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

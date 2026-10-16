@@ -46,7 +46,7 @@ export function TaskList({ initialTasks }: { initialTasks: TaskRow[] }) {
           disabled={!draft.trim() || isPending}
           className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
         >
-          Add
+          {isPending ? "Adding…" : "Add"}
         </button>
       </div>
       {tasks.length === 0 ? (

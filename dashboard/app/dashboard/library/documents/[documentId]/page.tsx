@@ -6,6 +6,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { FormBuilder } from "@/components/library/FormBuilder";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
 import type { FormSchema } from "@/lib/forms";
 import { updateDocument, deleteDocument, publishDocument } from "../actions";
 import { assignLibraryDocumentToClient } from "../../assign-actions";
@@ -70,26 +71,13 @@ export default async function DocumentDetailPage({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {document.status === "draft" && (
-            <form action={publishDocument.bind(null, document.id)}>
-              <button
-                type="submit"
-                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-              >
-                Publish
-              </button>
-            </form>
-          )}
-          <form action={deleteDocument.bind(null, document.id)}>
-            <button
-              type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
-            >
-              Delete
-            </button>
-          </form>
-        </div>
+        <PublishDeleteActions
+          id={document.id}
+          itemLabel="document"
+          isDraft={document.status === "draft"}
+          onPublish={publishDocument}
+          onDelete={deleteDocument}
+        />
       </div>
 
       <form action={updateDocument.bind(null, document.id)} className="flex flex-col gap-4">

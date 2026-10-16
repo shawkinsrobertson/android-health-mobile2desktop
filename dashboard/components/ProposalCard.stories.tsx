@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { ProposalCard } from "./ProposalCard";
 
 const meta = {
@@ -23,6 +23,11 @@ export const DraftMessage: Story = {
   },
   play: async ({ canvas, userEvent, args }) => {
     await userEvent.click(canvas.getByRole("button", { name: /send/i }));
+    // Approve now opens a confirm dialog first -- its own confirm button
+    // shares the approveLabel ("Send"), so scope the second click to the
+    // dialog to disambiguate it from the original button underneath.
+    const dialog = within(canvas.getByRole("dialog"));
+    await userEvent.click(dialog.getByRole("button", { name: /send/i }));
     await expect(args.onApprove).toHaveBeenCalledTimes(1);
   },
 };

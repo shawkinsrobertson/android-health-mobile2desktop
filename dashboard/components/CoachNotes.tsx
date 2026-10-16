@@ -10,6 +10,7 @@ import {
 } from "@/app/dashboard/clients/[clientId]/notes-actions";
 import { EditIcon } from "@/components/icons/EditIcon";
 import { DeleteIcon } from "@/components/icons/DeleteIcon";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const PREVIEW_COUNT = 3;
 
@@ -34,6 +35,7 @@ export function CoachNotes({
   const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<CoachNoteRow | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +61,7 @@ export function CoachNotes({
   }
 
   async function handleDelete(noteId: string) {
+    setDeletingNoteId(null);
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
     setCount((prev) => Math.max(0, prev - 1));
     await deleteCoachNote(clientId, noteId);
@@ -130,7 +133,7 @@ export function CoachNotes({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDelete(note.id)}
+                  onClick={() => setDeletingNoteId(note.id)}
                   className="flex items-center gap-1 rounded-md p-1 text-xs text-ink-muted hover:text-danger"
                 >
                   <DeleteIcon className="h-6 w-6" />
@@ -159,6 +162,16 @@ export function CoachNotes({
           onSaved={handleUpdated}
         />
       )}
+
+      <ConfirmDialog
+        open={!!deletingNoteId}
+        title="Delete this note?"
+        body="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => deletingNoteId && handleDelete(deletingNoteId)}
+        onCancel={() => setDeletingNoteId(null)}
+      />
     </>
   );
 }
