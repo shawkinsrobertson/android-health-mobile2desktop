@@ -43,10 +43,10 @@ export function ProposalCard({
   return (
     <div className="rounded-lg border border-[color:var(--border-hairline)] bg-[color:var(--page-plane)] p-3">
       <div className="mb-1 flex items-center justify-between">
-        <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+        <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-xs font-medium text-[color:var(--accent)]">
           {typeLabel}
         </span>
-        <span className="text-[11px] text-ink-muted">{new Date(createdAt).toLocaleString()}</span>
+        <span className="text-xs text-ink-muted">{new Date(createdAt).toLocaleString()}</span>
       </div>
       <p className="mb-2 text-sm text-ink-primary">{summary}</p>
       {children}

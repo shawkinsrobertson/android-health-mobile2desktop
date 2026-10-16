@@ -112,7 +112,7 @@ export function CoachNotes({
                     {new Date(note.created_at).toLocaleDateString()}
                   </span>
                   {note.is_private && (
-                    <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-heart)]">
+                    <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-heart)]">
                       Private
                     </span>
                   )}

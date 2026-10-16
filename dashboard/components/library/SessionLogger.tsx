@@ -110,7 +110,7 @@ function SetRow({
           onBlur={(e) => saveField({ weight: e.target.value.trim() || null })}
           className={cellInputClass}
         />
-        <span className="shrink-0 text-[10px] text-ink-muted">{weightUnit}</span>
+        <span className="shrink-0 text-xs text-ink-muted">{weightUnit}</span>
       </div>
 
       <button
@@ -303,7 +303,7 @@ export function SessionLogger({
         ) : (
           <li key={unit.key} className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
+              <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
                 {unit.block.block_type}
               </span>
               <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>

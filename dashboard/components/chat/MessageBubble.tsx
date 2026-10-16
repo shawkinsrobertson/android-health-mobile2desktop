@@ -105,7 +105,7 @@ export function MessageBubble({
         }`}
       >
         {message.pinned_at && (
-          <div className={`mb-1 text-[10px] ${isMine ? "text-white/80" : "text-ink-muted"}`}>📌 Pinned</div>
+          <div className={`mb-1 text-xs ${isMine ? "text-white/80" : "text-ink-muted"}`}>📌 Pinned</div>
         )}
         {replyTo && (
           <div
@@ -135,7 +135,7 @@ export function MessageBubble({
         </div>
       )}
 
-      <div className="relative mt-0.5 flex items-center gap-2 text-[10px] text-ink-muted">
+      <div className="relative mt-0.5 flex items-center gap-2 text-xs text-ink-muted">
         <span>{new Date(message.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
         <button type="button" onClick={() => onReply(message)} className="hover:text-ink-primary">
           Reply

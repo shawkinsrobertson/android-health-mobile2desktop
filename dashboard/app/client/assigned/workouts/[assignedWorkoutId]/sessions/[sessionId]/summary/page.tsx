@@ -114,7 +114,7 @@ export default async function WorkoutSessionSummaryPage({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-ink-primary">{item.name}</span>
           {state?.is_pr && (
-            <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-heart)]">
+            <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-heart)]">
               PR
             </span>
           )}
@@ -162,7 +162,7 @@ export default async function WorkoutSessionSummaryPage({
               ) : (
                 <li key={unit.key} className="rounded-lg border border-[color:var(--border-hairline)] p-3">
                   <div className="mb-2 flex items-center gap-2">
-                    <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
+                    <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
                       {unit.block.block_type}
                     </span>
                     <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>

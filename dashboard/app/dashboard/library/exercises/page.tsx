@@ -120,7 +120,7 @@ export default async function ExerciseLibraryPage({
                     <div className="flex items-center gap-2">
                       <div className="truncate text-sm font-medium text-ink-primary">{exercise.name}</div>
                       {exercise.coach_id === null && (
-                        <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-sleep)]">
+                        <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-sleep)]">
                           Shared
                         </span>
                       )}

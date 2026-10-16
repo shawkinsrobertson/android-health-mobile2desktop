@@ -35,7 +35,7 @@ function ProgramGrid({ programs, thumbnails }: { programs: ProgramRow[]; thumbna
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium text-ink-primary">{program.name}</span>
                 {program.status === "draft" && (
-                  <span className="shrink-0 rounded-full bg-[color:var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--accent)]">
+                  <span className="shrink-0 rounded-full bg-[color:var(--accent)]/15 px-1.5 py-0.5 text-xs font-medium text-[color:var(--accent)]">
                     Draft
                   </span>
                 )}

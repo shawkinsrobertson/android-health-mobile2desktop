@@ -92,7 +92,7 @@ export default async function ProgramDetailPage({
           <div className="mt-1 flex items-center gap-1.5">
             <h1 className="text-lg font-semibold text-ink-primary">{program.name}</h1>
             {program.status === "draft" && (
-              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-xs font-medium text-[color:var(--accent)]">
                 Draft
               </span>
             )}

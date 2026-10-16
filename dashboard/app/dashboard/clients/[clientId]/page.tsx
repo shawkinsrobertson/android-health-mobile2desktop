@@ -435,7 +435,7 @@ function AssignedCategory({
         <p className="text-xs text-ink-muted">{emptyAssignLabel}</p>
       ) : (
         <form action={action} className="flex flex-col gap-1.5 border-t border-[color:var(--border-hairline)] pt-2">
-          <label className="text-[11px] font-medium text-ink-muted">+ Assign {assignLabel.toLowerCase()}</label>
+          <label className="text-xs font-medium text-ink-muted">+ Assign {assignLabel.toLowerCase()}</label>
           <div className="flex gap-1.5">
             <select
               name={fieldName}

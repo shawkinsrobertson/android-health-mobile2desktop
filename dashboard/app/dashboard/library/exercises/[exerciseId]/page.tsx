@@ -60,7 +60,7 @@ export default async function ExerciseDetailPage({
           <div className="mt-1 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-ink-primary">{exercise.name}</h1>
             {isShared && (
-              <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-sleep)]">
+              <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-sleep)]">
                 Shared
               </span>
             )}
