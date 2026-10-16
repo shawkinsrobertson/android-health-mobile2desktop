@@ -127,7 +127,7 @@ export function CalendarWorkspace({
 
         <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
           <h2 className="mb-3 text-sm font-semibold text-ink-primary">This month</h2>
-          {joinError && <p className="mb-2 text-xs text-red-600 dark:text-red-400">{joinError}</p>}
+          {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
           <AgendaList events={events} onSelect={setEditingEvent} onJoin={handleJoin} />
         </div>
       </div>

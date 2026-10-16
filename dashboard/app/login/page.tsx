@@ -38,7 +38,7 @@ export default async function LoginPage({
         </p>
       ) : (
         <form action={sendCoachMagicLink} className="flex flex-col gap-3">
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="text-sm text-danger">{error}</p>}
           <input
             type="email"
             name="email"

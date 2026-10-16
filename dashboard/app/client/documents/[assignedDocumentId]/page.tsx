@@ -75,7 +75,7 @@ export default async function ClientDocumentPage({
       {doc.description && <p className="text-sm text-ink-secondary">{doc.description}</p>}
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       {doc.document_type === "file" ? (

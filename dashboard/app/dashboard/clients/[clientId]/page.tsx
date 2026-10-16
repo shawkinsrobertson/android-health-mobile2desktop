@@ -202,7 +202,7 @@ export default async function ClientDetailPage({
         ) : (
           <>
             {searchParams.error && (
-              <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+              <p className="text-sm text-danger">{searchParams.error}</p>
             )}
 
             <ClientInsights clientId={params.clientId} initialInsight={latestInsight} />

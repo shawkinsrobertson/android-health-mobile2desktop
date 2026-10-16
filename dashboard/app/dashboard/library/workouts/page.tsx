@@ -89,7 +89,7 @@ export default async function WorkoutLibraryPage() {
       <DraftWorkoutPrompt />
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-danger">
           Couldn&apos;t load workouts: {error.message}
         </p>
       ) : all.length === 0 ? (

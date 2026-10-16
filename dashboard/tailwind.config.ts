@@ -8,13 +8,14 @@ const config: Config = {
       colors: {
         surface: "var(--surface-1)",
         plane: "var(--page-plane)",
-        primary: "var(--primary)",
-        secondary: "var(--secondary)",
         accent: "var(--accent)",
+        success: "var(--success)",
+        warning: "var(--warning)",
+        danger: "var(--danger)",
+        info: "var(--info)",
         ink: {
           primary: "var(--text-primary)",
           secondary: "var(--text-secondary)",
-          tertiary: "var(--text-tertiary)",
           muted: "var(--text-muted)",
         },
         line: {

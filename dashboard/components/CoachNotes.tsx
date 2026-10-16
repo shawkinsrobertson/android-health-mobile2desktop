@@ -96,7 +96,7 @@ export function CoachNotes({
             {submitting ? "Adding…" : "Add note"}
           </button>
         </div>
-        {addError && <p className="text-xs text-red-600 dark:text-red-400">{addError}</p>}
+        {addError && <p className="text-xs text-danger">{addError}</p>}
       </form>
 
       {visibleNotes.length > 0 && (
@@ -131,7 +131,7 @@ export function CoachNotes({
                 <button
                   type="button"
                   onClick={() => handleDelete(note.id)}
-                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-danger"
                 >
                   <DeleteIcon className="h-3.5 w-3.5" />
                   Delete
@@ -230,7 +230,7 @@ function EditNoteModal({
               <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
               Keep private (excluded from AI assistant context)
             </label>
-            {error && <p className="mb-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mb-3 text-xs text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"

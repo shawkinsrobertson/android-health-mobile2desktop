@@ -27,7 +27,7 @@ export default async function OnboardingPage({
       </p>
 
       <form action={completeOnboarding} className="flex flex-col gap-4">
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         <label className="flex flex-col gap-1 text-sm text-ink-primary">
           Name

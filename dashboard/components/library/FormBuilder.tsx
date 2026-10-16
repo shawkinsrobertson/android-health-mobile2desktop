@@ -125,7 +125,7 @@ export function FormBuilder({
                 type="button"
                 onClick={() => remove(field.id)}
                 disabled={fields.length === 1}
-                className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-red-600 disabled:opacity-30 dark:hover:text-red-400"
+                className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-danger disabled:opacity-30"
               >
                 Remove
               </button>

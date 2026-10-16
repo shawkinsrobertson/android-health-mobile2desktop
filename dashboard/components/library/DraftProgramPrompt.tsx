@@ -66,7 +66,7 @@ export function DraftProgramPrompt() {
           {loading ? "Drafting…" : "Draft program"}
         </button>
       </div>
-      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </form>
   );
 }

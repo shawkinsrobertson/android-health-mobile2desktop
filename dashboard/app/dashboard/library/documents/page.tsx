@@ -87,7 +87,7 @@ export default async function DocumentLibraryPage() {
       <DraftDocumentPrompt />
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-danger">
           Couldn&apos;t load documents: {error.message}
         </p>
       ) : all.length === 0 ? (

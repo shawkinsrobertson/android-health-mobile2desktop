@@ -46,7 +46,7 @@ export function BookingLinkControl({ bookingUrl }: { bookingUrl: string | null }
       >
         {generating ? "Generating…" : "Generate booking link"}
       </button>
-      {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
+      {error && <span className="text-danger">{error}</span>}
     </div>
   );
 }

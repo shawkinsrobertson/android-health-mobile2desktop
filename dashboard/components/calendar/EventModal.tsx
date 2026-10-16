@@ -180,7 +180,7 @@ export function EventModal({
           <>
             <h3 className="mb-2 text-sm font-semibold text-ink-primary">Delete this event?</h3>
             <p className="mb-4 text-sm text-ink-secondary">This can&apos;t be undone.</p>
-            {error && <p className="mb-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mb-3 text-xs text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -194,7 +194,7 @@ export function EventModal({
                 type="button"
                 onClick={handleDelete}
                 disabled={submitting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                className="rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
               >
                 {submitting ? "Deleting…" : "Delete"}
               </button>
@@ -323,7 +323,7 @@ export function EventModal({
               )}
             </div>
 
-            {error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-xs text-danger">{error}</p>}
 
             <div className="mt-4 flex items-center justify-between">
               {isEdit ? (
@@ -331,7 +331,7 @@ export function EventModal({
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
                   disabled={submitting}
-                  className="text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                  className="text-xs text-ink-muted hover:text-danger"
                 >
                   Delete
                 </button>

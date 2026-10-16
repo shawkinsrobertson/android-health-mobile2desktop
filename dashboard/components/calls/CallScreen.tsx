@@ -115,7 +115,7 @@ export function CallScreen({
         <button
           type="button"
           onClick={hangUp}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-lg text-white"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-danger text-lg text-white"
           aria-label="Hang up"
         >
           ✕

@@ -81,7 +81,7 @@ export default async function ClientAssignedWorkoutPage({
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       {workout.description && <p className="text-sm text-ink-secondary">{workout.description}</p>}

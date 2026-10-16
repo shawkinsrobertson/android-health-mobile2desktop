@@ -85,7 +85,7 @@ export default async function ExerciseLibraryPage({
       </form>
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-danger">
           Couldn&apos;t load exercises: {error.message}
         </p>
       ) : exercises.length === 0 ? (

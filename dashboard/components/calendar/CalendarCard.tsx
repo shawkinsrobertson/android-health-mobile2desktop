@@ -305,7 +305,7 @@ export function CalendarCard({
         )}
       </div>
 
-      {joinError && <p className="mb-2 text-xs text-red-600 dark:text-red-400">{joinError}</p>}
+      {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
 
       {loading ? (
         <p className="text-sm text-ink-muted">Loading…</p>

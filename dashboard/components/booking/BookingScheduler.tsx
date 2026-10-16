@@ -99,7 +99,7 @@ export function BookingScheduler({ coachId }: { coachId: string }) {
           </button>
         </div>
 
-        {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
         <BookingMonthGrid
           anchorDate={anchorMonth}
@@ -289,7 +289,7 @@ function BookingForm({
         className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
       />
 
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button

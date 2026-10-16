@@ -54,7 +54,7 @@ export default async function JoinPage({
         </p>
       ) : (
         <form action={requestClientMagicLink} className="flex flex-col gap-3">
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="text-sm text-danger">{error}</p>}
           <input type="hidden" name="token" value={params.token} />
           <input
             type="email"

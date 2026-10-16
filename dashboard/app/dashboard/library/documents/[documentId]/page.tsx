@@ -84,7 +84,7 @@ export default async function DocumentDetailPage({
           <form action={deleteDocument.bind(null, document.id)}>
             <button
               type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
             >
               Delete
             </button>
@@ -94,7 +94,7 @@ export default async function DocumentDetailPage({
 
       <form action={updateDocument.bind(null, document.id)} className="flex flex-col gap-4">
         {searchParams.error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+          <p className="text-sm text-danger">{searchParams.error}</p>
         )}
 
         <label className="flex flex-col gap-1 text-sm text-ink-primary">

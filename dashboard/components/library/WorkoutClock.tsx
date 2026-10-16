@@ -105,7 +105,7 @@ export function WorkoutClock({
         <button
           type="button"
           onClick={() => setConfirmingStop(true)}
-          className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+          className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-danger"
         >
           ■ Stop
         </button>

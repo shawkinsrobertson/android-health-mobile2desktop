@@ -147,7 +147,7 @@ export function Composer({
           aria-label={recording ? "Stop recording" : "Record a voice message"}
           className={`rounded-md border p-2 ${
             recording
-              ? "border-red-500 text-red-600 dark:text-red-400"
+              ? "border-danger text-danger"
               : "border-[color:var(--border-hairline)] text-ink-secondary hover:text-ink-primary"
           }`}
         >

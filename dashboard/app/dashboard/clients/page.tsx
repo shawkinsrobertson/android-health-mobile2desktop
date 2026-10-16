@@ -107,7 +107,7 @@ export default async function ClientsPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-3 text-sm font-semibold text-ink-primary">Your clients</h2>
         {clientsRes.error ? (
-          <p className="text-sm text-red-600 dark:text-red-400">
+          <p className="text-sm text-danger">
             Couldn&apos;t load clients: {clientsRes.error.message}
           </p>
         ) : clientItems.length === 0 ? (

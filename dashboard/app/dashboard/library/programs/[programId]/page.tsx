@@ -112,7 +112,7 @@ export default async function ProgramDetailPage({
           <form action={deleteProgram.bind(null, program.id)}>
             <button
               type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
             >
               Delete
             </button>
@@ -121,7 +121,7 @@ export default async function ProgramDetailPage({
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">

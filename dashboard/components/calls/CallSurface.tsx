@@ -44,7 +44,7 @@ export function CallSurface({ counterpartName }: { counterpartName: string }) {
                   type="button"
                   onClick={declineCall}
                   disabled={isBusy}
-                  className="rounded-lg border border-[color:var(--border-hairline)] px-5 py-2.5 text-sm font-medium text-red-600 disabled:opacity-60 dark:text-red-400"
+                  className="rounded-lg border border-[color:var(--border-hairline)] px-5 py-2.5 text-sm font-medium text-danger disabled:opacity-60"
                 >
                   Decline
                 </button>

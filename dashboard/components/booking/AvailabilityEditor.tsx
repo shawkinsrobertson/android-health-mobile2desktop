@@ -128,7 +128,7 @@ export function AvailabilityEditor({
                       <button
                         type="button"
                         onClick={() => removeBlock(day.dayOfWeek, i)}
-                        className="text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                        className="text-xs text-ink-muted hover:text-danger"
                       >
                         Remove
                       </button>
@@ -141,7 +141,7 @@ export function AvailabilityEditor({
         ))}
       </div>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
 
       <button
         type="button"

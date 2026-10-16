@@ -50,7 +50,7 @@ export function ProposalCard({
       </div>
       <p className="mb-2 text-sm text-ink-primary">{summary}</p>
       {children}
-      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       <div className="mt-3 flex gap-2">
         <button
           type="button"
