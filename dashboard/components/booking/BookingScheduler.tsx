@@ -84,7 +84,7 @@ export function BookingScheduler({ coachId }: { coachId: string }) {
             type="button"
             onClick={() => setAnchorMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
             aria-label="Previous month"
-            className="rounded-md p-2 text-sm text-ink-secondary hover:text-ink-primary"
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-sm text-ink-secondary hover:text-ink-primary"
           >
             ‹
           </button>
@@ -95,7 +95,7 @@ export function BookingScheduler({ coachId }: { coachId: string }) {
             type="button"
             onClick={() => setAnchorMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
             aria-label="Next month"
-            className="rounded-md p-2 text-sm text-ink-secondary hover:text-ink-primary"
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-sm text-ink-secondary hover:text-ink-primary"
           >
             ›
           </button>

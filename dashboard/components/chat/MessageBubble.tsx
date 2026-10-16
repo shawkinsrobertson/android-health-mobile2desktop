@@ -127,7 +127,7 @@ export function MessageBubble({
               key={emoji}
               type="button"
               onClick={() => onToggleReaction(message.id, emoji)}
-              className="rounded-full border border-[color:var(--border-hairline)] bg-surface px-1.5 py-0.5 text-xs"
+              className="rounded-full border border-[color:var(--border-hairline)] bg-surface px-2.5 py-2 text-xs"
             >
               {emoji} {count > 1 ? count : ""}
             </button>

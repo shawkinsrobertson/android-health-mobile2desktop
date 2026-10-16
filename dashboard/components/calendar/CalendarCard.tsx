@@ -294,11 +294,21 @@ export function CalendarCard({
         </div>
         {view !== "agenda" && (
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => step(-1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              aria-label="Previous period"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ‹
             </button>
             <span className="text-xs font-medium text-ink-primary">{periodLabel()}</span>
-            <button type="button" onClick={() => step(1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(1)}
+              aria-label="Next period"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ›
             </button>
           </div>

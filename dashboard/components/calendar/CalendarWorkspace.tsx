@@ -135,13 +135,23 @@ export function CalendarWorkspace({
       <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 lg:col-span-2">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => step(-1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              aria-label="Previous month"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ‹
             </button>
             <span className="text-sm font-medium text-ink-primary">
               {anchorDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
             </span>
-            <button type="button" onClick={() => step(1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(1)}
+              aria-label="Next month"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ›
             </button>
           </div>

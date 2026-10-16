@@ -91,7 +91,7 @@ export function Composer({
             type="button"
             onClick={onCancelReply}
             aria-label="Cancel reply"
-            className="ml-2 shrink-0 rounded-md p-2 text-ink-muted hover:text-ink-primary"
+            className="ml-2 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink-primary"
           >
             ✕
           </button>
@@ -104,7 +104,7 @@ export function Composer({
             type="button"
             onClick={() => setPendingFile(null)}
             aria-label="Remove attachment"
-            className="ml-2 shrink-0 rounded-md p-2 text-ink-muted hover:text-ink-primary"
+            className="ml-2 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink-primary"
           >
             ✕
           </button>

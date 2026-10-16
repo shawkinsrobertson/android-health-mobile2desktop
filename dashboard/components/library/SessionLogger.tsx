@@ -124,7 +124,7 @@ function SetRow({
       <button
         type="button"
         onClick={onDelete}
-        className="shrink-0 rounded-md p-2 text-xs text-ink-muted hover:text-danger"
+        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-xs text-ink-muted hover:text-danger"
         aria-label={`Delete set ${set.set_number}`}
       >
         ✕
