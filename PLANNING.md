@@ -2053,3 +2053,186 @@ which.
 
 Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
 `npx next build` (all clean).
+
+## Phase 13 -- Design strip-down + 8-point behavior audit (web + Android)
+
+The color system on both platforms had grown a multi-tier custom
+palette (primary/secondary/accent + up to 4 text tiers + a chart-series
+palette) across several earlier phases. This phase stripped it down to
+a basic light/dark neutral scale, one warm accent, and four standard
+semantic colors (success/warning/danger/info) that didn't exist before
+-- plus a full pass against eight concrete behavior/sizing rules the
+owner specified (touch targets, icon sizes, container overflow,
+spacing consistency, font-size floors, confirm/undo on consequential
+actions, in-place action feedback, and eased collapse/expand
+transitions), checked against every design element and component on
+both platforms, not just the color system.
+
+**Methodology.** Research used two parallel Explore audits (web,
+Android) against all eight rules, then a third supervisor Explore agent
+independently re-verified both reports against the real code rather than
+trusting their text -- it caught a missed real violation (the three
+library item detail pages' Publish/Delete buttons had zero confirmation
+or pending state) and a scope mis-categorization (the Android audit had
+flagged chat `sendMessage` as needing a confirm dialog, which the user's
+own confirmed scope explicitly excludes). That same audit -> supervisor
+-> fix loop was then carried through every implementation stage, not
+just the initial research: a supervisor-role check re-verified each
+stage's actual diff against its rules and the verification commands
+below before the next stage started. Across the 8 stages this caught,
+and this phase then fixed, several real bugs that would have otherwise
+shipped -- among them: a stale `error` state leaking between
+`EventModal`'s save and delete flows; three sidebars whose collapsed
+content stayed keyboard-focusable and screen-reader-reachable despite
+being invisible (fixed via the `inert` DOM attribute, set imperatively
+since this project's React/TS versions don't expose it as a JSX prop
+yet); a `CalendarCard` expand/collapse fade that flashed fully opaque
+for one frame before dipping to 0 (a plain `useEffect` resets state
+*after* paint; moved to `useLayoutEffect`, which runs before it); and
+several touch targets the first sweep missed entirely (unpadded
+calendar nav arrows, an icon-only button whose icon got sized up to the
+24px floor without the surrounding button gaining any padding to match).
+
+**Scope decisions, confirmed with the owner before implementation:**
+(1) keep the existing accent hex (`#C1573B`) unchanged -- already warm,
+only the neutrals and new semantic colors change; (2) confirm/undo
+applies only to meaningful or destructive actions (deletes, AI-proposal
+approvals, discards, assignments, publishes) -- chat send, per-field
+autosave, toggles, timers, and workout start/pause/resume stay
+confirmation-free on both platforms; (3) the 16px-desktop font floor is
+fixed by redefining `text-xs`/`text-sm` in `tailwind.config.ts` itself
+(both now resolve to 16px/1.5 line-height) rather than hand-editing the
+~100+ call sites that use them as the de facto label/button/body size
+app-wide.
+
+**Final color values** (light / dark), identical token names kept on
+both platforms so ~100+ consuming files needed no changes, just new
+values:
+
+| Token | Light | Dark |
+|---|---|---|
+| accent (unchanged) | `#C1573B` | `#C1573B` |
+| primary / page background | `#FFFFFF` | `#171717` |
+| secondary / card surface | `#FAFAFA` | `#262626` |
+| text-primary | `#171717` | `#FAFAFA` |
+| text-secondary | `#525252` | `#A3A3A3` |
+| success (new) | `#16A34A` | `#4ADE80` |
+| warning (new) | `#D97706` | `#FBBF24` |
+| danger (new) | `#DC2626` | `#F87171` |
+| info (new) | `#0284C7` | `#38BDF8` |
+
+**Web color system (`dashboard/app/globals.css`, `tailwind.config.ts`).**
+Only the CSS vars' *values* changed, not their names -- `--text-tertiary`
+was the one tier dropped outright (confirmed zero usages anywhere in
+the web app). The informal, non-token `text-red-600 dark:text-red-400`/
+`bg-red-600` error-color pattern turned out to be systemic rather than
+the four files the initial audit sampled -- swept to the new `danger`
+token across ~40 files once discovered, the same way a later sub-sweep
+(arbitrary sub-16px `text-[10px]`/`text-[11px]` badge/pill labels, ~20
+files) and the heading-margin normalization below both grew past their
+initially-cited examples once the real pattern search ran.
+
+**Touch targets, icons, overflow, spacing (web).** Every icon call site
+below 24px raised to `h-6 w-6`; every touch target below 30px given real
+padding or an explicit fixed hit-box (`h-[30px] w-[30px]`, the same
+pattern `TaskList`'s checkbox already used, preferred over padding-around-
+a-bare-glyph once that math turned out not to reliably clear 30px for a
+narrow character like `✕`/`‹`/`›`). `flex-wrap` + `min-w-0` guards added
+to rows that could overflow their card at narrow widths (`EventModal`,
+`FormBuilder`, `AvailabilityEditor`, `BookingScheduler`). Spacing
+outliers normalized to the dominant app convention in each case (`p-4`
+card padding, `mb-2` heading-to-content margin -- found and fixed
+app-wide once the search went past the two files the audit had sampled,
+same pattern as the color sweep above).
+
+**Font-size floor (web).** `tailwind.config.ts`'s `fontSize.xs`/`sm`
+redefined to `16px`/`1.5` line-height, no `fontWeight` set (every real
+call site already pairs them with its own `font-medium`/`font-semibold`
+utility, so baking a weight into the theme entry would have risked a
+CSS-specificity collision). The custom `title`/`h1`/`h2`/`h3`/`button`/
+`body`/`link`/`body-sm` typography scale turned out to have exactly one
+real call site (`text-h3`) anywhere in the app; `body-sm` (zero call
+sites) was retired outright rather than raised.
+
+**Confirm/undo + action feedback (web).** New shared
+`components/ConfirmDialog.tsx` (mirrors the Android app's own
+`ConfirmDialog.kt` shape), with a fade+scale mount transition and proper
+dialog semantics (`role="dialog"`, `aria-modal`, `aria-labelledby` via
+`useId` so multiple instances never collide). Wired into every
+previously-unconfirmed meaningful action: note/set/exercise/program-
+workout deletes, block ungroup/delete (worded differently on purpose --
+deleting a block cascades to delete its member exercises too, per the
+`library_workout_exercises.block_id` FK's `on delete cascade`, while
+ungrouping first nulls `block_id` on members so they survive as
+standalone exercises), AI-proposal approve/discard, and -- caught by the
+supervisor pass, not the original audit -- the three library item detail
+pages' Publish/Delete buttons and `AssignToClientCard`'s assign action
+(the latter not literally named in the plan's own wiring list, but
+squarely inside the confirmed "assignments" scope once actually
+checked). Every bespoke hand-rolled confirm modal in the app
+(`EventModal`, `SaveEditsButton`, `SaveSummaryForm`, `WorkoutClock`,
+`FinishWorkoutForm`) replaced with the shared component. Save/remove/
+publish/assign buttons across the touched components get real
+"Verb -> Verb-ing... -> Verb-ed check" label states instead of a static
+label the whole time, including a new small `WeightUnitForm.tsx`
+extracted specifically because a Server Component page can't hold that
+transient state itself.
+
+**Eased transitions (web).** The three collapsible sidebars
+(`LibrarySidebar`/`InboxSidebar`/`ClientAssistantSidebar`) went from
+"render a completely different element when collapsed" to one
+persistently-mounted `<aside>` that transitions width, with its content
+cross-fading via opacity -- closing the resulting tab-order leak (see
+the bug list above) by toggling the `inert` attribute on the content
+wrapper via a ref, imperatively, since it isn't in this project's React/
+TS types yet. `CalendarCard`'s teaser/full-calendar toggle swaps two
+structurally different subtrees (no shared width/height to animate), so
+each side fades in on mount instead; `EventModal` got the same fade+scale
+entrance `ConfirmDialog` already had. A clean *exit* animation on full
+unmount was explicitly left out of scope -- a plain CSS transition can't
+give one without more plumbing than this pass called for.
+
+**Android color system.** Same table, same `on`-role mapping that
+already existed in `Theme.kt` (`onPrimary`/`onPrimaryContainer` feed
+from `TextTertiary`/`TextPrimary` respectively -- easy to transpose by
+accident, double-checked against the real mapping both while writing it
+and in the supervisor pass). `error`/`onError` now override Material3's
+own default error red with the new `danger` value, so both platforms
+show the identical red. `success`/`warning`/`info` have no Material3
+`ColorScheme` slot, so they're exposed through a new small
+`ui/theme/ExtendedColors.kt` `CompositionLocal` -- tokens only, since no
+screen currently has a success/warning/info state to wire one into.
+
+**Android touch targets, icons, spacing.** `NotificationShade`'s pull-tab
+pill grew from 20dp to 24dp tall specifically so its chevron icon could
+go to the 24px floor without the icon clipping against the pill's own
+rounded-corner clip (a 24px icon in a 20dp container would have
+overflowed); `ShadeGlyph`'s category icons also raised to 24dp.
+`WorkoutScreen`'s `CompactNumberField` (every reps/weight entry) raised
+from 28dp to 30dp; its `SetRow` completion-toggle `IconButton` given an
+explicit 36dp size to match the header row's existing 36dp spacer
+exactly, instead of the two merely approximating each other. Spacing
+outliers (three 24dp error-state paddings, one 24dp pre-section gap, a
+handful of 2dp title-to-caption gaps sitting alongside the dominant 4dp
+convention) normalized the same way as the web sweep -- against the
+app's own real, grep-confirmed convention, not an invented one.
+
+**Android action feedback + transitions.** Inbox's Send button now
+flashes "Sent ✓" before reverting, same `LaunchedEffect`+`delay(600)`
+pattern `WorkoutScreen` already used for "Saved ✓". Profile's Sync now /
+Force full re-sync buttons share one `isSyncing` boolean from their
+caller with no prop saying which one just finished -- fixed with local
+state (`lastAction`, set before each action fires) that disambiguates
+which button gets its own "Synced ✓", rather than only the shared result
+text below both of them. `NotificationShade`'s expanded/collapsed swap
+and its chevron rotation, plus `WorkoutScreen`'s `ExerciseLogCard`
+set-row expand/collapse, all moved from instant `if`/`Modifier.rotate`
+swaps to `AnimatedVisibility` (`expandVertically()+fadeIn()`/
+`shrinkVertically()+fadeOut()`) and `animateFloatAsState`.
+
+Verified via `npx tsc --noEmit`, `npx next lint`, and a dummy-env
+`npx next build` for web (plus `npx vitest --project storybook run`
+after every stage that touched a storied component's markup/sizing),
+and `./gradlew :app:compileDebugKotlin`/`:app:lintDebug` for Android --
+same manual-review-plus-compile posture as every prior Android pass in
+this project.
