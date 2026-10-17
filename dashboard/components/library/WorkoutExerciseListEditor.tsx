@@ -13,6 +13,7 @@ import {
   updateWorkoutExercise,
 } from "@/app/dashboard/library/workouts/actions";
 import { groupIntoUnits, type Unit as WorkoutUnit } from "@/lib/workout-blocks";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export interface WorkoutExerciseItem {
   id: string;
@@ -130,6 +131,7 @@ function ExerciseRow({
   onEdit,
   onCancelEdit,
   onRemove,
+  removing,
   selectable,
   selected,
   onToggleSelected,
@@ -141,27 +143,41 @@ function ExerciseRow({
   onEdit: () => void;
   onCancelEdit: () => void;
   onRemove: () => void;
+  removing: boolean;
   selectable: boolean;
   selected: boolean;
   onToggleSelected: () => void;
   isPending: boolean;
 }) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
   if (editing) {
     return (
       <form
         action={async (formData: FormData) => {
+          setSaving(true);
           await updateWorkoutExercise(workoutId, item.id, formData);
-          onCancelEdit();
+          setSaving(false);
+          setSaved(true);
+          setTimeout(() => {
+            setSaved(false);
+            onCancelEdit();
+          }, 600);
         }}
         className="flex flex-col gap-2"
       >
         <div className="text-sm font-medium text-ink-primary">{item.exercise_name}</div>
         <PrescriptionFields defaults={item} />
         <div className="flex gap-3">
-          <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
-            Save
+          <button
+            type="submit"
+            disabled={saving || saved}
+            className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white disabled:opacity-60"
+          >
+            {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
           </button>
-          <button type="button" onClick={onCancelEdit} className="text-xs text-ink-muted">
+          <button type="button" onClick={onCancelEdit} disabled={saving || saved} className="text-xs text-ink-muted">
             Cancel
           </button>
         </div>
@@ -191,7 +207,7 @@ function ExerciseRow({
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+          className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
         >
           Edit
         </button>
@@ -199,9 +215,9 @@ function ExerciseRow({
           type="button"
           disabled={isPending}
           onClick={onRemove}
-          className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+          className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-60"
         >
-          Remove
+          {removing ? "Removing…" : "Remove"}
         </button>
       </div>
     </div>
@@ -225,11 +241,26 @@ export function WorkoutExerciseListEditor({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [groupType, setGroupType] = useState<"superset" | "circuit">("superset");
   const [groupRounds, setGroupRounds] = useState(3);
+  type RowAction = { kind: "remove-exercise" | "ungroup-block" | "delete-block"; id: string };
+  const [confirmAction, setConfirmAction] = useState<RowAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<RowAction | null>(null);
 
   const units = groupIntoUnits(items, blocks);
 
   function toggleSelected(id: string) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function runConfirmedAction() {
+    if (!confirmAction) return;
+    const { kind, id } = confirmAction;
+    setConfirmAction(null);
+    setPendingAction({ kind, id });
+    startTransition(() => {
+      if (kind === "remove-exercise") removeWorkoutExercise(workoutId, id);
+      else if (kind === "ungroup-block") ungroupWorkoutBlock(workoutId, id);
+      else deleteWorkoutBlock(workoutId, id);
+    });
   }
 
   function moveUnit(key: string, direction: -1 | 1) {
@@ -281,7 +312,8 @@ export function WorkoutExerciseListEditor({
                     editing={editingId === unit.item.id}
                     onEdit={() => setEditingId(unit.item.id)}
                     onCancelEdit={() => setEditingId(null)}
-                    onRemove={() => startTransition(() => removeWorkoutExercise(workoutId, unit.item.id))}
+                    onRemove={() => setConfirmAction({ kind: "remove-exercise", id: unit.item.id })}
+                    removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === unit.item.id}
                     selectable
                     selected={selectedIds.includes(unit.item.id)}
                     onToggleSelected={() => toggleSelected(unit.item.id)}
@@ -292,7 +324,7 @@ export function WorkoutExerciseListEditor({
                 <div className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
+                      <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
                         {unit.block.block_type}
                       </span>
                       <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>
@@ -307,25 +339,29 @@ export function WorkoutExerciseListEditor({
                       <button
                         type="button"
                         onClick={() => setEditingBlockId(editingBlockId === unit.block.id ? null : unit.block.id)}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         disabled={isPending}
-                        onClick={() => startTransition(() => ungroupWorkoutBlock(workoutId, unit.block.id))}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                        onClick={() => setConfirmAction({ kind: "ungroup-block", id: unit.block.id })}
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-60"
                       >
-                        Ungroup
+                        {pendingAction?.kind === "ungroup-block" && pendingAction.id === unit.block.id
+                          ? "Ungrouping…"
+                          : "Ungroup"}
                       </button>
                       <button
                         type="button"
                         disabled={isPending}
-                        onClick={() => startTransition(() => deleteWorkoutBlock(workoutId, unit.block.id))}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+                        onClick={() => setConfirmAction({ kind: "delete-block", id: unit.block.id })}
+                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-60"
                       >
-                        Delete
+                        {pendingAction?.kind === "delete-block" && pendingAction.id === unit.block.id
+                          ? "Deleting…"
+                          : "Delete"}
                       </button>
                     </div>
                   </div>
@@ -393,7 +429,8 @@ export function WorkoutExerciseListEditor({
                           editing={editingId === member.id}
                           onEdit={() => setEditingId(member.id)}
                           onCancelEdit={() => setEditingId(null)}
-                          onRemove={() => startTransition(() => removeWorkoutExercise(workoutId, member.id))}
+                          onRemove={() => setConfirmAction({ kind: "remove-exercise", id: member.id })}
+                          removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === member.id}
                           selectable={false}
                           selected={false}
                           onToggleSelected={() => {}}
@@ -483,6 +520,34 @@ export function WorkoutExerciseListEditor({
           Check 2 or more ungrouped exercises above to combine them into a superset or circuit.
         </p>
       )}
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={
+          confirmAction?.kind === "remove-exercise"
+            ? "Remove this exercise?"
+            : confirmAction?.kind === "ungroup-block"
+              ? "Ungroup this block?"
+              : "Delete this block?"
+        }
+        body={
+          confirmAction?.kind === "remove-exercise"
+            ? "This can't be undone."
+            : confirmAction?.kind === "ungroup-block"
+              ? "Its exercises stay in the workout as standalone exercises."
+              : "This deletes the block and every exercise in it. This can't be undone."
+        }
+        confirmLabel={
+          confirmAction?.kind === "remove-exercise"
+            ? "Remove"
+            : confirmAction?.kind === "ungroup-block"
+              ? "Ungroup"
+              : "Delete"
+        }
+        destructive={confirmAction?.kind !== "ungroup-block"}
+        onConfirm={runConfirmedAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 }
@@ -504,7 +569,7 @@ function UnitMoveButtons({
         type="button"
         disabled={disabledUp}
         onClick={onUp}
-        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
       >
         ↑
       </button>
@@ -512,7 +577,7 @@ function UnitMoveButtons({
         type="button"
         disabled={disabledDown}
         onClick={onDown}
-        className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
       >
         ↓
       </button>

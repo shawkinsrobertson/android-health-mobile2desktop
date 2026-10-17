@@ -6,6 +6,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MediaUploadField } from "@/components/library/MediaUploadField";
 import { ProgramWorkoutListEditor, type ProgramWorkoutItem } from "@/components/library/ProgramWorkoutListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
 import { updateProgram, deleteProgram, publishProgram } from "../actions";
 import { assignLibraryProgramToClient } from "../../assign-actions";
 
@@ -92,40 +93,27 @@ export default async function ProgramDetailPage({
           <div className="mt-1 flex items-center gap-1.5">
             <h1 className="text-lg font-semibold text-ink-primary">{program.name}</h1>
             {program.status === "draft" && (
-              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-xs font-medium text-[color:var(--accent)]">
                 Draft
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {program.status === "draft" && (
-            <form action={publishProgram.bind(null, program.id)}>
-              <button
-                type="submit"
-                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-              >
-                Publish
-              </button>
-            </form>
-          )}
-          <form action={deleteProgram.bind(null, program.id)}>
-            <button
-              type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
-            >
-              Delete
-            </button>
-          </form>
-        </div>
+        <PublishDeleteActions
+          id={program.id}
+          itemLabel="program"
+          isDraft={program.status === "draft"}
+          onPublish={publishProgram}
+          onDelete={deleteProgram}
+        />
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Details</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Details</h2>
         <form action={updateProgram.bind(null, program.id)} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink-primary">
             Name
@@ -174,7 +162,7 @@ export default async function ProgramDetailPage({
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Workouts</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Workouts</h2>
         <ProgramWorkoutListEditor
           programId={program.id}
           items={items}

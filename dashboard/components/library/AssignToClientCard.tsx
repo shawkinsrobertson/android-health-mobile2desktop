@@ -1,5 +1,12 @@
-// Plain server-action form, no client-side state -- consistent with the
-// rest of this app's assign forms (see the client page's own AssignForm).
+"use client";
+
+import { useState, useTransition } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+
+// Assigning freezes a personal copy for that client (see the library hub's
+// own description: an edit after assignment no longer reaches it) -- a
+// meaningful, one-way action per the app's confirm/undo scope, so it goes
+// through the same confirm step as deletes/discards/publishes.
 export function AssignToClientCard({
   itemId,
   action,
@@ -11,7 +18,20 @@ export function AssignToClientCard({
   clients: { id: string; name: string }[];
   itemLabel: string;
 }) {
-  const boundAction = action.bind(null, itemId);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  const selectedClientName = clients.find((c) => c.id === selectedClientId)?.name ?? "this client";
+
+  function confirmAssign() {
+    setConfirming(false);
+    const formData = new FormData();
+    formData.set("client_id", selectedClientId);
+    startTransition(async () => {
+      await action(itemId, formData);
+    });
+  }
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
@@ -19,10 +39,10 @@ export function AssignToClientCard({
       {clients.length === 0 ? (
         <p className="text-sm text-ink-muted">No clients yet to assign this {itemLabel} to.</p>
       ) : (
-        <form action={boundAction} className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <select
-            name="client_id"
-            required
+            value={selectedClientId}
+            onChange={(e) => setSelectedClientId(e.target.value)}
             className="flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-[color:var(--page-plane)] px-3 py-1.5 text-sm text-ink-primary"
           >
             <option value="">Choose a client…</option>
@@ -33,13 +53,25 @@ export function AssignToClientCard({
             ))}
           </select>
           <button
-            type="submit"
-            className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={!selectedClientId || isPending}
+            className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
           >
-            Assign
+            {isPending ? "Assigning…" : "Assign"}
           </button>
-        </form>
+        </div>
       )}
+
+      <ConfirmDialog
+        open={confirming}
+        title={`Assign this ${itemLabel}?`}
+        body={`${selectedClientName} gets this ${itemLabel} as a personal copy, frozen from the original from this point on.`}
+        confirmLabel="Assign"
+        confirmDisabled={isPending}
+        onConfirm={confirmAssign}
+        onCancel={() => setConfirming(false)}
+      />
     </section>
   );
 }

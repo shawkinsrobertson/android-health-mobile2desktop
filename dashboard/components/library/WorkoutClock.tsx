@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { pauseWorkoutTimer, resumeWorkoutTimer, startWorkoutTimer, completeSession } from "@/app/client/sessions/actions";
 import { formatClock } from "@/lib/time-format";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Field names match the raw columns the session actions select and
 // return (see app/client/sessions/actions.ts), rather than translating
@@ -105,49 +106,28 @@ export function WorkoutClock({
         <button
           type="button"
           onClick={() => setConfirmingStop(true)}
-          className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+          className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-danger"
         >
           ■ Stop
         </button>
       </div>
 
-      {confirmingStop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
-          <div className="w-full max-w-sm rounded-xl bg-surface p-5">
-            <h2 className="text-sm font-semibold text-ink-primary">End this workout?</h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              You can still add notes and edit sets afterward.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmingStop(false)}
-                className="rounded-lg border border-[color:var(--border-hairline)] px-4 py-2 text-sm text-ink-secondary"
-              >
-                Cancel
-              </button>
-              <form
-                action={() => {
-                  const formData = new FormData();
-                  startTransition(async () => {
-                    await completeSession(assignedWorkoutId, sessionId, formData);
-                    setConfirmingStop(false);
-                    router.refresh();
-                  });
-                }}
-              >
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                >
-                  End & Save
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmingStop}
+        title="End this workout?"
+        body="You can still add notes and edit sets afterward."
+        confirmLabel={isPending ? "Saving…" : "End & Save"}
+        confirmDisabled={isPending}
+        onConfirm={() => {
+          const formData = new FormData();
+          startTransition(async () => {
+            await completeSession(assignedWorkoutId, sessionId, formData);
+            setConfirmingStop(false);
+            router.refresh();
+          });
+        }}
+        onCancel={() => setConfirmingStop(false)}
+      />
     </div>
   );
 }

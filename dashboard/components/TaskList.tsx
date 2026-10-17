@@ -28,7 +28,7 @@ export function TaskList({ initialTasks }: { initialTasks: TaskRow[] }) {
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">Tasks</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">Tasks</h2>
       <div className="mb-3 flex gap-2">
         <input
           type="text"
@@ -46,7 +46,7 @@ export function TaskList({ initialTasks }: { initialTasks: TaskRow[] }) {
           disabled={!draft.trim() || isPending}
           className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
         >
-          Add
+          {isPending ? "Adding…" : "Add"}
         </button>
       </div>
       {tasks.length === 0 ? (
@@ -55,12 +55,14 @@ export function TaskList({ initialTasks }: { initialTasks: TaskRow[] }) {
         <ul className="flex flex-col gap-1.5">
           {tasks.map((task) => (
             <li key={task.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={task.done}
-                onChange={() => handleToggle(task)}
-                className="h-4 w-4 accent-[color:var(--accent)]"
-              />
+              <label className="flex h-[30px] w-[30px] shrink-0 cursor-pointer items-center justify-center rounded">
+                <input
+                  type="checkbox"
+                  checked={task.done}
+                  onChange={() => handleToggle(task)}
+                  className="h-4 w-4 accent-[color:var(--accent)]"
+                />
+              </label>
               <span className={task.done ? "text-ink-muted line-through" : "text-ink-primary"}>
                 {task.text}
               </span>

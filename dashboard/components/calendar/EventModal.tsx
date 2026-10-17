@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createEvent, deleteEvent, updateEvent, type EventInput } from "@/lib/calendar-actions";
 import type { CalendarEventRow } from "@/lib/calendar";
 import { TimeCombobox } from "./TimeCombobox";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const REMINDER_OPTIONS = [
   { label: "No reminder", value: "" },
@@ -107,6 +108,12 @@ export function EventModal({
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   // On a new event only -- editing an existing one leaves whatever gap
   // the event already had alone. Bumping the end time to 30 minutes past
@@ -174,192 +181,190 @@ export function EventModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
-      <div className="w-full max-w-md rounded-xl bg-surface p-5">
-        {confirmingDelete ? (
-          <>
-            <h3 className="mb-2 text-sm font-semibold text-ink-primary">Delete this event?</h3>
-            <p className="mb-4 text-sm text-ink-secondary">This can&apos;t be undone.</p>
-            {error && <p className="mb-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={submitting}
-                className="rounded-md px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-ink-primary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={submitting}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
-              >
-                {submitting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <h3 className="mb-3 text-sm font-semibold text-ink-primary">
-              {isEdit ? "Edit event" : "New event"}
-            </h3>
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div
+        className={`w-full max-w-md rounded-xl bg-surface p-5 transition-all duration-200 ${
+          visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
+        }`}
+      >
+        <h3 className="mb-3 text-sm font-semibold text-ink-primary">
+          {isEdit ? "Edit event" : "New event"}
+        </h3>
 
-            <div className="flex flex-col gap-3">
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Title"
-                className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
-              />
+        <div className="flex flex-col gap-3">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title"
+            className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
+          />
 
-              <div className="flex gap-2">
-                <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
-                  Starts
-                  <div className="flex gap-1">
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => handleStartChange(e.target.value, startTimeOfDay)}
-                      className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                    />
-                    <TimeCombobox
-                      value={startTimeOfDay}
-                      onChange={(t) => handleStartChange(startDate, t)}
-                      className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                    />
-                  </div>
-                </label>
-                <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
-                  Ends
-                  <div className="flex gap-1">
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                    />
-                    <TimeCombobox
-                      value={endTimeOfDay}
-                      onChange={setEndTimeOfDay}
-                      className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
-                    />
-                  </div>
-                </label>
-              </div>
-
-              <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
-                <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
-                All day
-              </label>
-
-              <input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Location (optional)"
-                className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
-              />
-
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Description (optional)"
-                rows={2}
-                className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
-              />
-
-              {assignableClients && (
-                <label className="flex flex-col gap-1 text-xs text-ink-secondary">
-                  Client (optional -- leave blank for a personal block)
-                  <select
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
-                  >
-                    <option value="">None -- personal</option>
-                    {assignableClients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              <label className="flex flex-col gap-1 text-xs text-ink-secondary">
-                Reminder
-                <select
-                  value={reminder}
-                  onChange={(e) => setReminder(e.target.value)}
-                  className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
-                >
-                  {REMINDER_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+          <div className="flex flex-wrap gap-2">
+            <label className="flex min-w-[160px] flex-1 flex-col gap-1 text-xs text-ink-secondary">
+              Starts
+              <div className="flex flex-wrap gap-1">
                 <input
-                  type="checkbox"
-                  checked={hasVideoCall}
-                  onChange={(e) => setHasVideoCall(e.target.checked)}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => handleStartChange(e.target.value, startTimeOfDay)}
+                  className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
                 />
-                Add a video call link
-              </label>
-
-              {!isEdit && hasGoogleConnection && (
-                <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
-                  <input
-                    type="checkbox"
-                    checked={alsoAddToGoogleCalendar}
-                    onChange={(e) => setAlsoAddToGoogleCalendar(e.target.checked)}
-                  />
-                  Also add to Google Calendar
-                </label>
-              )}
-            </div>
-
-            {error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
-
-            <div className="mt-4 flex items-center justify-between">
-              {isEdit ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(true)}
-                  disabled={submitting}
-                  className="text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
-                >
-                  Delete
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={submitting}
-                  className="rounded-md px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-ink-primary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={submitting}
-                  className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
-                >
-                  {submitting ? "Saving…" : "Save"}
-                </button>
+                <TimeCombobox
+                  value={startTimeOfDay}
+                  onChange={(t) => handleStartChange(startDate, t)}
+                  className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                />
               </div>
-            </div>
-          </>
-        )}
+            </label>
+            <label className="flex min-w-[160px] flex-1 flex-col gap-1 text-xs text-ink-secondary">
+              Ends
+              <div className="flex flex-wrap gap-1">
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                />
+                <TimeCombobox
+                  value={endTimeOfDay}
+                  onChange={setEndTimeOfDay}
+                  className="w-24 rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+                />
+              </div>
+            </label>
+          </div>
+
+          <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+            All day
+          </label>
+
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Location (optional)"
+            className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
+          />
+
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+            className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
+          />
+
+          {assignableClients && (
+            <label className="flex flex-col gap-1 text-xs text-ink-secondary">
+              Client (optional -- leave blank for a personal block)
+              <select
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
+              >
+                <option value="">None -- personal</option>
+                {assignableClients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="flex flex-col gap-1 text-xs text-ink-secondary">
+            Reminder
+            <select
+              value={reminder}
+              onChange={(e) => setReminder(e.target.value)}
+              className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
+            >
+              {REMINDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+            <input
+              type="checkbox"
+              checked={hasVideoCall}
+              onChange={(e) => setHasVideoCall(e.target.checked)}
+            />
+            Add a video call link
+          </label>
+
+          {!isEdit && hasGoogleConnection && (
+            <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
+              <input
+                type="checkbox"
+                checked={alsoAddToGoogleCalendar}
+                onChange={(e) => setAlsoAddToGoogleCalendar(e.target.checked)}
+              />
+              Also add to Google Calendar
+            </label>
+          )}
+        </div>
+
+        {!confirmingDelete && error && <p className="mt-3 text-xs text-danger">{error}</p>}
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          {isEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setConfirmingDelete(true);
+              }}
+              disabled={submitting}
+              className="rounded-md p-2 text-xs text-ink-muted hover:text-danger"
+            >
+              Delete
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-md px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-ink-primary"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={submitting}
+              className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            >
+              {submitting ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this event?"
+        body="This can't be undone."
+        confirmLabel={submitting ? "Deleting…" : "Delete"}
+        destructive
+        confirmDisabled={submitting}
+        error={confirmingDelete ? error : null}
+        onConfirm={handleDelete}
+        onCancel={() => {
+          setError(null);
+          setConfirmingDelete(false);
+        }}
+      />
     </div>
   );
 }

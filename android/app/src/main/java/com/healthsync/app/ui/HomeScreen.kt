@@ -213,7 +213,7 @@ private fun TrainingCard(trainingItem: TrainingItem?, onOpenWorkouts: () -> Unit
             } else {
                 Text(trainingItem.workout.name, fontWeight = FontWeight.Bold)
                 if (trainingItem.programName != null) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         "Part of ${trainingItem.programName}",
                         style = MaterialTheme.typography.bodySmall,

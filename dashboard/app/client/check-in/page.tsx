@@ -68,7 +68,7 @@ export default async function ClientCheckInPage({
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       <form action={submitCheckIn.bind(null, template.id)} className="flex flex-col gap-5">

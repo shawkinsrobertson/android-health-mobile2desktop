@@ -118,7 +118,7 @@ export function WeekGrid({
                   key={ev.id}
                   type="button"
                   onClick={() => onSelectEvent(ev)}
-                  className="truncate rounded bg-[color:var(--accent)]/20 px-1 py-0.5 text-left text-[11px] text-ink-primary"
+                  className="truncate rounded bg-[color:var(--accent)]/20 px-1 py-0.5 text-left text-xs text-ink-primary"
                 >
                   {ev.title}
                 </button>
@@ -179,7 +179,7 @@ export function MonthGrid({
                     key={ev.id}
                     type="button"
                     onClick={() => onSelectEvent(ev)}
-                    className="truncate rounded bg-[color:var(--accent)]/20 px-1 text-left text-[10px] text-ink-primary"
+                    className="truncate rounded bg-[color:var(--accent)]/20 px-1 text-left text-xs text-ink-primary"
                   >
                     {ev.title}
                   </button>
@@ -188,7 +188,7 @@ export function MonthGrid({
                   <button
                     type="button"
                     onClick={() => onSelectDay(day)}
-                    className="text-left text-[10px] text-ink-muted"
+                    className="text-left text-xs text-ink-muted"
                   >
                     +{dayEvents.length - 2} more
                   </button>

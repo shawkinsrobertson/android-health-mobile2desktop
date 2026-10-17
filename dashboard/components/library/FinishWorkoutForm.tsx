@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { completeSession } from "@/app/client/sessions/actions";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Notes + "Finish Workout" for an in-progress session. Finishing goes
 // through a confirm step (same modal pattern as WorkoutClock's Stop) before
@@ -30,7 +31,7 @@ export function FinishWorkoutForm({
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session notes</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">Session notes</h2>
       <div className="flex flex-col gap-3">
         <textarea
           rows={3}
@@ -49,35 +50,15 @@ export function FinishWorkoutForm({
         </button>
       </div>
 
-      {confirming && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
-          <div className="w-full max-w-sm rounded-xl bg-surface p-5">
-            <h2 className="text-sm font-semibold text-ink-primary">Finish this workout?</h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              You&apos;ll get a summary of what you logged, and can still come back and edit sets
-              afterward.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                disabled={isPending}
-                className="rounded-lg border border-[color:var(--border-hairline)] px-4 py-2 text-sm text-ink-secondary disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={finish}
-                disabled={isPending}
-                className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                Finish
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirming}
+        title="Finish this workout?"
+        body="You'll get a summary of what you logged, and can still come back and edit sets afterward."
+        confirmLabel={isPending ? "Finishing…" : "Finish"}
+        confirmDisabled={isPending}
+        onConfirm={finish}
+        onCancel={() => setConfirming(false)}
+      />
     </section>
   );
 }

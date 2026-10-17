@@ -81,7 +81,7 @@ export default async function ClientAssignedWorkoutPage({
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       {workout.description && <p className="text-sm text-ink-secondary">{workout.description}</p>}
@@ -102,12 +102,12 @@ export default async function ClientAssignedWorkoutPage({
       </form>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <AssignedExerciseList exercises={exercises} blocks={blocks} media={media} />
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Past sessions</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Past sessions</h2>
         {sessions.length === 0 ? (
           <p className="text-sm text-ink-muted">Nothing logged yet.</p>
         ) : (

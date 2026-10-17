@@ -41,7 +41,7 @@ export default async function JoinPage({
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">
+      <h1 className="mb-2 text-lg font-semibold text-ink-primary">
         Join {invite.coach_name || "your coach"}
       </h1>
       <p className="mb-6 text-sm text-ink-secondary">
@@ -54,7 +54,7 @@ export default async function JoinPage({
         </p>
       ) : (
         <form action={requestClientMagicLink} className="flex flex-col gap-3">
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="text-sm text-danger">{error}</p>}
           <input type="hidden" name="token" value={params.token} />
           <input
             type="email"

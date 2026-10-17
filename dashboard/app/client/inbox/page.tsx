@@ -20,7 +20,7 @@ export default async function ClientInboxPage() {
   if (!clientProfile.coachId) {
     return (
       <div className="mx-auto max-w-lg">
-        <h1 className="mb-4 text-lg font-semibold text-ink-primary">Inbox</h1>
+        <h1 className="mb-2 text-lg font-semibold text-ink-primary">Inbox</h1>
         <p className="text-sm text-ink-muted">You don&apos;t have a coach assigned yet.</p>
       </div>
     );

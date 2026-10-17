@@ -94,7 +94,7 @@ export default async function WorkoutSessionPage({
         </div>
 
         {searchParams.error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+          <p className="text-sm text-danger">{searchParams.error}</p>
         )}
 
         <WorkoutClock

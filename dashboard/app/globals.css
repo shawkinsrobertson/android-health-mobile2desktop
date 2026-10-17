@@ -3,33 +3,37 @@
 @tailwind utilities;
 
 /*
- * Brand design-system tokens (2026 UI pass) — primary/secondary/accent +
- * text-primary/secondary/tertiary, light and dark. --text-tertiary is
- * the color used for text/icons drawn on top of an --accent-colored
- * surface (buttons, badges); the mockups only gave that value for dark
- * mode, so light mode reuses the same dark-brown (#281e18) rather than
- * guessing a new one — the accent color itself doesn't change between
- * themes, so the same dark text reads correctly on it either way.
+ * Design-system tokens (strip-down pass) — basic light/dark neutrals, one
+ * warm accent (#c1573b, unchanged from the prior palette), and 4 semantic
+ * colors (success/warning/danger/info) that didn't exist before this pass.
+ * Token names are unchanged from the prior palette on purpose (over 100
+ * files already consume border-hairline, ink-primary/secondary/muted,
+ * bg-surface, and accent) -- only the values got simpler. --text-tertiary
+ * was dropped outright (confirmed zero usages anywhere in this codebase).
  *
  * Chart series/gridline tokens are unchanged (validated dataviz palette,
- * see the dataviz skill's references/palette.md) — this pass reskins
+ * see the dataviz skill references/palette.md) -- this pass reskins
  * chrome/typography, not chart rendering.
  */
 :root {
   color-scheme: light;
-  --primary: #fffdfb;
-  --secondary: #f7f1e8;
+  --primary: #ffffff;
+  --secondary: #fafafa;
   --accent: #c1573b;
-  --text-primary: #3a2e27;
-  --text-secondary: #675e59;
-  --text-tertiary: #281e18;
-  --text-muted: color-mix(in srgb, var(--text-secondary) 70%, var(--primary) 30%);
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-muted: #a3a3a3;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --info: #0284c7;
 
   --page-plane: var(--primary);
   --surface-1: var(--secondary);
   --gridline: #e1e0d9;
   --baseline: #c3c2b7;
-  --border-hairline: rgba(58, 46, 39, 0.12);
+  --border-hairline: rgba(0, 0, 0, 0.12);
 
   --series-steps: #2a78d6; /* categorical slot 1 (blue) */
   --series-sleep: #1baf7a; /* categorical slot 3 (aqua) */
@@ -40,19 +44,23 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --primary: #281e18;
-    --secondary: #675e59;
+    --primary: #171717;
+    --secondary: #262626;
     --accent: #c1573b;
-    --text-primary: #fffdfb;
-    --text-secondary: #f7f1e8;
-    --text-tertiary: #281e18;
-    --text-muted: color-mix(in srgb, var(--text-secondary) 70%, var(--primary) 30%);
+    --text-primary: #fafafa;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #38bdf8;
 
     --page-plane: var(--primary);
     --surface-1: var(--secondary);
     --gridline: #3a332e;
     --baseline: #4a423c;
-    --border-hairline: rgba(255, 253, 251, 0.14);
+    --border-hairline: rgba(255, 255, 255, 0.14);
 
     --series-steps: #3987e5;
     --series-sleep: #199e70;

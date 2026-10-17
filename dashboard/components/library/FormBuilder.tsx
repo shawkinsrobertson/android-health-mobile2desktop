@@ -64,12 +64,12 @@ export function FormBuilder({
           key={field.id}
           className="flex flex-col gap-2 rounded-lg border border-[color:var(--border-hairline)] p-3"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               value={field.label}
               onChange={(e) => update(field.id, { label: e.target.value })}
               placeholder="Question / field label"
-              className="flex-1 rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+              className="min-w-[160px] flex-1 rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
             />
             <select
               value={field.type}
@@ -94,7 +94,7 @@ export function FormBuilder({
             />
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-xs text-ink-secondary">
               <input
                 type="checkbox"
@@ -109,7 +109,7 @@ export function FormBuilder({
                 type="button"
                 disabled={idx === 0}
                 onClick={() => move(field.id, -1)}
-                className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
               >
                 ↑
               </button>
@@ -117,7 +117,7 @@ export function FormBuilder({
                 type="button"
                 disabled={idx === fields.length - 1}
                 onClick={() => move(field.id, 1)}
-                className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
               >
                 ↓
               </button>
@@ -125,7 +125,7 @@ export function FormBuilder({
                 type="button"
                 onClick={() => remove(field.id)}
                 disabled={fields.length === 1}
-                className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-red-600 disabled:opacity-30 dark:hover:text-red-400"
+                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-30"
               >
                 Remove
               </button>

@@ -1,6 +1,11 @@
 package com.healthsync.app.ui.home
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +103,11 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
             )
         }
 
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 Text("You're on a roll", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
@@ -140,22 +149,29 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(4.dp))
             }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ShadeGlyph(R.drawable.ic_inbox, dotVisible = content.hasUnreadMessages)
-                    ShadeGlyph(R.drawable.ic_calendar, dotVisible = content.upcomingEvents.isNotEmpty())
-                    ShadeGlyph(R.drawable.ic_tasks, dotVisible = content.checkInDue)
+        }
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ShadeGlyph(R.drawable.ic_inbox, dotVisible = content.hasUnreadMessages)
+                        ShadeGlyph(R.drawable.ic_calendar, dotVisible = content.upcomingEvents.isNotEmpty())
+                        ShadeGlyph(R.drawable.ic_tasks, dotVisible = content.checkInDue)
+                    }
+                    if (content.weekDays.isNotEmpty()) {
+                        MiniStreak(weekDays = content.weekDays)
+                    }
                 }
-                if (content.weekDays.isNotEmpty()) {
-                    MiniStreak(weekDays = content.weekDays)
-                }
+                Spacer(Modifier.height(4.dp))
             }
-            Spacer(Modifier.height(4.dp))
         }
 
         ShadeTab(expanded = expanded, onClick = { expanded = !expanded })
@@ -167,6 +183,7 @@ fun NotificationShade(content: ShadeContent, modifier: Modifier = Modifier) {
 // the row" affordance, matching the mockup's small centered chevron chip.
 @Composable
 private fun ShadeTab(expanded: Boolean, onClick: () -> Unit) {
+    val rotation by animateFloatAsState(targetValue = if (expanded) 180f else 0f, label = "shadeTabChevronRotation")
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -176,7 +193,7 @@ private fun ShadeTab(expanded: Boolean, onClick: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = 20.dp)
+                .size(width = 48.dp, height = 24.dp)
                 .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
@@ -185,7 +202,7 @@ private fun ShadeTab(expanded: Boolean, onClick: () -> Unit) {
                 painter = painterResource(R.drawable.ic_chevron_down),
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp).rotate(if (expanded) 180f else 0f),
+                modifier = Modifier.size(24.dp).rotate(rotation),
             )
         }
     }
@@ -198,7 +215,7 @@ private fun ShadeGlyph(iconRes: Int, dotVisible: Boolean) {
             painter = painterResource(iconRes),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
         if (dotVisible) {
             Box(
@@ -238,7 +255,7 @@ private fun PreviewCard(title: String, subtitle: String, onClick: () -> Unit, tr
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (trailingGlyph != null) {
@@ -268,7 +285,7 @@ private fun EventPreviewCard(event: UpcomingEvent, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(event.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(

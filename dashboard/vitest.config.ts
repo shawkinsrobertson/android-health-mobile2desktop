@@ -26,7 +26,11 @@ export default defineConfig({
           browser: {
             enabled: true,
             headless: true,
-            provider: playwright({}),
+            // This sandbox only has the full chromium build preinstalled
+            // under /opt/pw-browsers (no chrome-headless-shell at the
+            // version @vitest/browser-playwright wants) -- point launch at
+            // it directly rather than letting Playwright try to download.
+            provider: playwright({ launchOptions: { executablePath: '/opt/pw-browsers/chromium' } }),
             instances: [{ browser: 'chromium' }],
           },
         },

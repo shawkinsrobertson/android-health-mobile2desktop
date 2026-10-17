@@ -29,7 +29,7 @@ export default async function NewProgramPage({
 
       <form action={createProgram} className="flex flex-col gap-4">
         {searchParams.error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+          <p className="text-sm text-danger">{searchParams.error}</p>
         )}
 
         <label className="flex flex-col gap-1 text-sm text-ink-primary">

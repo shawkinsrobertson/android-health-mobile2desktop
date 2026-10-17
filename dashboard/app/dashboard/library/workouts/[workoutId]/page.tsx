@@ -10,6 +10,7 @@ import {
   type WorkoutExerciseItem,
 } from "@/components/library/WorkoutExerciseListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
+import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
 import { updateWorkout, deleteWorkout, publishWorkout } from "../actions";
 import { assignLibraryWorkoutToClient } from "../../assign-actions";
 
@@ -122,7 +123,7 @@ export default async function WorkoutDetailPage({
           <div className="mt-1 flex items-center gap-1.5">
             <h1 className="text-lg font-semibold text-ink-primary">{workout.name}</h1>
             {workout.status === "draft" && (
-              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent)]">
+              <span className="rounded-full bg-[color:var(--accent)]/15 px-2 py-0.5 text-xs font-medium text-[color:var(--accent)]">
                 Draft
               </span>
             )}
@@ -133,34 +134,21 @@ export default async function WorkoutDetailPage({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {workout.status === "draft" && (
-            <form action={publishWorkout.bind(null, workout.id)}>
-              <button
-                type="submit"
-                className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-              >
-                Publish
-              </button>
-            </form>
-          )}
-          <form action={deleteWorkout.bind(null, workout.id)}>
-            <button
-              type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
-            >
-              Delete
-            </button>
-          </form>
-        </div>
+        <PublishDeleteActions
+          id={workout.id}
+          itemLabel="workout"
+          isDraft={workout.status === "draft"}
+          onPublish={publishWorkout}
+          onDelete={deleteWorkout}
+        />
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Details</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Details</h2>
         <form action={updateWorkout.bind(null, workout.id)} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink-primary">
             Name
@@ -209,7 +197,7 @@ export default async function WorkoutDetailPage({
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Exercises</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <WorkoutExerciseListEditor
           workoutId={workout.id}
           items={items}

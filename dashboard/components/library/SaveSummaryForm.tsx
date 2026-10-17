@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { completeSession } from "@/app/client/sessions/actions";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // The summary page's own notes + final save -- confirming persists any
 // notes edit and sends the client back to their dashboard (completeSession
@@ -30,7 +31,7 @@ export function SaveSummaryForm({
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">Session notes</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">Session notes</h2>
       <div className="flex flex-col gap-3">
         <textarea
           rows={3}
@@ -49,34 +50,15 @@ export function SaveSummaryForm({
         </button>
       </div>
 
-      {confirming && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
-          <div className="w-full max-w-sm rounded-xl bg-surface p-5">
-            <h2 className="text-sm font-semibold text-ink-primary">Save & finish?</h2>
-            <p className="mt-1 text-sm text-ink-secondary">
-              This saves your notes and takes you back to your dashboard.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                disabled={isPending}
-                className="rounded-lg border border-[color:var(--border-hairline)] px-4 py-2 text-sm text-ink-secondary disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={save}
-                disabled={isPending}
-                className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirming}
+        title="Save & finish?"
+        body="This saves your notes and takes you back to your dashboard."
+        confirmLabel={isPending ? "Saving…" : "Save"}
+        confirmDisabled={isPending}
+        onConfirm={save}
+        onCancel={() => setConfirming(false)}
+      />
     </section>
   );
 }

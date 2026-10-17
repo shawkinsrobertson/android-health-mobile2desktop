@@ -7,6 +7,7 @@ import {
   reorderProgramWorkouts,
   updateProgramWorkout,
 } from "@/app/dashboard/library/programs/actions";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export interface ProgramWorkoutItem {
   id: string;
@@ -62,6 +63,20 @@ export function ProgramWorkoutListEditor({
 }) {
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+
+  function confirmRemove() {
+    if (!removingId) return;
+    const id = removingId;
+    setRemovingId(null);
+    setPendingRemoveId(id);
+    startTransition(() => {
+      removeProgramWorkout(programId, id);
+    });
+  }
 
   function move(id: string, direction: -1 | 1) {
     const idx = items.findIndex((i) => i.id === id);
@@ -85,18 +100,33 @@ export function ProgramWorkoutListEditor({
               {editingId === item.id ? (
                 <form
                   action={async (formData: FormData) => {
+                    setSaving(true);
                     await updateProgramWorkout(programId, item.id, formData);
-                    setEditingId(null);
+                    setSaving(false);
+                    setSaved(true);
+                    setTimeout(() => {
+                      setSaved(false);
+                      setEditingId(null);
+                    }, 600);
                   }}
                   className="flex flex-col gap-2"
                 >
                   <div className="text-sm font-medium text-ink-primary">{item.workout_name}</div>
                   <ScheduleFields defaults={item} />
                   <div className="flex gap-3">
-                    <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
-                      Save
+                    <button
+                      type="submit"
+                      disabled={saving || saved}
+                      className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white disabled:opacity-60"
+                    >
+                      {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
                     </button>
-                    <button type="button" onClick={() => setEditingId(null)} className="text-xs text-ink-muted">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      disabled={saving || saved}
+                      className="text-xs text-ink-muted"
+                    >
                       Cancel
                     </button>
                   </div>
@@ -120,7 +150,7 @@ export function ProgramWorkoutListEditor({
                       type="button"
                       disabled={idx === 0 || isPending}
                       onClick={() => move(item.id, -1)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
                     >
                       ↑
                     </button>
@@ -128,24 +158,24 @@ export function ProgramWorkoutListEditor({
                       type="button"
                       disabled={idx === items.length - 1 || isPending}
                       onClick={() => move(item.id, 1)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary disabled:opacity-30"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
                     >
                       ↓
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingId(item.id)}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary"
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
                     >
                       Edit
                     </button>
                     <button
                       type="button"
                       disabled={isPending}
-                      onClick={() => startTransition(() => removeProgramWorkout(programId, item.id))}
-                      className="rounded-md border border-[color:var(--border-hairline)] px-1.5 py-0.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+                      onClick={() => setRemovingId(item.id)}
+                      className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-60"
                     >
-                      Remove
+                      {pendingRemoveId === item.id ? "Removing…" : "Remove"}
                     </button>
                   </div>
                 </div>
@@ -183,6 +213,16 @@ export function ProgramWorkoutListEditor({
           </button>
         </form>
       )}
+
+      <ConfirmDialog
+        open={!!removingId}
+        title="Remove this workout?"
+        body="This can't be undone."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={confirmRemove}
+        onCancel={() => setRemovingId(null)}
+      />
     </div>
   );
 }

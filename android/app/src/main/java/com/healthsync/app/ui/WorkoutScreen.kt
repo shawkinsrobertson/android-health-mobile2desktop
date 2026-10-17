@@ -1,5 +1,10 @@
 package com.healthsync.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -148,7 +153,7 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
                 currentError != null -> Text(
                     currentError,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
                 )
                 currentState == null -> Unit
                 currentState.session != null && currentState.session.completedAt != null -> SummaryWorkout(
@@ -202,7 +207,7 @@ private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(exercise.name, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         exercise.prescriptionSummary(),
                         style = MaterialTheme.typography.bodySmall,
@@ -495,22 +500,28 @@ private fun ExerciseLogCard(
                     Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
-            if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
-                    Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                    Spacer(Modifier.width(36.dp))
-                }
-                sets.forEach { set ->
-                    SetRow(
-                        set = set,
-                        onChanged = onSetChanged,
-                        repository = repository,
-                        scope = scope,
-                    )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
+                        Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                        Spacer(Modifier.width(36.dp))
+                    }
+                    sets.forEach { set ->
+                        SetRow(
+                            set = set,
+                            onChanged = onSetChanged,
+                            repository = repository,
+                            scope = scope,
+                        )
+                    }
                 }
             }
         }
@@ -571,13 +582,16 @@ private fun SetRow(
             },
         )
         RestCell(restSeconds = set.restSeconds, modifier = Modifier.weight(1f))
-        IconButton(onClick = {
-            scope.launch {
-                val newCompleted = !set.completed
-                repository.setCompleted(set.id, newCompleted)
-                onChanged(set.copy(completed = newCompleted))
-            }
-        }) {
+        IconButton(
+            onClick = {
+                scope.launch {
+                    val newCompleted = !set.completed
+                    repository.setCompleted(set.id, newCompleted)
+                    onChanged(set.copy(completed = newCompleted))
+                }
+            },
+            modifier = Modifier.size(36.dp),
+        ) {
             Box(
                 modifier = Modifier
                     .size(24.dp)
@@ -596,7 +610,7 @@ private fun SetRow(
 }
 
 /**
- * A short, ~28dp-tall reps/weight input -- Material3's OutlinedTextField
+ * A short, ~30dp-tall reps/weight input -- Material3's OutlinedTextField
  * has a hard ~56dp minimum height that can't be shrunk to fit a workout
  * card's per-set row without clipping its label/padding, so this is a
  * plain BasicTextField with its own thin border instead. Scoped to
@@ -614,7 +628,7 @@ private fun CompactNumberField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
-            .height(28.dp)
+            .height(30.dp)
             .border(
                 width = if (saved) 2.dp else 1.dp,
                 color = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,

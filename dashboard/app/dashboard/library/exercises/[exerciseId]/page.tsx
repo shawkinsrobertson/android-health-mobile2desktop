@@ -60,7 +60,7 @@ export default async function ExerciseDetailPage({
           <div className="mt-1 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-ink-primary">{exercise.name}</h1>
             {isShared && (
-              <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-sleep)]">
+              <span className="shrink-0 rounded-full bg-[color:var(--series-sleep)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-sleep)]">
                 Shared
               </span>
             )}
@@ -75,7 +75,7 @@ export default async function ExerciseDetailPage({
           <form action={deleteExercise.bind(null, exercise.id)}>
             <button
               type="submit"
-              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-red-600 dark:hover:text-red-400"
+              className="rounded-lg border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs text-ink-secondary hover:text-danger"
             >
               Delete
             </button>
@@ -84,7 +84,7 @@ export default async function ExerciseDetailPage({
       </div>
 
       {searchParams.error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{searchParams.error}</p>
+        <p className="text-sm text-danger">{searchParams.error}</p>
       )}
 
       {isShared ? (

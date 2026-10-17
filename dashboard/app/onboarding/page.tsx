@@ -21,13 +21,13 @@ export default async function OnboardingPage({
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="mb-1 text-lg font-semibold text-ink-primary">Tell us about you</h1>
+      <h1 className="mb-2 text-lg font-semibold text-ink-primary">Tell us about you</h1>
       <p className="mb-6 text-sm text-ink-secondary">
         Your coach will see this. A couple of these are optional -- fill in what&apos;s useful.
       </p>
 
       <form action={completeOnboarding} className="flex flex-col gap-4">
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         <label className="flex flex-col gap-1 text-sm text-ink-primary">
           Name

@@ -10,6 +10,7 @@ import {
 } from "@/app/dashboard/clients/[clientId]/notes-actions";
 import { EditIcon } from "@/components/icons/EditIcon";
 import { DeleteIcon } from "@/components/icons/DeleteIcon";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const PREVIEW_COUNT = 3;
 
@@ -34,6 +35,7 @@ export function CoachNotes({
   const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<CoachNoteRow | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +61,7 @@ export function CoachNotes({
   }
 
   async function handleDelete(noteId: string) {
+    setDeletingNoteId(null);
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
     setCount((prev) => Math.max(0, prev - 1));
     await deleteCoachNote(clientId, noteId);
@@ -96,7 +99,7 @@ export function CoachNotes({
             {submitting ? "Adding…" : "Add note"}
           </button>
         </div>
-        {addError && <p className="text-xs text-red-600 dark:text-red-400">{addError}</p>}
+        {addError && <p className="text-xs text-danger">{addError}</p>}
       </form>
 
       {visibleNotes.length > 0 && (
@@ -112,7 +115,7 @@ export function CoachNotes({
                     {new Date(note.created_at).toLocaleDateString()}
                   </span>
                   {note.is_private && (
-                    <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-[10px] font-medium text-[color:var(--series-heart)]">
+                    <span className="rounded-full bg-[color:var(--series-heart)]/20 px-2 py-0.5 text-xs font-medium text-[color:var(--series-heart)]">
                       Private
                     </span>
                   )}
@@ -123,17 +126,17 @@ export function CoachNotes({
                 <button
                   type="button"
                   onClick={() => setEditingNote(note)}
-                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary"
+                  className="flex items-center gap-1 rounded-md p-1 text-xs text-ink-muted hover:text-ink-primary"
                 >
-                  <EditIcon className="h-3.5 w-3.5" />
+                  <EditIcon className="h-6 w-6" />
                   Edit
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDelete(note.id)}
-                  className="flex items-center gap-1 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+                  onClick={() => setDeletingNoteId(note.id)}
+                  className="flex items-center gap-1 rounded-md p-1 text-xs text-ink-muted hover:text-danger"
                 >
-                  <DeleteIcon className="h-3.5 w-3.5" />
+                  <DeleteIcon className="h-6 w-6" />
                   Delete
                 </button>
               </div>
@@ -159,6 +162,16 @@ export function CoachNotes({
           onSaved={handleUpdated}
         />
       )}
+
+      <ConfirmDialog
+        open={!!deletingNoteId}
+        title="Delete this note?"
+        body="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => deletingNoteId && handleDelete(deletingNoteId)}
+        onCancel={() => setDeletingNoteId(null)}
+      />
     </>
   );
 }
@@ -230,7 +243,7 @@ function EditNoteModal({
               <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
               Keep private (excluded from AI assistant context)
             </label>
-            {error && <p className="mb-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mb-3 text-xs text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"

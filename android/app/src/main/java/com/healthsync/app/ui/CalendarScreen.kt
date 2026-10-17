@@ -136,7 +136,7 @@ fun CalendarScreen(clientId: String, authRepository: AuthRepository, onBack: () 
                 Text(if (currentConnection != null) "Manage in browser" else "Connect Google Calendar")
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
             Text("Upcoming", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
 
@@ -169,7 +169,7 @@ private fun EventCard(event: CalendarEventItem) {
                     Text("📹", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault()).format(event.startTime),
                 style = MaterialTheme.typography.bodySmall,

@@ -26,25 +26,25 @@ export async function NavBar() {
         <nav className="flex flex-1 gap-4 text-sm text-ink-secondary">
           {profile?.role === "coach" && (
             <Link href="/dashboard" className="flex items-center gap-1.5 hover:text-ink-primary">
-              <StatsIcon className="h-4 w-4" />
+              <StatsIcon className="h-6 w-6" />
               Dashboard
             </Link>
           )}
           {profile?.role === "coach" && (
             <Link href="/dashboard/clients" className="flex items-center gap-1.5 hover:text-ink-primary">
-              <ClientsIcon className="h-4 w-4" />
+              <ClientsIcon className="h-6 w-6" />
               Clients
             </Link>
           )}
           {profile?.role === "coach" && (
             <Link href="/dashboard/library" className="flex items-center gap-1.5 hover:text-ink-primary">
-              <LibrariesIcon className="h-4 w-4" />
+              <LibrariesIcon className="h-6 w-6" />
               Library
             </Link>
           )}
           {profile?.role === "coach" && (
             <Link href="/dashboard/calendar" className="flex items-center gap-1.5 hover:text-ink-primary">
-              <CalendarIcon className="h-4 w-4" />
+              <CalendarIcon className="h-6 w-6" />
               Calendar
             </Link>
           )}
@@ -58,7 +58,7 @@ export async function NavBar() {
           )}
           {profile?.role === "client" && (
             <Link href="/client/check-in" className="flex items-center gap-1.5 hover:text-ink-primary">
-              <TasksIcon className="h-4 w-4" />
+              <TasksIcon className="h-6 w-6" />
               Check-in
             </Link>
           )}

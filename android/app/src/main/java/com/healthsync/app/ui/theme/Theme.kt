@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -31,6 +32,10 @@ private val LightColors = lightColorScheme(
     surfaceVariant = LightSecondary,
     onSurfaceVariant = LightTextSecondary,
     outline = LightTextSecondary,
+    // Overrides Material3's own default error red, so this and the web
+    // app's --danger show the identical color.
+    error = LightDanger,
+    onError = Color.White,
 )
 
 private val DarkColors = darkColorScheme(
@@ -47,12 +52,18 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = DarkSecondary,
     onSurfaceVariant = DarkTextSecondary,
     outline = DarkTextSecondary,
+    error = DarkDanger,
+    onError = Color.White,
 )
 
 @Composable
 fun HealthSyncTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, typography = HealthSyncTypography, content = content)
+    val isDark = isSystemInDarkTheme()
+    val colors = if (isDark) DarkColors else LightColors
+    val extendedColors = if (isDark) DarkExtendedColors else LightExtendedColors
+    CompositionLocalProvider(LocalExtendedColors provides extendedColors) {
+        MaterialTheme(colorScheme = colors, typography = HealthSyncTypography, content = content)
+    }
 }
 
 // Applied once, behind the whole app (see MainActivity), rather than

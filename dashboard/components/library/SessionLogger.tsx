@@ -11,6 +11,7 @@ import { groupIntoUnits } from "@/lib/workout-blocks";
 import { formatClock } from "@/lib/time-format";
 import { useActiveTimer } from "./ActiveTimerProvider";
 import { VideoPreview } from "./VideoPreview";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { AssignedBlock, AssignedExerciseItem } from "./AssignedExerciseList";
 
 export interface SessionExerciseState {
@@ -110,7 +111,7 @@ function SetRow({
           onBlur={(e) => saveField({ weight: e.target.value.trim() || null })}
           className={cellInputClass}
         />
-        <span className="shrink-0 text-[10px] text-ink-muted">{weightUnit}</span>
+        <span className="shrink-0 text-xs text-ink-muted">{weightUnit}</span>
       </div>
 
       <button
@@ -124,7 +125,7 @@ function SetRow({
       <button
         type="button"
         onClick={onDelete}
-        className="shrink-0 text-xs text-ink-muted hover:text-red-600 dark:hover:text-red-400"
+        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-xs text-ink-muted hover:text-danger"
         aria-label={`Delete set ${set.set_number}`}
       >
         ✕
@@ -153,6 +154,7 @@ function ExerciseSessionCard({
   const [sets, setSets] = useState(initialSets);
   const [completed, setCompleted] = useState(exercise.completed);
   const [isPr, setIsPr] = useState(exercise.is_pr);
+  const [deletingSetId, setDeletingSetId] = useState<string | null>(null);
   const isTimed = item.prescription_type === "time";
 
   function saveExerciseFields(patch: { completed?: boolean; is_pr?: boolean; notes?: string | null }) {
@@ -172,6 +174,7 @@ function ExerciseSessionCard({
   }
 
   async function handleDeleteSet(setId: string) {
+    setDeletingSetId(null);
     setSets((prev) => prev.filter((s) => s.id !== setId).map((s, i) => ({ ...s, set_number: i + 1 })));
     await deleteSessionSet(exercise.id, setId);
   }
@@ -211,7 +214,7 @@ function ExerciseSessionCard({
             weightUnit={weightUnit}
             set={set}
             onChange={(next) => setSets((prev) => prev.map((s) => (s.id === next.id ? next : s)))}
-            onDelete={() => handleDeleteSet(set.id)}
+            onDelete={() => setDeletingSetId(set.id)}
           />
         ))}
       </div>
@@ -223,6 +226,16 @@ function ExerciseSessionCard({
       >
         + Add set
       </button>
+
+      <ConfirmDialog
+        open={!!deletingSetId}
+        title="Delete this set?"
+        body="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => deletingSetId && handleDeleteSet(deletingSetId)}
+        onCancel={() => setDeletingSetId(null)}
+      />
 
       <div className="flex items-center gap-4">
         <label className="flex items-center gap-1.5 text-xs text-ink-secondary">
@@ -303,7 +316,7 @@ export function SessionLogger({
         ) : (
           <li key={unit.key} className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
             <div className="mb-2 flex items-center gap-2">
-              <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
+              <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
                 {unit.block.block_type}
               </span>
               <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>

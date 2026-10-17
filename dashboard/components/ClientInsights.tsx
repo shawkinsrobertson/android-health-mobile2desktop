@@ -55,7 +55,7 @@ export function ClientInsights({ clientId, initialInsight }: { clientId: string;
       </div>
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-sm text-danger">{error}</p>
       ) : loading && !insight ? (
         <p className="text-sm text-ink-muted">Reviewing this client&apos;s recent data…</p>
       ) : insight ? (

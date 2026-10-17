@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchEvents } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
@@ -70,6 +70,24 @@ export function CalendarCard({
   const [joinError, setJoinError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  // Fades in whichever content (teaser or full calendar) just mounted,
+  // including on first render -- re-triggers every time `expanded` flips,
+  // since swapping between the two is a full DOM subtree change, not a
+  // simple resize, so there's no single persistent element to transition.
+  // The reset to invisible has to happen in a *layout* effect, before the
+  // browser paints -- a plain effect fires after paint, so the new
+  // content's first frame would still show the stale `visible` value from
+  // before the toggle (a one-frame flash to opaque before dipping to 0).
+  useLayoutEffect(() => {
+    setVisible(false);
+  }, [expanded]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [expanded]);
 
   const range = useMemo(() => rangeForView(view, anchorDate), [view, anchorDate]);
 
@@ -172,7 +190,9 @@ export function CalendarCard({
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-left"
+        className={`w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-left transition-opacity duration-200 ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
       >
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">{title}</h2>
@@ -197,8 +217,12 @@ export function CalendarCard({
   }
 
   return (
-    <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between">
+    <div
+      className={`rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
           onClick={() => setExpanded(false)}
@@ -275,14 +299,14 @@ export function CalendarCard({
         </div>
       )}
 
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex gap-1">
           {(["agenda", "day", "week", "month"] as View[]).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setView(v)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+              className={`rounded-md px-2.5 py-2 text-xs font-medium ${
                 view === v
                   ? "bg-[color:var(--accent)] text-white"
                   : "text-ink-secondary hover:bg-[color:var(--page-plane)]"
@@ -294,18 +318,28 @@ export function CalendarCard({
         </div>
         {view !== "agenda" && (
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => step(-1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              aria-label="Previous period"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ‹
             </button>
             <span className="text-xs font-medium text-ink-primary">{periodLabel()}</span>
-            <button type="button" onClick={() => step(1)} className="text-ink-secondary hover:text-ink-primary">
+            <button
+              type="button"
+              onClick={() => step(1)}
+              aria-label="Next period"
+              className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-ink-secondary hover:text-ink-primary"
+            >
               ›
             </button>
           </div>
         )}
       </div>
 
-      {joinError && <p className="mb-2 text-xs text-red-600 dark:text-red-400">{joinError}</p>}
+      {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
 
       {loading ? (
         <p className="text-sm text-ink-muted">Loading…</p>

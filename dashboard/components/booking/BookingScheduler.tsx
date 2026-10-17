@@ -79,11 +79,12 @@ export function BookingScheduler({ coachId }: { coachId: string }) {
   return (
     <div className="flex flex-col gap-6 sm:flex-row">
       <div className="sm:w-1/2">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setAnchorMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-            className="text-sm text-ink-secondary hover:text-ink-primary"
+            aria-label="Previous month"
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-sm text-ink-secondary hover:text-ink-primary"
           >
             ‹
           </button>
@@ -93,13 +94,14 @@ export function BookingScheduler({ coachId }: { coachId: string }) {
           <button
             type="button"
             onClick={() => setAnchorMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-            className="text-sm text-ink-secondary hover:text-ink-primary"
+            aria-label="Next month"
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md text-sm text-ink-secondary hover:text-ink-primary"
           >
             ›
           </button>
         </div>
 
-        {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
         <BookingMonthGrid
           anchorDate={anchorMonth}
@@ -253,7 +255,7 @@ function BookingForm({
   if (confirmed) {
     return (
       <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-        <h2 className="mb-1 text-sm font-semibold text-ink-primary">Booked</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-primary">Booked</h2>
         <p className="text-sm text-ink-secondary">{formatSlotRange(slot)}</p>
       </div>
     );
@@ -289,7 +291,7 @@ function BookingForm({
         className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm text-ink-primary outline-none"
       />
 
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <button

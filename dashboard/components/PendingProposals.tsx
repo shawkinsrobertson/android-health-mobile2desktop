@@ -138,7 +138,7 @@ export function PendingProposals({ clientId, initialProposals }: { clientId: str
 
   return (
     <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
-      <h2 className="mb-3 text-sm font-semibold text-ink-primary">Pending review</h2>
+      <h2 className="mb-2 text-sm font-semibold text-ink-primary">Pending review</h2>
       <div className="flex flex-col gap-2">
         {proposals.map((proposal) => {
           const typeLabel = TYPE_LABELS[proposal.type];
