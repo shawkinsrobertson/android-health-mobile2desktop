@@ -135,7 +135,7 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
                     CircularProgressIndicator()
                 }
                 currentError != null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(currentError, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(24.dp))
+                    Text(currentError, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 }
                 thread == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(

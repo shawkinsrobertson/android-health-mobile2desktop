@@ -176,7 +176,7 @@ private fun ShadeTab(expanded: Boolean, onClick: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = 20.dp)
+                .size(width = 48.dp, height = 24.dp)
                 .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
@@ -185,7 +185,7 @@ private fun ShadeTab(expanded: Boolean, onClick: () -> Unit) {
                 painter = painterResource(R.drawable.ic_chevron_down),
                 contentDescription = if (expanded) "Collapse" else "Expand",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp).rotate(if (expanded) 180f else 0f),
+                modifier = Modifier.size(24.dp).rotate(if (expanded) 180f else 0f),
             )
         }
     }
@@ -198,7 +198,7 @@ private fun ShadeGlyph(iconRes: Int, dotVisible: Boolean) {
             painter = painterResource(iconRes),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
         if (dotVisible) {
             Box(
