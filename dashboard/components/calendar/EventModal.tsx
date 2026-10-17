@@ -298,13 +298,16 @@ export function EventModal({
           )}
         </div>
 
-        {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+        {!confirmingDelete && error && <p className="mt-3 text-xs text-danger">{error}</p>}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           {isEdit ? (
             <button
               type="button"
-              onClick={() => setConfirmingDelete(true)}
+              onClick={() => {
+                setError(null);
+                setConfirmingDelete(true);
+              }}
               disabled={submitting}
               className="rounded-md p-2 text-xs text-ink-muted hover:text-danger"
             >
@@ -343,7 +346,10 @@ export function EventModal({
         confirmDisabled={submitting}
         error={confirmingDelete ? error : null}
         onConfirm={handleDelete}
-        onCancel={() => setConfirmingDelete(false)}
+        onCancel={() => {
+          setError(null);
+          setConfirmingDelete(false);
+        }}
       />
     </div>
   );
