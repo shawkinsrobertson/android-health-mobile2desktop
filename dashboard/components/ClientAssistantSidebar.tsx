@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AssistantChat } from "@/components/AssistantChat";
 import { ChevronDownIcon } from "@/components/icons/ChevronDownIcon";
 
@@ -18,6 +18,17 @@ export function ClientAssistantSidebar({
   initialMessages: { role: "user" | "assistant"; content: string }[];
 }) {
   const [collapsed, setCollapsed] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Collapsing only fades the chat panel out visually (opacity +
+  // pointer-events) -- without this, AssistantChat's own text input and
+  // send button would stay focusable and screen-reader-reachable while
+  // invisible. `inert` removes a subtree from both the tab order and the
+  // accessibility tree; it's not yet in this project's React/TS types, so
+  // it's set as a raw DOM attribute here instead of a JSX prop.
+  useEffect(() => {
+    contentRef.current?.toggleAttribute("inert", collapsed);
+  }, [collapsed]);
 
   return (
     <aside
@@ -43,6 +54,7 @@ export function ClientAssistantSidebar({
       </div>
 
       <div
+        ref={contentRef}
         className={`flex flex-1 flex-col gap-2 transition-opacity duration-200 ${
           collapsed ? "pointer-events-none opacity-0" : "opacity-100"
         }`}

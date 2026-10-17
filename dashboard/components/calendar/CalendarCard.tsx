@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { fetchEvents } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
@@ -76,8 +76,15 @@ export function CalendarCard({
   // including on first render -- re-triggers every time `expanded` flips,
   // since swapping between the two is a full DOM subtree change, not a
   // simple resize, so there's no single persistent element to transition.
-  useEffect(() => {
+  // The reset to invisible has to happen in a *layout* effect, before the
+  // browser paints -- a plain effect fires after paint, so the new
+  // content's first frame would still show the stale `visible` value from
+  // before the toggle (a one-frame flash to opaque before dipping to 0).
+  useLayoutEffect(() => {
     setVisible(false);
+  }, [expanded]);
+
+  useEffect(() => {
     const id = requestAnimationFrame(() => setVisible(true));
     return () => cancelAnimationFrame(id);
   }, [expanded]);
