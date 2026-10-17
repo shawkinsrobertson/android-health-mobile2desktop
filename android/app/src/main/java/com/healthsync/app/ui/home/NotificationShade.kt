@@ -238,7 +238,7 @@ private fun PreviewCard(title: String, subtitle: String, onClick: () -> Unit, tr
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (trailingGlyph != null) {
@@ -268,7 +268,7 @@ private fun EventPreviewCard(event: UpcomingEvent, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(event.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(
