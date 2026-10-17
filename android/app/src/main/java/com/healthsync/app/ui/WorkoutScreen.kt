@@ -1,5 +1,10 @@
 package com.healthsync.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -495,22 +500,28 @@ private fun ExerciseLogCard(
                     Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
-            if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
-                    Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                    Spacer(Modifier.width(36.dp))
-                }
-                sets.forEach { set ->
-                    SetRow(
-                        set = set,
-                        onChanged = onSetChanged,
-                        repository = repository,
-                        scope = scope,
-                    )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
+                        Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                        Spacer(Modifier.width(36.dp))
+                    }
+                    sets.forEach { set ->
+                        SetRow(
+                            set = set,
+                            onChanged = onSetChanged,
+                            repository = repository,
+                            scope = scope,
+                        )
+                    }
                 }
             }
         }

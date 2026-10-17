@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import com.healthsync.app.sync.SyncStateStore
 import com.healthsync.app.ui.components.ConfirmDialog
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 // Profile + settings: account info, sync status per data type, and the
 // sign-out/force-resync controls that used to live on HomeScreen before
@@ -55,6 +57,38 @@ fun ProfileScreen(
 ) {
     var confirmingSignOut by remember { mutableStateOf(false) }
     var confirmingResync by remember { mutableStateOf(false) }
+
+    // isSyncing/lastResult are owned by the caller (the sync result already
+    // shows below), but neither tells this screen which of the two buttons
+    // just finished -- track that locally so the right one, specifically,
+    // gets a brief "✓" on itself instead of only the shared result text.
+    var lastAction by remember { mutableStateOf<String?>(null) }
+    var wasSyncing by remember { mutableStateOf(isSyncing) }
+    var justSynced by remember { mutableStateOf(false) }
+    var justResynced by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isSyncing) {
+        if (wasSyncing && !isSyncing) {
+            when (lastAction) {
+                "sync" -> justSynced = true
+                "resync" -> justResynced = true
+            }
+            lastAction = null
+        }
+        wasSyncing = isSyncing
+    }
+    LaunchedEffect(justSynced) {
+        if (justSynced) {
+            delay(1200)
+            justSynced = false
+        }
+    }
+    LaunchedEffect(justResynced) {
+        if (justResynced) {
+            delay(1200)
+            justResynced = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -88,8 +122,8 @@ fun ProfileScreen(
             Spacer(Modifier.height(20.dp))
             Text("Sync", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onSyncNow, enabled = !isSyncing) {
-                Text(if (isSyncing) "Syncing…" else "Sync now")
+            TextButton(onClick = { lastAction = "sync"; onSyncNow() }, enabled = !isSyncing) {
+                Text(if (isSyncing) "Syncing…" else if (justSynced) "Synced ✓" else "Sync now")
             }
             lastResult?.let { result ->
                 if (result.success) {
@@ -107,7 +141,7 @@ fun ProfileScreen(
                 Spacer(Modifier.height(8.dp))
             }
             TextButton(onClick = { confirmingResync = true }, enabled = !isSyncing) {
-                Text(if (isSyncing) "Syncing…" else "Force full re-sync")
+                Text(if (isSyncing) "Syncing…" else if (justResynced) "Synced ✓" else "Force full re-sync")
             }
             Text(
                 "Re-checks full history for every type below instead of trusting Health " +
@@ -159,6 +193,7 @@ fun ProfileScreen(
             confirmLabel = "Re-sync",
             onConfirm = {
                 confirmingResync = false
+                lastAction = "resync"
                 onForceResync()
             },
             onDismiss = { confirmingResync = false },

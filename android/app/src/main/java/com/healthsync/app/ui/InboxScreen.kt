@@ -67,8 +67,16 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
     var error by remember { mutableStateOf<String?>(null) }
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var justSent by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(justSent) {
+        if (justSent) {
+            delay(600)
+            justSent = false
+        }
+    }
 
     LaunchedEffect(clientId) {
         val token = authRepository.getValidAccessToken()
@@ -185,9 +193,10 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
                                     draft = ""
                                     messages = repo.getMessages(currentThread.id)
                                     sending = false
+                                    justSent = true
                                 }
                             },
-                        ) { Text(if (sending) "Sending…" else "Send") }
+                        ) { Text(if (sending) "Sending…" else if (justSent) "Sent ✓" else "Send") }
                     }
                 }
             }
