@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createEvent, deleteEvent, updateEvent, type EventInput } from "@/lib/calendar-actions";
 import type { CalendarEventRow } from "@/lib/calendar";
 import { TimeCombobox } from "./TimeCombobox";
@@ -108,6 +108,12 @@ export function EventModal({
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   // On a new event only -- editing an existing one leaves whatever gap
   // the event already had alone. Bumping the end time to 30 minutes past
@@ -175,8 +181,16 @@ export function EventModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
-      <div className="w-full max-w-md rounded-xl bg-surface p-5">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div
+        className={`w-full max-w-md rounded-xl bg-surface p-5 transition-all duration-200 ${
+          visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
+        }`}
+      >
         <h3 className="mb-3 text-sm font-semibold text-ink-primary">
           {isEdit ? "Edit event" : "New event"}
         </h3>

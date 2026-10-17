@@ -70,6 +70,17 @@ export function CalendarCard({
   const [joinError, setJoinError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  // Fades in whichever content (teaser or full calendar) just mounted,
+  // including on first render -- re-triggers every time `expanded` flips,
+  // since swapping between the two is a full DOM subtree change, not a
+  // simple resize, so there's no single persistent element to transition.
+  useEffect(() => {
+    setVisible(false);
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [expanded]);
 
   const range = useMemo(() => rangeForView(view, anchorDate), [view, anchorDate]);
 
@@ -172,7 +183,9 @@ export function CalendarCard({
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-left"
+        className={`w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 text-left transition-opacity duration-200 ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
       >
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">{title}</h2>
@@ -197,7 +210,11 @@ export function CalendarCard({
   }
 
   return (
-    <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+    <div
+      className={`rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
