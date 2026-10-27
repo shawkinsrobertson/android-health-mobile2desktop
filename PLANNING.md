@@ -2236,3 +2236,59 @@ after every stage that touched a storied component's markup/sizing),
 and `./gradlew :app:compileDebugKotlin`/`:app:lintDebug` for Android --
 same manual-review-plus-compile posture as every prior Android pass in
 this project.
+
+## Phase 14 -- Primitives restructure: Visibility Scope
+
+Starting point for a longer-running effort: restructure the codebase
+around a small set of shared product primitives (Template, Assignment,
+Timeline, Metric, Scheduled Event, Proposal) instead of continuing to
+add one bespoke table per feature. Proposal (`ai_assistant_proposals`,
+Phase 5) was already the one primitive genuinely built this way.
+Visibility Scope is cross-cutting rather than a sibling primitive, and
+is being settled first because Template/Assignment/Metric/Scheduled
+Event unification all need to adopt one visibility convention from the
+start rather than inventing a fourth mechanism on top of the three that
+already exist. Timeline (chat vs. coach_notes) is deferred pending a
+separate design discussion -- unlike the others, unifying it is a real
+design task (chat has realtime/threading/attachments coach_notes never
+needed), not a mechanical collapse.
+
+**The three existing mechanisms, audited.** (1) `coach_notes.is_private`
+-- a boolean, checked explicitly by `lib/assistant.ts`'s
+`fetchCoachNotesForAssistant` (`.eq("is_private", false)`). (2)
+`calendar_events` -- no column at all; the AI assistant's only calendar
+fetcher (`fetchBusyBlocksForAssistant`) calls `getBusyBlocks`, never
+`listEvents`, so event titles/descriptions structurally never reach the
+model regardless of any flag. (3) `client_data_consent` -- a *different*
+axis entirely (client-granted permission to share a data type with their
+coach at all, not AI-context exclusion), keyed by `data_type`, read via
+`getConsentMap`/`isConsented` in `lib/assistant.ts`.
+
+**Decision: two sanctioned mechanisms for AI-context exclusion, not
+one.** A boolean column (`is_private`, or `ai_excluded` for any future
+table that isn't already using a more specific name) for row-level
+opt-out, checked explicitly inside whichever `lib/assistant.ts` fetcher
+reads that table -- this is the pattern Template/Assignment and a future
+unified Timeline should follow. *Or* query-shape enforcement, where the
+AI-facing fetcher is structurally incapable of returning the sensitive
+fields (calendar's busy-blocks-only accessor) -- acceptable when a
+summary/aggregate view already exists for other reasons, but not a
+substitute for a column on a table that has no such narrower accessor.
+Every future AI-facing fetcher must live in `lib/assistant.ts` and be
+traceable to one of these two mechanisms -- that invariant (not a new
+column type) is the actual primitive here.
+
+**Fix: client_data_consent's data_type is no longer a closed set.**
+Its own migration comment said adding a data type later should be "a new
+row shape, not a schema change," but the `CHECK` constraint it shipped
+with contradicted that, proven when `0024_blood_glucose.sql` had to drop
+and recreate the constraint just to add one value. `0032_visibility_scope.sql`
+drops it for good -- `data_type` is now plain `not null text`, matching
+`isConsented`'s own already-open-ended treatment of the key. Unlike the
+AI-exclusion axis, this remains deliberately its own mechanism (client
+consent to share, not coach/AI privacy) rather than being folded into it.
+
+Verification: schema-only change (a dropped `CHECK` constraint), no
+application code depended on its presence -- confirmed via
+`grep -rn "client_data_consent_data_type_check"` returning only this
+migration and `0024`'s now-historical add/drop of the same constraint.
