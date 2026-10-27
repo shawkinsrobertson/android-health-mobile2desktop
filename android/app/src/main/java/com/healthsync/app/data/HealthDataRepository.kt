@@ -182,7 +182,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         if (rows.length() == 0) return null
         var sum = 0.0
         for (i in 0 until rows.length()) {
-            sum += rows.getJSONObject(i).optDouble("bpm", 0.0)
+            sum += rows.getJSONObject(i).getJSONObject("value").optDouble("bpm", 0.0)
         }
         return Math.round(sum / rows.length()).toInt()
     }
