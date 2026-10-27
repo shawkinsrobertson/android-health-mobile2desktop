@@ -82,11 +82,16 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
                     "metric_type" to "eq.steps",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
-                    // Already date-bounded to `days` -- this just avoids
-                    // select() falling back to its full-pagination path
-                    // (see SupabaseRestClient.select()'s doc comment) for a
-                    // preview that doesn't need to be exhaustive anyway.
-                    "limit" to "2000",
+                    // No `limit` here on purpose -- a dense metric type
+                    // (steps especially, with multiple sources) can exceed
+                    // a hard cap within the `days` window, and with
+                    // ascending order a single-page cap silently drops the
+                    // *newest* rows, not the oldest. Already date-bounded
+                    // to `days`, so this falls through to select()'s normal
+                    // auto-pagination and still returns every row in range.
+                    // Same bug web dashboard's 562f711 fixed in
+                    // lib/queries.ts's fetchAllRows() -- this screen never
+                    // got the equivalent fix until now.
                 ),
             )
         }
@@ -99,7 +104,6 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
                     "metric_type" to "eq.sleep_session",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
-                    "limit" to "2000",
                 ),
             )
         }

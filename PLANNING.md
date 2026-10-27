@@ -2410,3 +2410,55 @@ re-verified with a final `tsc --noEmit` and a repo-wide grep for every old
 table name after all four cutovers landed, turning up only the
 intentionally-kept AI tool names, the consent-key namespace, and
 historical migration-number comments.
+
+## Phase 16 -- Android Stats screen: steps truncating to the oldest few days
+
+Post-Phase-15 smoke test found the "Steps, last 14 days" chart on
+Android's Stats screen (`DashboardScreen.kt`) showing only the oldest 4
+days in the window while "Sleep, last 14 days" right below it correctly
+showed all 12. Investigated with the same two-investigator-plus-supervisor
+pattern Phase 13 established (one agent on web/schema, one on Android,
+one independently re-verifying both against the actual code before
+anything shipped).
+
+**Root cause.** `HealthDataRepository.kt`'s `stepsDeferred`/`sleepDeferred`
+queries both passed `order: "start_time.asc"` + `limit: "2000"`.
+`SupabaseRestClient.select()` auto-paginates past PostgREST's 1000-row
+page cap *unless* the caller's own params already include `limit`, in
+which case it issues one single capped request instead. Ascending order
++ a single capped page means a metric type with more rows than the cap in
+the window loses everything past it -- which in ascending order is the
+*newest* end, not the oldest. Steps (dense per-sample rows, especially
+with multiple sources) exceeds 2000 rows in 14 days; sleep (~1-2 rows/
+night) essentially never does, which is exactly why only steps truncated.
+
+**Confirmed pre-existing**, not a Phase 15 regression -- diffed against
+the commit immediately before that work began and found the identical
+pattern already there, untouched by the Metric cutover (which only
+renamed the table and added the `metric_type` filter). Also confirmed to
+be the *same bug class* the web dashboard already hit and fixed in
+`562f711` ("Paginate sample-based queries past PostgREST's 1000-row
+default cap") -- that commit's own message notes the bug had previously
+been misdiagnosed as duplication/proration twice before being correctly
+identified as plain truncation, which is almost certainly why this class
+of bug reads as "duplication or cutoff, not sure which" in institutional
+memory. The web fix (`lib/queries.ts`'s `fetchAllRows()`) was never
+ported to this Android screen. `DataPointRepository.kt`'s steps query
+was checked and confirmed clean -- it never set `limit`, so it was never
+vulnerable.
+
+**Fix.** Removed the `limit` param from both queries, letting
+`SupabaseRestClient.select()`'s existing pagination run -- both queries
+are already date-bounded by `sinceIso`, so this only changes behavior
+when there's enough real data to need more than one page. A `desc`+
+re-sort alternative was considered and rejected: `bucketSleepByNight`
+(unlike `bucketStepsByDay`) doesn't re-sort its own output, and
+`DashboardScreen`'s "last night's sleep" reads `sleepNights.lastOrNull()`
+assuming ascending order already -- a naive `desc` flip would have
+silently swapped "last night" for "first night in the window," the same
+class of silent-wrong-data bug this fix was for.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. No live Supabase access in this environment (standing constraint
+throughout this project) to confirm against real row counts -- this
+remains a high-confidence code-reading fix pending a real-device check.
