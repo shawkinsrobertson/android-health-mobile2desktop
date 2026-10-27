@@ -18,9 +18,9 @@ export const dynamic = "force-dynamic";
 
 interface JoinRow {
   id: string;
-  exercise_id: string;
+  child_id: string;
   order_index: number;
-  block_id: string | null;
+  group_id: string | null;
   sets: number | null;
   reps: string | null;
   prescription_type: "reps" | "time";
@@ -29,7 +29,7 @@ interface JoinRow {
   rest_seconds: number | null;
   tempo: string | null;
   notes: string | null;
-  library_exercises: { name: string } | null;
+  exercise: { name: string } | null;
 }
 
 export default async function WorkoutDetailPage({
@@ -48,30 +48,31 @@ export default async function WorkoutDetailPage({
   const [{ data: workout, error }, { data: joinRows }, { data: blockRows }, { count: usedInPrograms }, { data: exercises }, { data: clientRows }] =
     await Promise.all([
       supabase
-        .from("library_workouts")
+        .from("templates")
         .select("id, name, description, photo_path, photo_url, video_path, video_url, status")
         .eq("id", params.workoutId)
+        .eq("type", "workout")
         .eq("coach_id", profile.id)
         .single(),
       supabase
-        .from("library_workout_exercises")
+        .from("template_components")
         .select(
-          "id, exercise_id, order_index, block_id, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes, library_exercises(name)",
+          "id, child_id, order_index, group_id, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes, exercise:templates!template_components_child_id_fkey(name)",
         )
-        .eq("workout_id", params.workoutId)
+        .eq("parent_id", params.workoutId)
         .order("order_index"),
       supabase
-        .from("library_workout_blocks")
+        .from("template_component_groups")
         .select("id, block_type, rounds, notes")
-        .eq("workout_id", params.workoutId),
+        .eq("parent_id", params.workoutId),
       supabase
-        .from("library_program_workouts")
+        .from("template_components")
         .select("id", { count: "exact", head: true })
-        .eq("workout_id", params.workoutId),
+        .eq("child_id", params.workoutId),
       // No coach_id filter -- RLS already includes shared (coach_id IS
       // NULL) exercises alongside this coach's own, so they show up as
       // addable options too (see supabase/migrations/0006_shared_exercises.sql).
-      supabase.from("library_exercises").select("id, name, coach_id").order("name"),
+      supabase.from("templates").select("id, name, coach_id").eq("type", "exercise").order("name"),
       supabase
         .from("client_profiles")
         .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
@@ -87,10 +88,10 @@ export default async function WorkoutDetailPage({
 
   const items: WorkoutExerciseItem[] = ((joinRows ?? []) as unknown as JoinRow[]).map((row) => ({
     id: row.id,
-    exercise_id: row.exercise_id,
-    exercise_name: row.library_exercises?.name ?? "Unknown exercise",
+    exercise_id: row.child_id,
+    exercise_name: row.exercise?.name ?? "Unknown exercise",
     order_index: row.order_index,
-    block_id: row.block_id,
+    block_id: row.group_id,
     sets: row.sets,
     reps: row.reps,
     prescription_type: row.prescription_type,

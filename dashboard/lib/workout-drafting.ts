@@ -15,12 +15,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // coach-level draft they review on the real Workouts page.
 //
 // Per the coach's own decision on how drafts should stage: this writes
-// directly into library_workouts/library_workout_exercises with
-// status='draft' (migration 0029), not into ai_assistant_proposals --
+// directly into templates/template_components (type='workout') with
+// status='draft' (migration 0033), not into ai_assistant_proposals --
 // review happens on the real Workouts list/detail pages, not a separate
 // queue. "Coach reviews before execution" is enforced by excluding
 // status='draft' rows from every assignment picker (see the page.tsx
-// files that list library_workouts for assignment), not by this file.
+// files that list templates for assignment), not by this file.
 
 const WORKOUT_DRAFT_SYSTEM_PROMPT = `You are drafting a workout for a fitness coach's library, from their text
 description. Call get_library_exercises first and reuse an existing
@@ -56,8 +56,9 @@ export function buildWorkoutDraftTools(
       inputSchema: z.object({}),
       run: async () => {
         const { data } = await supabase
-          .from("library_exercises")
+          .from("templates")
           .select("id, name")
+          .eq("type", "exercise")
           .order("name");
         return JSON.stringify(data ?? []);
       },
@@ -86,12 +87,12 @@ export function buildWorkoutDraftTools(
           .min(1),
       }),
       run: async ({ name, description, exercises }) => {
-        const { data: existing } = await supabase.from("library_exercises").select("id, name");
+        const { data: existing } = await supabase.from("templates").select("id, name").eq("type", "exercise");
         const byName = new Map(((existing ?? []) as { id: string; name: string }[]).map((e) => [e.name.trim().toLowerCase(), e.id]));
 
         const { data: workout, error: workoutError } = await supabase
-          .from("library_workouts")
-          .insert({ coach_id: coachId, name, description: description ?? null, status: "draft" })
+          .from("templates")
+          .insert({ coach_id: coachId, type: "workout", name, description: description ?? null, status: "draft" })
           .select("id")
           .single();
         if (workoutError || !workout) throw new Error(workoutError?.message ?? "Failed to create draft workout");
@@ -102,8 +103,8 @@ export function buildWorkoutDraftTools(
           let exerciseId = byName.get(key);
           if (!exerciseId) {
             const { data: newExercise, error: exerciseError } = await supabase
-              .from("library_exercises")
-              .insert({ coach_id: coachId, name: ex.name.trim() })
+              .from("templates")
+              .insert({ coach_id: coachId, type: "exercise", name: ex.name.trim() })
               .select("id")
               .single();
             if (exerciseError || !newExercise) throw new Error(exerciseError?.message ?? "Failed to create exercise");
@@ -111,10 +112,10 @@ export function buildWorkoutDraftTools(
             byName.set(key, exerciseId);
           }
 
-          await supabase.from("library_workout_exercises").insert({
+          await supabase.from("template_components").insert({
             coach_id: coachId,
-            workout_id: workout.id,
-            exercise_id: exerciseId,
+            parent_id: workout.id,
+            child_id: exerciseId,
             order_index: i,
             sets: ex.sets ?? null,
             reps: ex.reps ?? null,

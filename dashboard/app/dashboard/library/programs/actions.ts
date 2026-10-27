@@ -59,9 +59,10 @@ export async function createProgram(formData: FormData) {
     );
 
     const { data, error } = await supabase
-      .from("library_programs")
+      .from("templates")
       .insert({
         coach_id: coach.id,
+        type: "program",
         name,
         description,
         photo_path: photo.path,
@@ -95,9 +96,10 @@ export async function updateProgram(programId: string, formData: FormData) {
   const supabase = await createClient();
 
   const { data: existing } = await supabase
-    .from("library_programs")
+    .from("templates")
     .select("photo_path, video_path")
     .eq("id", programId)
+    .eq("type", "program")
     .eq("coach_id", coach.id)
     .single();
 
@@ -118,7 +120,7 @@ export async function updateProgram(programId: string, formData: FormData) {
     );
 
     const { error } = await supabase
-      .from("library_programs")
+      .from("templates")
       .update({
         name,
         description,
@@ -129,6 +131,7 @@ export async function updateProgram(programId: string, formData: FormData) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", programId)
+      .eq("type", "program")
       .eq("coach_id", coach.id);
 
     if (error) throw new Error(error.message);
@@ -146,9 +149,10 @@ export async function publishProgram(programId: string) {
   const supabase = await createClient();
 
   await supabase
-    .from("library_programs")
+    .from("templates")
     .update({ status: "published" })
     .eq("id", programId)
+    .eq("type", "program")
     .eq("coach_id", coach.id);
 
   revalidatePath(LIST_PATH);
@@ -160,9 +164,10 @@ export async function deleteProgram(programId: string) {
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("library_programs")
+    .from("templates")
     .delete()
     .eq("id", programId)
+    .eq("type", "program")
     .eq("coach_id", coach.id);
 
   if (error) {
@@ -187,18 +192,18 @@ export async function addProgramWorkout(programId: string, formData: FormData) {
   const supabase = await createClient();
 
   const { data: maxRow } = await supabase
-    .from("library_program_workouts")
+    .from("template_components")
     .select("order_index")
-    .eq("program_id", programId)
+    .eq("parent_id", programId)
     .order("order_index", { ascending: false })
     .limit(1)
     .maybeSingle();
   const nextOrder = (maxRow?.order_index ?? -1) + 1;
 
-  const { error } = await supabase.from("library_program_workouts").insert({
+  const { error } = await supabase.from("template_components").insert({
     coach_id: coach.id,
-    program_id: programId,
-    workout_id: workoutId,
+    parent_id: programId,
+    child_id: workoutId,
     order_index: nextOrder,
     week_number: intOrNull(formData.get("week_number")),
     day_of_week: intOrNull(formData.get("day_of_week")),
@@ -217,14 +222,14 @@ export async function updateProgramWorkout(programId: string, itemId: string, fo
   const supabase = await createClient();
 
   await supabase
-    .from("library_program_workouts")
+    .from("template_components")
     .update({
       week_number: intOrNull(formData.get("week_number")),
       day_of_week: intOrNull(formData.get("day_of_week")),
       notes: strOrNull(formData.get("notes")),
     })
     .eq("id", itemId)
-    .eq("program_id", programId)
+    .eq("parent_id", programId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${programId}`);
@@ -237,10 +242,10 @@ export async function removeProgramWorkout(programId: string, itemId: string) {
   const supabase = await createClient();
 
   await supabase
-    .from("library_program_workouts")
+    .from("template_components")
     .delete()
     .eq("id", itemId)
-    .eq("program_id", programId)
+    .eq("parent_id", programId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${programId}`);
@@ -253,10 +258,10 @@ export async function reorderProgramWorkouts(programId: string, orderedIds: stri
   await Promise.all(
     orderedIds.map((id, index) =>
       supabase
-        .from("library_program_workouts")
+        .from("template_components")
         .update({ order_index: index })
         .eq("id", id)
-        .eq("program_id", programId)
+        .eq("parent_id", programId)
         .eq("coach_id", coach.id),
     ),
   );

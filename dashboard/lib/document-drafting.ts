@@ -6,10 +6,10 @@ import type { FormField, FormFieldType } from "@/lib/forms";
 
 // Draft documents from a text prompt (outcome #5) -- same shape as Stage 4's
 // lib/workout-drafting.ts: a small, self-contained, coach-level (not
-// client-scoped) tool-calling turn, writing directly into
-// library_documents with status='draft' (migration 0030) rather than
+// client-scoped) tool-calling turn, writing directly into templates
+// (type='document') with status='draft' (migration 0033) rather than
 // through ai_assistant_proposals. Scoped to form-type documents only --
-// see that migration's comment for why.
+// see 0030_library_documents_draft_status.sql's original comment for why.
 
 const DOCUMENT_DRAFT_SYSTEM_PROMPT = `You are drafting an intake/check-in form for a fitness coach's document library,
 from their text description. Call propose_document_form exactly once
@@ -57,9 +57,10 @@ function buildDocumentDraftTools(supabase: SupabaseClient, coachId: string, onCr
         }));
 
         const { data: document, error } = await supabase
-          .from("library_documents")
+          .from("templates")
           .insert({
             coach_id: coachId,
+            type: "document",
             name,
             description: description ?? null,
             document_type: "form",

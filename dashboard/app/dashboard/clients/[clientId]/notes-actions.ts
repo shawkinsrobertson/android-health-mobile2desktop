@@ -30,10 +30,11 @@ export async function addCoachNote(clientId: string, formData: FormData): Promis
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("coach_notes")
+    .from("timeline_entries")
     .insert({
       coach_id: coach.id,
       client_id: clientId,
+      entry_type: "note",
       body,
       is_private: formData.get("is_private") === "on",
     })
@@ -59,7 +60,7 @@ export async function updateCoachNote(
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("coach_notes")
+    .from("timeline_entries")
     .update({
       body,
       is_private: formData.get("is_private") === "on",
@@ -81,7 +82,7 @@ export async function deleteCoachNote(clientId: string, noteId: string): Promise
   const coach = await requireCoach();
   const supabase = await createClient();
 
-  await supabase.from("coach_notes").delete().eq("id", noteId).eq("coach_id", coach.id);
+  await supabase.from("timeline_entries").delete().eq("id", noteId).eq("coach_id", coach.id);
 
   revalidatePath(`/dashboard/clients/${clientId}`);
   revalidatePath(`/dashboard/clients/${clientId}/notes`);

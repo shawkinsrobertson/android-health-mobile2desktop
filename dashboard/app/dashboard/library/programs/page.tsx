@@ -58,8 +58,9 @@ export default async function ProgramLibraryPage() {
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("library_programs")
+    .from("templates")
     .select("id, name, description, photo_path, photo_url, status")
+    .eq("type", "program")
     .order("name");
 
   const all = (data ?? []) as ProgramRow[];

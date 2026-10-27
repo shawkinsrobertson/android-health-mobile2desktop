@@ -69,12 +69,17 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         // to "today" and look like zero.
         val todayIso = LocalDate.now(ZoneId.systemDefault()).toString()
 
+        // All three queries below now hit the unified `metrics` table
+        // (supabase/migrations/0035_metrics.sql), scoped by `metric_type`;
+        // type-specific fields (count/bpm) live under the jsonb `value`
+        // column, read back out in bucketStepsByDay/averageBpm below.
         val stepsDeferred = async {
             supabase.select(
-                "steps",
+                "metrics",
                 mapOf(
-                    "select" to "start_time,count",
+                    "select" to "start_time,value",
                     "client_id" to "eq.$clientId",
+                    "metric_type" to "eq.steps",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
                     // Already date-bounded to `days` -- this just avoids
@@ -87,10 +92,11 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         }
         val sleepDeferred = async {
             supabase.select(
-                "sleep_sessions",
+                "metrics",
                 mapOf(
                     "select" to "start_time,end_time",
                     "client_id" to "eq.$clientId",
+                    "metric_type" to "eq.sleep_session",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
                     "limit" to "2000",
@@ -99,11 +105,12 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         }
         val hrDeferred = async {
             supabase.select(
-                "heart_rate_samples",
+                "metrics",
                 mapOf(
-                    "select" to "bpm",
+                    "select" to "value",
                     "client_id" to "eq.$clientId",
-                    "sample_time" to "gte.$sevenDaysAgoIso",
+                    "metric_type" to "eq.heart_rate",
+                    "start_time" to "gte.$sevenDaysAgoIso",
                 ),
             )
         }
@@ -152,7 +159,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
             val day = localDateOf(row.getString("start_time"))
-            val count = row.optLong("count", 0)
+            val count = row.getJSONObject("value").optLong("count", 0)
             byDay[day] = (byDay[day] ?: 0L) + count
         }
         return byDay.entries.sortedBy { it.key }.map { DailySteps(it.key, it.value) }

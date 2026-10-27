@@ -59,9 +59,10 @@ export async function createWorkout(formData: FormData) {
     );
 
     const { data, error } = await supabase
-      .from("library_workouts")
+      .from("templates")
       .insert({
         coach_id: coach.id,
+        type: "workout",
         name,
         description,
         photo_path: photo.path,
@@ -95,9 +96,10 @@ export async function updateWorkout(workoutId: string, formData: FormData) {
   const supabase = await createClient();
 
   const { data: existing } = await supabase
-    .from("library_workouts")
+    .from("templates")
     .select("photo_path, video_path")
     .eq("id", workoutId)
+    .eq("type", "workout")
     .eq("coach_id", coach.id)
     .single();
 
@@ -118,7 +120,7 @@ export async function updateWorkout(workoutId: string, formData: FormData) {
     );
 
     const { error } = await supabase
-      .from("library_workouts")
+      .from("templates")
       .update({
         name,
         description,
@@ -129,6 +131,7 @@ export async function updateWorkout(workoutId: string, formData: FormData) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", workoutId)
+      .eq("type", "workout")
       .eq("coach_id", coach.id);
 
     if (error) throw new Error(error.message);
@@ -146,14 +149,15 @@ export async function deleteWorkout(workoutId: string) {
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("library_workouts")
+    .from("templates")
     .delete()
     .eq("id", workoutId)
+    .eq("type", "workout")
     .eq("coach_id", coach.id);
 
   if (error) {
-    // FK violation (23503): still referenced by a library_program_workouts
-    // row (on delete restrict, see 0004_libraries.sql).
+    // FK violation (23503): still referenced by a template_components
+    // row (on delete restrict, see 0033_templates.sql).
     const message =
       error.code === "23503"
         ? "This workout is still used in one or more programs. Remove it from those programs first."
@@ -174,9 +178,10 @@ export async function publishWorkout(workoutId: string) {
   const supabase = await createClient();
 
   await supabase
-    .from("library_workouts")
+    .from("templates")
     .update({ status: "published" })
     .eq("id", workoutId)
+    .eq("type", "workout")
     .eq("coach_id", coach.id);
 
   revalidatePath(LIST_PATH);
@@ -197,9 +202,9 @@ export async function addWorkoutExercise(workoutId: string, formData: FormData) 
   const supabase = await createClient();
 
   const { data: maxRow } = await supabase
-    .from("library_workout_exercises")
+    .from("template_components")
     .select("order_index")
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .order("order_index", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -207,10 +212,10 @@ export async function addWorkoutExercise(workoutId: string, formData: FormData) 
 
   const prescriptionType = formData.get("prescription_type") === "time" ? "time" : "reps";
 
-  const { error } = await supabase.from("library_workout_exercises").insert({
+  const { error } = await supabase.from("template_components").insert({
     coach_id: coach.id,
-    workout_id: workoutId,
-    exercise_id: exerciseId,
+    parent_id: workoutId,
+    child_id: exerciseId,
     order_index: nextOrder,
     sets: intOrNull(formData.get("sets")),
     reps: prescriptionType === "reps" ? strOrNull(formData.get("reps")) : null,
@@ -236,7 +241,7 @@ export async function updateWorkoutExercise(workoutId: string, itemId: string, f
   const prescriptionType = formData.get("prescription_type") === "time" ? "time" : "reps";
 
   await supabase
-    .from("library_workout_exercises")
+    .from("template_components")
     .update({
       sets: intOrNull(formData.get("sets")),
       reps: prescriptionType === "reps" ? strOrNull(formData.get("reps")) : null,
@@ -249,7 +254,7 @@ export async function updateWorkoutExercise(workoutId: string, itemId: string, f
       updated_at: new Date().toISOString(),
     })
     .eq("id", itemId)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${workoutId}`);
@@ -263,33 +268,33 @@ export async function removeWorkoutExercise(workoutId: string, itemId: string) {
   const supabase = await createClient();
 
   const { data: removed } = await supabase
-    .from("library_workout_exercises")
-    .select("block_id")
+    .from("template_components")
+    .select("group_id")
     .eq("id", itemId)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id)
     .single();
 
   await supabase
-    .from("library_workout_exercises")
+    .from("template_components")
     .delete()
     .eq("id", itemId)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
-  // A block with 0 or 1 members left over isn't a group anymore -- clean
+  // A group with 0 or 1 members left over isn't a group anymore -- clean
   // it up rather than leaving a superset/circuit box around one exercise.
-  if (removed?.block_id) {
+  if (removed?.group_id) {
     const { count } = await supabase
-      .from("library_workout_exercises")
+      .from("template_components")
       .select("id", { count: "exact", head: true })
-      .eq("block_id", removed.block_id);
+      .eq("group_id", removed.group_id);
     if (!count || count <= 1) {
-      await supabase.from("library_workout_exercises").update({ block_id: null }).eq("block_id", removed.block_id);
+      await supabase.from("template_components").update({ group_id: null }).eq("group_id", removed.group_id);
       await supabase
-        .from("library_workout_blocks")
+        .from("template_component_groups")
         .delete()
-        .eq("id", removed.block_id)
+        .eq("id", removed.group_id)
         .eq("coach_id", coach.id);
     }
   }
@@ -309,10 +314,10 @@ export async function reorderWorkoutExercises(workoutId: string, orderedIds: str
   await Promise.all(
     orderedIds.map((id, index) =>
       supabase
-        .from("library_workout_exercises")
+        .from("template_components")
         .update({ order_index: index })
         .eq("id", id)
-        .eq("workout_id", workoutId)
+        .eq("parent_id", workoutId)
         .eq("coach_id", coach.id),
     ),
   );
@@ -323,9 +328,9 @@ export async function reorderWorkoutExercises(workoutId: string, orderedIds: str
 // ---------------------------------------------------------------------------
 // Workout blocks (supersets/circuits) -- grouping 2+ of a workout's
 // exercise rows to be performed together. See
-// supabase/migrations/0008_workout_blocks.sql for the data model: a block
-// is purely additive (library_workout_exercises.block_id is nullable),
-// and "rounds" lives on the block rather than per-exercise "sets" since a
+// supabase/migrations/0033_templates.sql for the data model: a group is
+// purely additive (template_components.group_id is nullable), and
+// "rounds" lives on the group rather than per-exercise "sets" since a
 // synced group's members all repeat together.
 // ---------------------------------------------------------------------------
 
@@ -343,10 +348,10 @@ export async function createWorkoutBlock(
   const supabase = await createClient();
 
   const { data: block, error } = await supabase
-    .from("library_workout_blocks")
+    .from("template_component_groups")
     .insert({
       coach_id: coach.id,
-      workout_id: workoutId,
+      parent_id: workoutId,
       block_type: blockType,
       rounds: Math.max(1, rounds || 1),
     })
@@ -356,10 +361,10 @@ export async function createWorkoutBlock(
   if (error || !block) return;
 
   await supabase
-    .from("library_workout_exercises")
-    .update({ block_id: block.id })
+    .from("template_components")
+    .update({ group_id: block.id })
     .in("id", exerciseIds)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${workoutId}`);
@@ -373,7 +378,7 @@ export async function updateWorkoutBlock(workoutId: string, blockId: string, for
   const rounds = Math.max(1, intOrNull(formData.get("rounds")) ?? 1);
 
   await supabase
-    .from("library_workout_blocks")
+    .from("template_component_groups")
     .update({
       block_type: blockType,
       rounds,
@@ -381,7 +386,7 @@ export async function updateWorkoutBlock(workoutId: string, blockId: string, for
       updated_at: new Date().toISOString(),
     })
     .eq("id", blockId)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${workoutId}`);
@@ -394,29 +399,29 @@ export async function ungroupWorkoutBlock(workoutId: string, blockId: string) {
   const supabase = await createClient();
 
   await supabase
-    .from("library_workout_exercises")
-    .update({ block_id: null })
-    .eq("block_id", blockId)
-    .eq("workout_id", workoutId)
+    .from("template_components")
+    .update({ group_id: null })
+    .eq("group_id", blockId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
-  await supabase.from("library_workout_blocks").delete().eq("id", blockId).eq("coach_id", coach.id);
+  await supabase.from("template_component_groups").delete().eq("id", blockId).eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${workoutId}`);
 }
 
 // Deletes the block AND its member exercises entirely (on delete cascade
-// on library_workout_exercises.block_id) -- use ungroupWorkoutBlock
-// instead to keep the exercises as standalone rows.
+// on template_components.group_id) -- use ungroupWorkoutBlock instead to
+// keep the exercises as standalone rows.
 export async function deleteWorkoutBlock(workoutId: string, blockId: string) {
   const coach = await requireCoach();
   const supabase = await createClient();
 
   await supabase
-    .from("library_workout_blocks")
+    .from("template_component_groups")
     .delete()
     .eq("id", blockId)
-    .eq("workout_id", workoutId)
+    .eq("parent_id", workoutId)
     .eq("coach_id", coach.id);
 
   revalidatePath(`${LIST_PATH}/${workoutId}`);
@@ -424,8 +429,8 @@ export async function deleteWorkoutBlock(workoutId: string, blockId: string) {
 
 // Moves a top-level unit -- a standalone exercise, or an entire block --
 // up or down relative to the workout's other top-level units. Computes
-// the current top-level order itself by grouping library_workout_exercises
-// rows by block_id (rather than requiring the caller to reconstruct and
+// the current top-level order itself by grouping template_components
+// rows by group_id (rather than requiring the caller to reconstruct and
 // send the whole reordered, block-expanded list), then renumbers every
 // row's order_index from scratch in the new order -- the same
 // full-renumber approach reorderWorkoutExercises above already uses, just
@@ -435,16 +440,16 @@ export async function moveWorkoutUnit(workoutId: string, unitKey: string, direct
   const supabase = await createClient();
 
   const { data: rows } = await supabase
-    .from("library_workout_exercises")
-    .select("id, block_id, order_index")
-    .eq("workout_id", workoutId)
+    .from("template_components")
+    .select("id, group_id, order_index")
+    .eq("parent_id", workoutId)
     .order("order_index");
 
   if (!rows || rows.length === 0) return;
 
   const groups = new Map<string, { key: string; memberIds: string[]; minOrder: number }>();
   for (const row of rows) {
-    const key = row.block_id ? `block:${row.block_id}` : `exercise:${row.id}`;
+    const key = row.group_id ? `block:${row.group_id}` : `exercise:${row.id}`;
     const existing = groups.get(key);
     if (existing) {
       existing.memberIds.push(row.id);
@@ -466,10 +471,10 @@ export async function moveWorkoutUnit(workoutId: string, unitKey: string, direct
   await Promise.all(
     flatIds.map((id, index) =>
       supabase
-        .from("library_workout_exercises")
+        .from("template_components")
         .update({ order_index: index })
         .eq("id", id)
-        .eq("workout_id", workoutId)
+        .eq("parent_id", workoutId)
         .eq("coach_id", coach.id),
     ),
   );

@@ -226,12 +226,16 @@ class SyncRepository(
         var count = 0
         for ((table, rows) in rowsByTable) {
             for (batch in rows.chunked(UPSERT_BATCH_SIZE)) {
-                // client_id,health_connect_id -- matches the composite unique
-                // constraint from supabase/migrations/
-                // 0022_per_client_health_data_conflict_key.sql. A plain
-                // health_connect_id conflict target would upsert against
-                // whichever row (any client's) happens to hold that id.
-                supabase.upsert(table = table, rows = batch, onConflict = "client_id,health_connect_id")
+                // client_id,metric_type,health_connect_id -- matches the
+                // composite unique constraint from supabase/migrations/
+                // 0035_metrics.sql. Every SyncSpec now writes to the single
+                // "metrics" table (0001/0015/0022's per-table
+                // client_id,health_connect_id key is superseded there), and
+                // metric_type guards against two different record types
+                // ever landing on the same conflict target -- not a
+                // real-world risk given Health Connect's own id scheme, but
+                // free to assert explicitly now that the table is shared.
+                supabase.upsert(table = table, rows = batch, onConflict = "client_id,metric_type,health_connect_id")
                 count += batch.size
             }
         }
@@ -240,6 +244,11 @@ class SyncRepository(
 
     private suspend fun deleteRecord(spec: SyncSpec<*>, recordId: String) {
         for (table in spec.tables) {
+            // health_connect_id prefixes are unique per Health Connect
+            // record regardless of type (see deleteByHealthConnectIdPrefix's
+            // own doc comment), so a plain prefix match on the shared
+            // "metrics" table still only ever matches the rows this one
+            // record produced -- no metric_type filter needed here.
             supabase.deleteByHealthConnectIdPrefix(table = table, prefix = recordId)
         }
     }

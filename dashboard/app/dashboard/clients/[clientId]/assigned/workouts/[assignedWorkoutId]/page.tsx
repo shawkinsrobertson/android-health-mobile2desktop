@@ -60,9 +60,10 @@ export default async function AssignedWorkoutPage({
     Promise.all(exercises.map((e) => resolveMediaPair(supabase, e))),
     workout.source_library_workout_id
       ? supabase
-          .from("library_workouts")
+          .from("templates")
           .select("id")
           .eq("id", workout.source_library_workout_id)
+          .eq("type", "workout")
           .eq("coach_id", coach.id)
           .maybeSingle()
           .then((r) => !!r.data)

@@ -27,9 +27,10 @@ export default async function DocumentDetailPage({
   const supabase = await createClient();
   const [{ data: document, error }, { data: clientRows }] = await Promise.all([
     supabase
-      .from("library_documents")
+      .from("templates")
       .select("id, name, description, document_type, file_path, file_url, form_schema, status")
       .eq("id", params.documentId)
+      .eq("type", "document")
       .eq("coach_id", profile.id)
       .single(),
     supabase

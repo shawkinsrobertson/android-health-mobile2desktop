@@ -59,8 +59,9 @@ export default async function DocumentLibraryPage() {
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("library_documents")
+    .from("templates")
     .select("id, name, description, document_type, status")
+    .eq("type", "document")
     .order("name");
 
   const all = (data ?? []) as DocumentRow[];

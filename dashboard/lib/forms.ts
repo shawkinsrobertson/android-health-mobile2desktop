@@ -1,8 +1,8 @@
 // Shared types for the document library's dynamic form builder
 // (components/library/FormBuilder.tsx) and renderer
 // (components/library/DynamicFormRenderer.tsx). A form's schema is stored
-// as `library_documents.form_schema` / `assigned_documents.form_schema`
-// jsonb -- see supabase/migrations/0004_libraries.sql.
+// as `templates.form_schema` / `assigned_documents.form_schema` jsonb --
+// see supabase/migrations/0033_templates.sql.
 
 export type FormFieldType =
   | "text"

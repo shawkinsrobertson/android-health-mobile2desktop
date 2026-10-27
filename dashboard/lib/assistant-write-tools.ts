@@ -15,8 +15,8 @@ import type { AssistantToolContext } from "@/lib/assistant-tools";
 // nothing else -- see lib/proposals.ts for why. The workout/program
 // drafting tools pulled in below are the exception: they follow the
 // Stage 4/5/8 convention instead, writing a real status='draft' row
-// directly into library_workouts/library_programs (reviewed on the real
-// Workouts/Programs pages, not a proposal queue) -- but the one thing
+// directly into templates (reviewed on the real Workouts/Programs
+// pages, not a proposal queue) -- but the one thing
 // both patterns share is the same guarantee this file exists to
 // enforce: nothing here ever assigns anything to a client, and nothing
 // becomes visible to one without an explicit, separate coach action.

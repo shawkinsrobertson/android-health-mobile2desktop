@@ -28,14 +28,15 @@ export default async function ExerciseDetailPage({
   // able to view a shared exercise's detail page, just not edit it.
   const [{ data: exercise, error }, { count: usedInWorkouts }] = await Promise.all([
     supabase
-      .from("library_exercises")
+      .from("templates")
       .select("id, coach_id, name, category, instructions, photo_path, photo_url, video_path, video_url")
       .eq("id", params.exerciseId)
+      .eq("type", "exercise")
       .single(),
     supabase
-      .from("library_workout_exercises")
+      .from("template_components")
       .select("id", { count: "exact", head: true })
-      .eq("exercise_id", params.exerciseId),
+      .eq("child_id", params.exerciseId),
   ]);
 
   if (error || !exercise) redirect("/dashboard/library/exercises");

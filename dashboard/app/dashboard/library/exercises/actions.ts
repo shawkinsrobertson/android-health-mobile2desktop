@@ -45,9 +45,10 @@ export async function createExercise(formData: FormData) {
     );
 
     const { data, error } = await supabase
-      .from("library_exercises")
+      .from("templates")
       .insert({
         coach_id: coach.id,
+        type: "exercise",
         name,
         category,
         instructions,
@@ -88,9 +89,10 @@ export async function updateExercise(exerciseId: string, formData: FormData) {
   // "found, but it's shared and not yours to edit" and give a clear error
   // instead of the update below silently matching zero rows.
   const { data: existing } = await supabase
-    .from("library_exercises")
+    .from("templates")
     .select("coach_id, photo_path, video_path")
     .eq("id", exerciseId)
+    .eq("type", "exercise")
     .single();
 
   if (!existing) redirect(LIST_PATH);
@@ -117,7 +119,7 @@ export async function updateExercise(exerciseId: string, formData: FormData) {
     );
 
     const { error } = await supabase
-      .from("library_exercises")
+      .from("templates")
       .update({
         name,
         category,
@@ -129,6 +131,7 @@ export async function updateExercise(exerciseId: string, formData: FormData) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", exerciseId)
+      .eq("type", "exercise")
       .eq("coach_id", coach.id);
 
     if (error) throw new Error(error.message);
@@ -146,9 +149,10 @@ export async function deleteExercise(exerciseId: string) {
   const supabase = await createClient();
 
   const { data: existing } = await supabase
-    .from("library_exercises")
+    .from("templates")
     .select("coach_id")
     .eq("id", exerciseId)
+    .eq("type", "exercise")
     .single();
 
   if (!existing) redirect(LIST_PATH);
@@ -159,14 +163,15 @@ export async function deleteExercise(exerciseId: string) {
   }
 
   const { error } = await supabase
-    .from("library_exercises")
+    .from("templates")
     .delete()
     .eq("id", exerciseId)
+    .eq("type", "exercise")
     .eq("coach_id", coach.id);
 
   if (error) {
     // Postgres FK violation (23503): exercise is still referenced by a
-    // library_workout_exercises row (on delete restrict, see 0004_libraries.sql).
+    // template_components row (on delete restrict, see 0033_templates.sql).
     const message =
       error.code === "23503"
         ? "This exercise is still used in one or more workouts. Remove it from those workouts first."

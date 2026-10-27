@@ -43,9 +43,10 @@ export default async function AssignedProgramPage({
     resolveMediaPair(supabase, program),
     program.source_library_program_id
       ? supabase
-          .from("library_programs")
+          .from("templates")
           .select("id")
           .eq("id", program.source_library_program_id)
+          .eq("type", "program")
           .eq("coach_id", coach.id)
           .maybeSingle()
           .then((r) => !!r.data)

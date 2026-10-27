@@ -96,12 +96,30 @@ export default async function ClientDetailPage({
   ] = await Promise.all([
     // status='published' only -- an AI-drafted workout (lib/workout-drafting.ts)
     // can't be assigned to a client until the coach reviews and publishes it.
-    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "workout")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
     // status='published' only -- same reasoning, for AI-drafted programs
     // (lib/program-drafting.ts).
-    supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "program")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
     // status='published' only -- same reasoning as the workout picker above.
-    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "document")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
     supabase
       .from("assigned_workouts")
       .select("id, name, assigned_at")
