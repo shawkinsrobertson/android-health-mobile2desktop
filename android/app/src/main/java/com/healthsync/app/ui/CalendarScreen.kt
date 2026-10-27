@@ -96,6 +96,12 @@ fun CalendarScreen(clientId: String, authRepository: AuthRepository, onBack: () 
             )
         },
         containerColor = Color.Transparent,
+        // contentColor is explicit because Transparent isn't a role
+        // Surface/Scaffold can map to an "on-X" text color on its own --
+        // see HomeScreen.kt's Surface for the fuller explanation of this
+        // exact failure mode (every Text without its own explicit color
+        // silently renders black/unreadable instead of theme-correct).
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier

@@ -135,6 +135,10 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
             )
         },
         containerColor = Color.Transparent,
+        // See HomeScreen.kt's Surface comment -- Transparent has no "on-X"
+        // text color Scaffold can infer, so this has to be explicit or
+        // every Text without its own color silently renders black.
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             val currentError = error

@@ -24,6 +24,19 @@ import androidx.compose.ui.graphics.lerp
 // from its background (e.g. a chip sitting on a card) needs its own
 // border, same as every top-level card -- see NotificationShade.kt's
 // PreviewCard/EventPreviewCard and their date chip for the pattern.
+//
+// surfaceTint matters here specifically: Material3's Surface (which Card/
+// OutlinedCard build on) blends this color over a surface's fill at low
+// alpha, proportional to tonalElevation, to simulate elevation -- and
+// defaults to `primary` when not set explicitly. Every OutlinedCard here
+// sets a nonzero elevation (CardDefaults.outlinedCardElevation), so
+// leaving surfaceTint at its default would blend the warm accent onto
+// every card, visibly different from the (unelevated) page background
+// even though both resolve to the same base color above -- exactly the
+// "cards look like a different color than the page" symptom this was
+// supposed to fix. Pinning surfaceTint to the same Primary color as
+// background/surface makes the blend a no-op, so a card's fill really is
+// identical to the page, and only its explicit border marks it as a card.
 private val LightColors = lightColorScheme(
     primary = LightAccent,
     onPrimary = LightTextTertiary,
@@ -37,6 +50,7 @@ private val LightColors = lightColorScheme(
     onSurface = LightTextPrimary,
     surfaceVariant = LightPrimary,
     onSurfaceVariant = LightTextSecondary,
+    surfaceTint = LightPrimary,
     outline = LightTextSecondary,
     // Overrides Material3's own default error red, so this and the web
     // app's --danger show the identical color.
@@ -57,6 +71,7 @@ private val DarkColors = darkColorScheme(
     onSurface = DarkTextPrimary,
     surfaceVariant = DarkPrimary,
     onSurfaceVariant = DarkTextSecondary,
+    surfaceTint = DarkPrimary,
     outline = DarkTextSecondary,
     error = DarkDanger,
     onError = Color.White,

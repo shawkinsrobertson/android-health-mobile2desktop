@@ -40,6 +40,10 @@ fun ComingSoonScreen(title: String, onBack: () -> Unit) {
             )
         },
         containerColor = Color.Transparent,
+        // See HomeScreen.kt's Surface comment -- Transparent has no "on-X"
+        // text color Scaffold can infer, so this has to be explicit or
+        // every Text without its own color silently renders black.
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier

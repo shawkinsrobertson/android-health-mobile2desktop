@@ -2525,3 +2525,60 @@ clean. Minimum button widths are estimated from label length and Material3
 default content padding, not measured against a render -- worth a visual
 check on a real device, same caveat as every other Android-only change in
 this project (no emulator in this environment).
+
+## Phase 18 -- Phase 17's fix didn't actually fix it: two root causes the audit missed
+
+Real-device screenshots after Phase 17 shipped showed both problems still
+present -- dark, barely-legible text on dark backgrounds, and cards still
+visibly a different color than the page. Phase 17's audit checked every
+explicit color pairing and every token value and found both genuinely
+clean; the actual bugs were in two mechanisms neither investigator was
+asked to look for -- not wrong colors, but *missing* ones and an automatic
+Material3 behavior neither had reason to suspect from reading token
+values alone. Diagnosed directly this time (the mechanism was concrete
+enough, and the stakes of guessing wrong on a second pass were high
+enough, to verify in code rather than delegate).
+
+**Dark-on-dark text: every screen's `Scaffold` had the bug `HomeScreen.kt`
+already found and fixed once.** `HomeScreen.kt` doesn't use `Scaffold` --
+it has its own `Surface(color = Color.Transparent, contentColor =
+MaterialTheme.colorScheme.onBackground)` with a comment explaining
+exactly why both params are required together: `Color.Transparent` isn't
+a role Material3's `contentColorFor()` can map to an "on-X" text color,
+so if `contentColor` isn't given explicitly it resolves to
+`Color.Unspecified`, and `LocalContentColor` becomes `Unspecified` for
+every descendant -- any `Text` that doesn't set its own explicit `color`
+(as `StatRow`/`StepsBarChart`/`SleepBarChart`'s values, `WorkoutScreen`'s
+title, and others don't) then falls through to a near-black default,
+regardless of theme. Every *other* screen uses `Scaffold(containerColor =
+Color.Transparent)` -- the exact same setup, minus the `contentColor`
+HomeScreen's own comment says is required. Fixed by adding
+`contentColor = MaterialTheme.colorScheme.onBackground` to all 9 of
+them (`CalendarScreen`, `ProfileScreen`, `ComingSoonScreen`,
+`VerifyCodeScreen`, `InboxScreen`, `WorkoutScreen`, `CoachHomeScreen`,
+`LoginScreen`, `DashboardScreen`), matching the pattern already proven
+correct once.
+
+**Card color still different from the page: Material3's automatic
+elevation tint, using `primary` by default.** `Theme.kt` never set
+`colorScheme.surfaceTint`, so it defaulted to `primary` (the warm
+accent). Every `OutlinedCard` here sets a nonzero elevation
+(`CardDefaults.outlinedCardElevation`), and Material3's `Surface` blends
+`surfaceTint` over an elevated surface's fill at an alpha proportional to
+that elevation to simulate a lighting/elevation effect -- so despite
+`surface` and `background` now resolving to the identical base color
+(Phase 17's fix), every card still rendered with a visible accent-tinted
+overlay the flat page never got. Fixed by pinning `surfaceTint` to the
+same `Primary` value as `background`/`surface` in both color schemes,
+making the blend a no-op -- a card's fill is now actually identical to
+the page, with only its border marking it as a card, which was the
+actual, original ask.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. Both root causes are standard, well-documented Material3
+mechanisms (`contentColorFor`'s role-mapping fallback, `Surface`'s tonal
+elevation blend) rather than anything specific to guesswork about this
+codebase -- confirmed by reading the actual `Scaffold`/`Surface` call
+sites and `Theme.kt`, not inferred from the screenshots alone. Still
+pending a real-device visual confirmation, same standing limitation as
+every Android change in this project.
