@@ -2462,3 +2462,66 @@ Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
 clean. No live Supabase access in this environment (standing constraint
 throughout this project) to confirm against real row counts -- this
 remains a high-confidence code-reading fix pending a real-device check.
+
+## Phase 17 -- Android light/dark mode audit
+
+Requested audit against four rules: text/background contrast, card
+background matching page background (with a border + shadow instead of a
+second fill tone), uniform stat-tile sizing, and titles/buttons that don't
+wrap or resize when a sibling's state changes. Same two-audit-plus-
+supervisor methodology as Phase 13 and the steps-data-bug investigation --
+one agent on color/card-surface, one on stat-tile/title-button layout, a
+supervisor independently re-verifying both against the real code (and
+sweeping `CoachHomeScreen.kt`/`ComingSoonScreen.kt`/`SlideOutNav.kt`,
+which neither investigator had named) before anything shipped.
+
+**Text contrast: clean, no changes.** Every `Text` color already pairs
+with the token backing its real container everywhere.
+
+**Card bg = page bg: `Theme.kt`'s card/page split was systemic and
+deliberate -- reversed.** `background` and `surface`/`secondary`/
+`primaryContainer`/`surfaceVariant` previously resolved to different
+tones (page vs. card) in both themes; now all resolve to the same
+`Primary` value, so a card reads as distinct only via its own border +
+elevation (most `OutlinedCard` usage already had both and needed no
+other change). `LightSecondary`/`DarkSecondary` removed from `Color.kt`
+as now-unused. Two things that depended on the old two-tone split would
+have broken *worse* once unified, so they shipped in the same change:
+`home/NotificationShade.kt`'s `PreviewCard`/`EventPreviewCard` and their
+date chip had no border at all and were only visible by fill-color
+contrast against their parent panel -- added a real border to each.
+`DashboardScreen.kt`'s `SleepBarChart` bar fill used `colorScheme.secondary`
+(already washed-out against the page, visible in an earlier bug-hunt
+screenshot) -- would have gone fully invisible; moved to
+`ExtendedColors.info`. The shade's own outer panel (no border, fills with
+`surface`) was reviewed and left alone -- it's header chrome anchored to
+the status bar, not a card, so becoming page-colored is a harmless side
+effect, not a regression.
+
+**Stat tiles: one real bug, `HomeScreen.kt`'s `TopDataPointsRow`.**
+`weight(1f)` only equalized width; a tile whose value wrapped to two
+lines rendered taller than its siblings. Fixed with
+`height(IntrinsicSize.Min)` on the row and `fillMaxHeight()` on each
+card.
+
+**Titles wrapping / buttons resizing between states: confirmed, including
+the named case.** `WorkoutScreen.kt`'s in-progress header had no
+`maxLines`/overflow on the title and no fixed width on the Pause/Resume
+or Finish/Finishing buttons, so the title wrapped as a button's own label
+changed its width -- split into two rows (title alone with `maxLines = 1`
++ ellipsis; buttons below) and gave each button a `widthIn(min = ...)`
+sized to its own longest label, so neither the wrap nor the per-button
+resize can happen. Same title treatment applied to the pre-workout header
+for consistency (never actually triggers today, no adjacent
+state-changing button, but kept matching). The same "button resizes with
+its own label" pattern, standalone rather than title-adjacent, got the
+same `widthIn(min = ...)` fix in six more places: `ProfileScreen.kt`'s
+Sync now / Force full re-sync buttons, `InboxScreen.kt`'s Send button,
+`LoginScreen.kt`'s Send code button, `VerifyCodeScreen.kt`'s Verify and
+Resend code buttons, and `CalendarScreen.kt`'s Connect/Manage button.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. Minimum button widths are estimated from label length and Material3
+default content padding, not measured against a render -- worth a visual
+check on a real device, same caveat as every other Android-only change in
+this project (no emulator in this environment).

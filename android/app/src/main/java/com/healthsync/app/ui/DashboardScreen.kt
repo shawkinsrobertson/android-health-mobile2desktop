@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.DailySteps
 import com.healthsync.app.data.DashboardData
+import com.healthsync.app.ui.theme.ExtendedColors
 import com.healthsync.app.data.HealthDataRepository
 import com.healthsync.app.data.SleepNight
 import com.healthsync.app.supabase.SupabaseRestClient
@@ -197,7 +198,7 @@ private fun SleepBarChart(data: List<SleepNight>) {
                         modifier = Modifier
                             .fillMaxWidth((night.hours / maxHours).toFloat())
                             .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.secondary),
+                            .background(ExtendedColors.current.info),
                     )
                 }
                 Text(

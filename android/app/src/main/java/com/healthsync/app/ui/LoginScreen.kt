@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +70,7 @@ fun LoginScreen(
                 Spacer(Modifier.height(12.dp))
             }
             Button(
+                modifier = Modifier.widthIn(min = 128.dp),
                 onClick = {
                     val trimmed = email.trim()
                     submitting = true

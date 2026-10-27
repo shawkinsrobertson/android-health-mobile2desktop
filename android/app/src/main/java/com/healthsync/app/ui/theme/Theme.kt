@@ -14,22 +14,28 @@ import androidx.compose.ui.graphics.lerp
 // Material3 role mapping for the design-system tokens (see Color.kt):
 // primary/onPrimary -> Accent, since Material's "primary" role is the
 // prominent-button/active-element color, matching what Accent is used for
-// in the mockups. background/surface -> the design system's own Primary/
-// Secondary (page background vs. card surface), which is why Material's
-// "primary" role is NOT the same color as the design system's "Primary" --
-// that's a naming collision between the two systems, not a mistake.
+// in the mockups. background/surface -> both the design system's own
+// Primary color -- cards and the page they sit on are the same fill now,
+// separated only by each card's own border + elevation, not by a second
+// background tone (the former Secondary tone). secondary/primaryContainer/
+// surfaceVariant stay as Material3 roles other composables reach for, but
+// all resolve to Primary too, so nothing accidentally reintroduces the old
+// two-tone look. A card-ish element that still needs to read as distinct
+// from its background (e.g. a chip sitting on a card) needs its own
+// border, same as every top-level card -- see NotificationShade.kt's
+// PreviewCard/EventPreviewCard and their date chip for the pattern.
 private val LightColors = lightColorScheme(
     primary = LightAccent,
     onPrimary = LightTextTertiary,
-    primaryContainer = LightSecondary,
+    primaryContainer = LightPrimary,
     onPrimaryContainer = LightTextPrimary,
-    secondary = LightSecondary,
+    secondary = LightPrimary,
     onSecondary = LightTextPrimary,
     background = LightPrimary,
     onBackground = LightTextPrimary,
-    surface = LightSecondary,
+    surface = LightPrimary,
     onSurface = LightTextPrimary,
-    surfaceVariant = LightSecondary,
+    surfaceVariant = LightPrimary,
     onSurfaceVariant = LightTextSecondary,
     outline = LightTextSecondary,
     // Overrides Material3's own default error red, so this and the web
@@ -41,15 +47,15 @@ private val LightColors = lightColorScheme(
 private val DarkColors = darkColorScheme(
     primary = DarkAccent,
     onPrimary = DarkTextTertiary,
-    primaryContainer = DarkSecondary,
+    primaryContainer = DarkPrimary,
     onPrimaryContainer = DarkTextPrimary,
-    secondary = DarkSecondary,
+    secondary = DarkPrimary,
     onSecondary = DarkTextPrimary,
     background = DarkPrimary,
     onBackground = DarkTextPrimary,
-    surface = DarkSecondary,
+    surface = DarkPrimary,
     onSurface = DarkTextPrimary,
-    surfaceVariant = DarkSecondary,
+    surfaceVariant = DarkPrimary,
     onSurfaceVariant = DarkTextSecondary,
     outline = DarkTextSecondary,
     error = DarkDanger,

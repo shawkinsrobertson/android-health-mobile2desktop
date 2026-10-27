@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +71,7 @@ fun VerifyCodeScreen(
                 Spacer(Modifier.height(12.dp))
             }
             Button(
+                modifier = Modifier.widthIn(min = 112.dp),
                 onClick = {
                     val trimmed = code.trim()
                     submitting = true
@@ -90,6 +92,7 @@ fun VerifyCodeScreen(
             }
             Spacer(Modifier.height(12.dp))
             TextButton(
+                modifier = Modifier.widthIn(min = 144.dp),
                 onClick = {
                     scope.launch {
                         try {

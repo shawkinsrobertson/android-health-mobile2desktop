@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.AssignedWorkout
@@ -190,15 +192,20 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
 @Composable
 private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                state.workout.name,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            Button(onClick = onStart) { Text("Start workout") }
-        }
+        // Title on its own row, button below -- keeps a long workout name
+        // from ever being squeezed by the adjacent button (see
+        // InProgressWorkout's header below for the case this matters more,
+        // kept visually consistent between the two states).
+        Text(
+            state.workout.name,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onStart) { Text("Start workout") }
         Spacer(Modifier.height(20.dp))
         state.exercises.forEach { exercise ->
             OutlinedCard(
@@ -261,36 +268,49 @@ private fun InProgressWorkout(
                 fontWeight = FontWeight.Bold,
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                state.workout.name,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedButton(onClick = {
-                scope.launch {
-                    if (session.pausedAt == null) {
-                        repository.pauseTimer(session.id)
-                        onStateChange(state.copy(session = session.copy(pausedAt = Instant.now().toString())))
-                    } else {
-                        repository.resumeTimer(session.id, session.pausedAt, session.totalPausedSeconds)
-                        val pausedSeconds = java.time.Duration.between(Instant.parse(session.pausedAt), Instant.now()).seconds.coerceAtLeast(0)
-                        onStateChange(
-                            state.copy(
-                                session = session.copy(
-                                    pausedAt = null,
-                                    totalPausedSeconds = session.totalPausedSeconds + pausedSeconds.toInt(),
+        // Title on its own row, Pause/Resume + Finish below -- a single
+        // row here used to let the title get squeezed and wrap to a
+        // second line whenever a button's own label (Pause<->Resume,
+        // Finish<->Finishing...) changed width. Each button also gets a
+        // fixed minimum width so IT doesn't visibly resize in place
+        // between states, independent of the title issue.
+        Text(
+            state.workout.name,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                modifier = Modifier.widthIn(min = 104.dp),
+                onClick = {
+                    scope.launch {
+                        if (session.pausedAt == null) {
+                            repository.pauseTimer(session.id)
+                            onStateChange(state.copy(session = session.copy(pausedAt = Instant.now().toString())))
+                        } else {
+                            repository.resumeTimer(session.id, session.pausedAt, session.totalPausedSeconds)
+                            val pausedSeconds = java.time.Duration.between(Instant.parse(session.pausedAt), Instant.now()).seconds.coerceAtLeast(0)
+                            onStateChange(
+                                state.copy(
+                                    session = session.copy(
+                                        pausedAt = null,
+                                        totalPausedSeconds = session.totalPausedSeconds + pausedSeconds.toInt(),
+                                    ),
                                 ),
-                            ),
-                        )
+                            )
+                        }
                     }
-                }
-            }) {
+                },
+            ) {
                 Text(if (session.pausedAt == null) "Pause" else "Resume")
             }
             Spacer(Modifier.width(8.dp))
             Button(
+                modifier = Modifier.widthIn(min = 132.dp),
                 onClick = { confirmingFinish = true },
                 enabled = !finishing,
             ) { Text(if (finishing) "Finishing…" else "Finish") }

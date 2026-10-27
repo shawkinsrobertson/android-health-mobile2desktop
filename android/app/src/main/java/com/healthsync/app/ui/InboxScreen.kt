@@ -182,6 +182,7 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
                         )
                         Spacer(Modifier.width(8.dp))
                         Button(
+                            modifier = Modifier.widthIn(min = 104.dp),
                             enabled = draft.isNotBlank() && !sending,
                             onClick = {
                                 val repo = repository ?: return@Button

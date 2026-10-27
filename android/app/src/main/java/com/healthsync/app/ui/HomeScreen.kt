@@ -3,8 +3,10 @@ package com.healthsync.app.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -177,10 +179,14 @@ fun HomeScreen(
 
 @Composable
 private fun TopDataPointsRow(dataPoints: List<TopDataPointSummary>) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    // height(IntrinsicSize.Min) + fillMaxHeight on each card -- weight(1f)
+    // alone only equalizes width; without this, a tile whose value wraps
+    // to two lines (a longer summary string than its siblings) renders
+    // visibly taller than the others.
+    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         dataPoints.forEach { point ->
             OutlinedCard(
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp),
                 elevation = CardDefaults.outlinedCardElevation(defaultElevation = 3.dp),
             ) {
                 Column(Modifier.padding(12.dp)) {
