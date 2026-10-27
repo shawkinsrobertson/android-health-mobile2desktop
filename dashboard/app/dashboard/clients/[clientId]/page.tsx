@@ -121,20 +121,23 @@ export default async function ClientDetailPage({
       .eq("status", "published")
       .order("name"),
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
-      .is("assigned_program_id", null)
+      .eq("type", "workout")
+      .is("parent_assignment_id", null)
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_programs")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
+      .eq("type", "program")
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_documents")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
+      .eq("type", "document")
       .order("assigned_at", { ascending: false }),
     supabase
       .from("timeline_entries")

@@ -2292,3 +2292,121 @@ Verification: schema-only change (a dropped `CHECK` constraint), no
 application code depended on its presence -- confirmed via
 `grep -rn "client_data_consent_data_type_check"` returning only this
 migration and `0024`'s now-historical add/drop of the same constraint.
+
+## Phase 15 -- Primitives restructure: Template, Assignment, Metric, Timeline
+
+The remaining four primitives from Phase 14's framing, built out and cut
+over end to end: schema, RPCs, every dashboard consumer, and (for
+Assignment/Metric) the Android code that reads or writes the same tables
+directly. Proposal (`ai_assistant_proposals`, Phase 5) and Scheduled
+Event (settled by Phase 14's visibility decision -- no further change
+needed) required no work here.
+
+**Methodology.** Each primitive's schema and RPC rewrite was designed
+directly, grounded in the exact current migrations (re-read in full, not
+assumed from memory) and a blast-radius check of which Android files
+query the old tables directly -- that check changed the plan materially:
+Template has zero Android coupling (safe to restructure alone), but
+Assignment (`WorkoutRepository.kt`) and Metric (the full Health Connect
+sync pipeline + two data repositories) are read or written by Android
+directly, so each needed its Postgres migration and its Android/dashboard
+cutover done together, not staged separately -- a half-migrated primitive
+whose write path and read path disagree about where the data lives is
+worse than not migrating at all. The dashboard-and-Android cutover for
+each primitive (the large, mechanical file-by-file rewrite once the
+schema design was settled) was delegated to a forked agent per primitive,
+run against the already-written migration as its spec; each was required
+to re-grep for stragglers and run the full verification suite
+(`tsc --noEmit`, `next lint`, dummy-env `next build`, the Storybook vitest
+project, and for Android, `gradlew compileDebugKotlin`/`lintDebug` plus
+manual review in place of an emulator) before reporting back.
+
+**Template** (`0033_templates.sql`). `library_exercises`/`workouts`/
+`programs`/`documents` collapse into one `templates` table (`type`
+discriminator), with `library_workout_exercises`/`library_program_workouts`
+collapsing into one generic `template_components` join (parent/child
+instead of workout_id/exercise_id or program_id/workout_id) and
+`library_workout_blocks` becoming `template_component_groups`. Exercises
+never had a draft/published `status` column before (0029-31 added it to
+the other three only, since nothing ever needed an AI-drafted exercise)
+-- that gap closes for free since every row now shares one column.
+Shared (coach_id null) base exercises keep working via the same relaxed
+RLS 0006 introduced, now expressed once instead of per-table. The three
+`assign_*_to_client` RPCs were rewritten in this same migration to read
+their source content from the new tables -- deferring that to the
+Assignment pass would have let a coach's post-cutover edit go straight
+into `templates` while the RPCs kept reading stale `library_*` rows.
+22 dashboard files cut over (library pages/actions, the three AI-drafting
+libs, assistant tool definitions); AI tool names (`get_library_exercises`
+etc.) kept unchanged on purpose -- only the queries behind them moved.
+
+**Assignment** (`0034_assignments.sql`). `assigned_programs`/`workouts`/
+`documents` collapse into one `assignments` table; `assigned_workout_
+exercises` (flattened, no standalone "assigned exercise" concept, so it
+stays a flattened child row rather than a join) becomes `assignment_
+components`; `assigned_workout_blocks` becomes `assignment_component_
+groups`; `document_responses` becomes `assignment_responses`. Program→
+workout nesting stays a direct nullable `parent_assignment_id` +
+`order_index` on the child row (not a join table) -- 0005's own reasoning
+still holds, since every assigned row is a private one-off copy, unlike
+templates' genuinely-reusable many-to-many composition.
+`workout_sessions`/`workout_session_exercises`'s FK *targets* were
+repointed to the new tables with their column names (`assigned_workout_id`
+etc.) left untouched, so every session-tracking query on both platforms
+-- `SessionLogger.tsx`, `WorkoutClock.tsx`, Android's timer/set-logging
+code -- needed zero changes. 18 dashboard files and `WorkoutRepository.kt`
+(its three content-display reads; its session/timer/set reads and writes
+were already untouched by the FK repoint) cut over, including PostgREST
+relation aliasing (`block_id:group_id`, `assignments(name)`) where a
+TypeScript interface or a shared helper (`lib/workout-blocks.ts`) depended
+on the old field name, to keep the diff at the query layer only.
+
+**Metric** (`0035_metrics.sql`). The 9 per-Health-Connect-type tables
+collapse into one `metrics` table: `metric_type` (free text, no `CHECK`
+-- unlike `templates.type`/`assignments.type`, this one actually delivers
+the "new type is a new row, not a migration" goal 0014's consent table
+promised and didn't keep) plus a `value` jsonb column holding whatever
+fields are specific to that type. The Android sync engine
+(`SyncRepository.kt`) turned out to already be fully data-driven --
+it upserts by table name and row map from `SyncSpec.kt`'s per-type
+closures with zero per-type special-casing in the engine itself -- so the
+real change is almost entirely in `SyncSpec.kt` (9 specs now emit
+`metric_type`-tagged rows into one table name) plus one string in
+`SyncRepository.kt` (`onConflict` gained `metric_type`). One relaxation,
+accepted deliberately rather than worked around: `sleep_stages`' real
+composite FK to its parent session (added in 0022) has no equivalent,
+since Postgres can't FK into a jsonb field -- harmless, because Android's
+own deletion already removes a session's stages by `health_connect_id`
+*prefix* match, independent of that FK, which only ever mattered for a
+direct SQL delete this product has never done. `client_data_consent`'s
+key namespace (`"heart_rate_samples"`, etc.) is deliberately left
+unrenamed -- it's a different, client-facing taxonomy from the new
+storage-layer `metric_type` values, and conflating the two was explicitly
+avoided in both the migration and the Android/dashboard cutover.
+
+**Timeline** (`0036_timeline_entries.sql`, notes only). Per the design
+discussion: chat (`chat_threads`/`chat_messages`/`chat_message_reactions`)
+keeps its own schema -- it earned its complexity (Realtime, bidirectional
+authorship, reply-threading, reactions, pinning, an anti-spoofing insert
+check), none of which `coach_notes` or any future session-log/activity
+entry type needs, and unifying it would touch Android's live
+`postgres_changes` subscription to buy a unification nothing is asking
+for. `coach_notes` becomes the first `entry_type='note'` row in a generic
+`timeline_entries` table with an open-ended `entry_type` (same posture as
+`metrics.metric_type`); `is_private` keeps its exact name and meaning
+(AI-context exclusion, the boolean-column mechanism Phase 14 sanctioned).
+A future "everything that happened with this client" view, if ever built,
+reads `timeline_entries UNION ALL chat_messages` at query time -- a
+read-time composition, not something this migration needs to build.
+
+**What's deliberately not done.** Every old table (`library_*`,
+`assigned_*`, the 9 health tables, `coach_notes`) stays in place as a
+safety net, unreferenced by application code but not dropped. Dropping
+them is a separate, explicitly deferred step -- destructive, and only
+done on direct request once the new tables have had time to prove out.
+
+Verified per-primitive as described above; the full combined diff was
+re-verified with a final `tsc --noEmit` and a repo-wide grep for every old
+table name after all four cutovers landed, turning up only the
+intentionally-kept AI tool names, the consent-key namespace, and
+historical migration-number comments.

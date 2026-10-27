@@ -22,11 +22,12 @@ export default async function CoachWorkoutSessionPage({
 
   const [{ data: workout }, { data: session, error: sessionError }] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name")
       .eq("id", params.assignedWorkoutId)
       .eq("client_id", params.clientId)
       .eq("coach_id", coach.id)
+      .eq("type", "workout")
       .single(),
     supabase
       .from("workout_sessions")
@@ -40,16 +41,16 @@ export default async function CoachWorkoutSessionPage({
 
   const [{ data: exerciseRows }, { data: blockRows }, { data: clientProfile }] = await Promise.all([
     supabase
-      .from("assigned_workout_exercises")
+      .from("assignment_components")
       .select(
-        "id, order_index, block_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
       )
-      .eq("assigned_workout_id", workout.id)
+      .eq("assignment_id", workout.id)
       .order("order_index"),
     supabase
-      .from("assigned_workout_blocks")
+      .from("assignment_component_groups")
       .select("id, block_type, rounds, notes")
-      .eq("assigned_workout_id", workout.id),
+      .eq("assignment_id", workout.id),
     supabase
       .from("client_profiles")
       .select("preferred_weight_unit")

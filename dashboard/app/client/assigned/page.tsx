@@ -23,20 +23,23 @@ export default async function ClientAssignedPage() {
 
   const [{ data: workoutRows }, { data: programRows }, { data: documentRows }] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", profile.id)
-      .is("assigned_program_id", null)
+      .eq("type", "workout")
+      .is("parent_assignment_id", null)
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_programs")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", profile.id)
+      .eq("type", "program")
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_documents")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", profile.id)
+      .eq("type", "document")
       .order("assigned_at", { ascending: false }),
   ]);
 

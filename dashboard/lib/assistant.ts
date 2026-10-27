@@ -272,9 +272,10 @@ export async function fetchAssignedWorkoutsForAssistant(
   clientId: string,
 ): Promise<AssignedWorkoutSummary[]> {
   const { data, error } = await supabase
-    .from("assigned_workouts")
+    .from("assignments")
     .select("id, name, assigned_at")
     .eq("client_id", clientId)
+    .eq("type", "workout")
     .order("assigned_at", { ascending: false });
 
   if (error) throw new Error(`Failed to load assigned workouts: ${error.message}`);
@@ -302,10 +303,10 @@ export async function fetchAssignedWorkoutExercisesForAssistant(
   assignedWorkoutId: string,
 ): Promise<AssignedExerciseSummary[]> {
   const { data, error } = await supabase
-    .from("assigned_workout_exercises")
+    .from("assignment_components")
     .select("id, name, sets, reps, weight_note, rest_seconds, tempo, notes")
     .eq("client_id", clientId)
-    .eq("assigned_workout_id", assignedWorkoutId)
+    .eq("assignment_id", assignedWorkoutId)
     .order("order_index");
 
   if (error) throw new Error(`Failed to load assigned workout exercises: ${error.message}`);

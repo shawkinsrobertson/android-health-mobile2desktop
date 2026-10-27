@@ -33,10 +33,11 @@ export async function startWorkoutSession(assignedWorkoutId: string) {
   const supabase = await createClient();
 
   const { data: workout } = await supabase
-    .from("assigned_workouts")
+    .from("assignments")
     .select("id, coach_id")
     .eq("id", assignedWorkoutId)
     .eq("client_id", profile.id)
+    .eq("type", "workout")
     .single();
 
   if (!workout) redirect("/client/assigned");

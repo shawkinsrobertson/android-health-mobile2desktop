@@ -20,11 +20,12 @@ export default async function AssignedDocumentPage({
   const supabase = await createClient();
 
   const { data: doc, error } = await supabase
-    .from("assigned_documents")
+    .from("assignments")
     .select("id, name, description, document_type, file_path, file_url, form_schema, assigned_at")
     .eq("id", params.assignedDocumentId)
     .eq("client_id", params.clientId)
     .eq("coach_id", coach.id)
+    .eq("type", "document")
     .single();
 
   if (error || !doc) redirect(`/dashboard/clients/${params.clientId}`);
@@ -35,9 +36,9 @@ export default async function AssignedDocumentPage({
   const { data: response } =
     doc.document_type === "form"
       ? await supabase
-          .from("document_responses")
+          .from("assignment_responses")
           .select("answers, submitted_at")
-          .eq("assigned_document_id", doc.id)
+          .eq("assignment_id", doc.id)
           .maybeSingle()
       : { data: null };
 

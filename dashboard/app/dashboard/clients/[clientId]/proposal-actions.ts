@@ -83,7 +83,7 @@ interface ProgramChangePayload {
   changes: ProgramChangeItem[];
 }
 
-// Applies every change in the proposal to the real assigned_workout_exercises
+// Applies every change in the proposal to the real assignment_components
 // rows -- this is the one place lib/assistant-write-tools.ts's
 // propose_program_change tool never touches itself, by design (see
 // lib/proposals.ts). Runs the changes sequentially so repeated 'add'
@@ -103,7 +103,7 @@ export async function approveProgramChangeProposal(clientId: string, proposalId:
   for (const change of changes) {
     if (change.action === "update" && change.exerciseId && change.after) {
       await supabase
-        .from("assigned_workout_exercises")
+        .from("assignment_components")
         .update({
           sets: change.after.sets,
           reps: change.after.reps,
@@ -113,27 +113,27 @@ export async function approveProgramChangeProposal(clientId: string, proposalId:
           notes: change.after.notes,
         })
         .eq("id", change.exerciseId)
-        .eq("assigned_workout_id", assignedWorkoutId)
+        .eq("assignment_id", assignedWorkoutId)
         .eq("coach_id", coach.id);
     } else if (change.action === "remove" && change.exerciseId) {
       await supabase
-        .from("assigned_workout_exercises")
+        .from("assignment_components")
         .delete()
         .eq("id", change.exerciseId)
-        .eq("assigned_workout_id", assignedWorkoutId)
+        .eq("assignment_id", assignedWorkoutId)
         .eq("coach_id", coach.id);
     } else if (change.action === "add" && change.name && change.prescription) {
       if (nextOrderIndex === null) {
         const { count } = await supabase
-          .from("assigned_workout_exercises")
+          .from("assignment_components")
           .select("id", { count: "exact", head: true })
-          .eq("assigned_workout_id", assignedWorkoutId);
+          .eq("assignment_id", assignedWorkoutId);
         nextOrderIndex = count ?? 0;
       }
-      await supabase.from("assigned_workout_exercises").insert({
+      await supabase.from("assignment_components").insert({
         client_id: clientId,
         coach_id: coach.id,
-        assigned_workout_id: assignedWorkoutId,
+        assignment_id: assignedWorkoutId,
         order_index: nextOrderIndex,
         name: change.name,
         sets: change.prescription.sets,

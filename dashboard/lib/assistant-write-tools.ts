@@ -92,10 +92,11 @@ export function buildWriteTools(ctx: AssistantToolContext) {
       }),
       run: async ({ assignedWorkoutId, summary, changes }) => {
         const { data: workout } = await ctx.supabase
-          .from("assigned_workouts")
+          .from("assignments")
           .select("name")
           .eq("id", assignedWorkoutId)
           .eq("client_id", ctx.clientId)
+          .eq("type", "workout")
           .single();
         if (!workout) throw new Error("Assigned workout not found");
 
@@ -117,10 +118,10 @@ export function buildWriteTools(ctx: AssistantToolContext) {
             }
 
             const { data: existing } = await ctx.supabase
-              .from("assigned_workout_exercises")
+              .from("assignment_components")
               .select("name, sets, reps, weight_note, rest_seconds, tempo, notes")
               .eq("id", change.exerciseId)
-              .eq("assigned_workout_id", assignedWorkoutId)
+              .eq("assignment_id", assignedWorkoutId)
               .single();
             if (!existing) throw new Error(`Exercise ${change.exerciseId} not found in this workout`);
 

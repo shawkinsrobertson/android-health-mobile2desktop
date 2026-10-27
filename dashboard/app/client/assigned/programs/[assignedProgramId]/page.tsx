@@ -28,19 +28,21 @@ export default async function ClientAssignedProgramPage({
   const supabase = await createClient();
 
   const { data: program, error } = await supabase
-    .from("assigned_programs")
+    .from("assignments")
     .select("id, name, description, photo_path, photo_url, video_path, video_url")
     .eq("id", params.assignedProgramId)
     .eq("client_id", profile.id)
+    .eq("type", "program")
     .single();
 
   if (error || !program) redirect("/client/assigned");
 
   const [{ data: workoutRows }, { photoUrl, videoUrl }] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, order_index")
-      .eq("assigned_program_id", program.id)
+      .eq("parent_assignment_id", program.id)
+      .eq("type", "workout")
       .order("order_index"),
     resolveMediaPair(supabase, program),
   ]);

@@ -68,7 +68,7 @@ export async function getPersonalRecords(
   );
 
   const { data: assignedExerciseRows } = await supabase
-    .from("assigned_workout_exercises")
+    .from("assignment_components")
     .select("id, name")
     .in("id", assignedExerciseIds);
 
