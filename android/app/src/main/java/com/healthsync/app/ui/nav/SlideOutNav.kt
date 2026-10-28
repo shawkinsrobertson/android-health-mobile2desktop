@@ -7,12 +7,16 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -54,15 +58,19 @@ private val ITEM_SPACING = 6.dp
 // inbox/stats/profile) with the same toggle arrow now at the *end* of the
 // row, tapping it again collapses back to just the round button -- per
 // the mockup, where the collapsed state's lone circular arrow button
-// visually IS the expanded pill's trailing arrow icon.
+// visually IS the expanded pill's trailing arrow icon. Selecting a
+// destination does NOT collapse the pill as a side effect -- expand/
+// collapse is driven only by the toggle button itself, independent of
+// navigation, so the nav's open/closed state reflects what the user last
+// chose, not what screen they happen to be on.
 //
-// [expanded]/[onToggleExpanded] are hoisted by the caller (MainActivity)
-// rather than `remember`ed internally here, so the open/closed state
-// survives navigating to a destination and back to Home -- SlideOutNav
-// itself gets torn down and recomposed fresh on that round trip (it's
-// nested inside HomeScreen, which AuthNavHost's `composable(ROUTE_HOME)`
-// recreates every time Home is re-entered), so internal `remember` state
-// would have reset to closed on every return.
+// [expanded]/[onToggleExpanded] are hoisted by the caller (MainActivity,
+// rendered once as a persistent overlay above the nav graph rather than
+// nested inside any one screen) rather than `remember`ed internally
+// here, so the open/closed state survives navigating between
+// destinations -- a SlideOutNav `remember`ed inside a given screen would
+// reset every time that screen's own composable is torn down and
+// recreated by navigation.
 @Composable
 fun SlideOutNav(
     destinations: List<NavDestination>,
@@ -82,68 +90,83 @@ fun SlideOutNav(
     // state, since the Box's own size (and thus its right edge's screen
     // position, given the fixed-left-corner placement HomeScreen anchors
     // it with) never changes.
+    //
+    // Second bug fix: that fixed-width reservation assumed the fully
+    // expanded pill always fits on screen. It doesn't once there are
+    // enough destinations (6, after Home was added) -- the toggle's
+    // now-fixed position landed past the right edge of narrower screens,
+    // making it literally unreachable to collapse the nav again.
+    // BoxWithConstraints caps the reservation at whatever width is
+    // actually available (this composable's own incoming `modifier`
+    // already has the screen's edge padding applied, so `maxWidth` here
+    // is the real on-screen budget) -- the toggle can now never render
+    // past the visible edge. If that cap is narrower than the
+    // destinations actually need, the destinations row scrolls
+    // horizontally instead of overflowing off-screen, so every
+    // destination stays reachable too, just via a swipe instead of
+    // always being laid out flat.
     val expandedWidth = PILL_PADDING * 2 + BUTTON_SIZE * (destinations.size + 1) + ITEM_SPACING * destinations.size
-    Box(
-        modifier = modifier.width(expandedWidth),
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(PILL_RADIUS))
-                .background(MaterialTheme.colorScheme.primary)
-                .padding(PILL_PADDING),
-            verticalAlignment = Alignment.CenterVertically,
+    BoxWithConstraints(modifier = modifier) {
+        val reservedWidth = minOf(expandedWidth, maxWidth)
+        Box(
+            modifier = Modifier.width(reservedWidth),
+            contentAlignment = Alignment.CenterEnd,
         ) {
-            // The trailing spacer is INSIDE AnimatedVisibility's content, not
-            // on the outer Row (an earlier draft put ITEM_SPACING on the
-            // outer Row's own Arrangement.spacedBy, which left a spurious gap
-            // baked into the collapsed pill -- AnimatedVisibility still
-            // counts as a layout child at zero width when invisible, so
-            // spacedBy still inserted a gap before the toggle button even
-            // with nothing expanded to justify it). Keeping the spacer inside
-            // means it collapses to nothing right along with everything else
-            // in here.
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandHorizontally() + fadeIn(),
-                exit = shrinkHorizontally() + fadeOut(),
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(PILL_RADIUS))
+                    .background(MaterialTheme.colorScheme.primary)
+                    .padding(PILL_PADDING),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.padding(end = ITEM_SPACING),
-                    horizontalArrangement = Arrangement.spacedBy(ITEM_SPACING),
+                // The trailing spacer is INSIDE AnimatedVisibility's content, not
+                // on the outer Row (an earlier draft put ITEM_SPACING on the
+                // outer Row's own Arrangement.spacedBy, which left a spurious gap
+                // baked into the collapsed pill -- AnimatedVisibility still
+                // counts as a layout child at zero width when invisible, so
+                // spacedBy still inserted a gap before the toggle button even
+                // with nothing expanded to justify it). Keeping the spacer inside
+                // means it collapses to nothing right along with everything else
+                // in here.
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = expandHorizontally() + fadeIn(),
+                    exit = shrinkHorizontally() + fadeOut(),
                 ) {
-                    destinations.forEach { destination ->
-                        if (destination.iconRes != null) {
-                            NavIconButton(
-                                iconRes = destination.iconRes,
-                                contentDescription = destination.label,
-                                contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
-                                onClick = {
-                                    onToggleExpanded()
-                                    destination.onClick()
-                                },
-                            )
-                        } else {
-                            NavGlyphButton(
-                                glyph = destination.glyph.orEmpty(),
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                onClick = {
-                                    onToggleExpanded()
-                                    destination.onClick()
-                                },
-                            )
+                    Row(
+                        modifier = Modifier
+                            .padding(end = ITEM_SPACING)
+                            .widthIn(max = reservedWidth - PILL_PADDING * 2 - BUTTON_SIZE)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(ITEM_SPACING),
+                    ) {
+                        destinations.forEach { destination ->
+                            if (destination.iconRes != null) {
+                                NavIconButton(
+                                    iconRes = destination.iconRes,
+                                    contentDescription = destination.label,
+                                    contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
+                                    onClick = destination.onClick,
+                                )
+                            } else {
+                                NavGlyphButton(
+                                    glyph = destination.glyph.orEmpty(),
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    onClick = destination.onClick,
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            NavIconButton(
-                iconRes = R.drawable.ic_nav_toggle,
-                contentDescription = if (expanded) "Close menu" else "Open menu",
-                rotationDegrees = if (expanded) 180f else 0f,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                onClick = onToggleExpanded,
-            )
+                NavIconButton(
+                    iconRes = R.drawable.ic_nav_toggle,
+                    contentDescription = if (expanded) "Close menu" else "Open menu",
+                    rotationDegrees = if (expanded) 180f else 0f,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    onClick = onToggleExpanded,
+                )
+            }
         }
     }
 }

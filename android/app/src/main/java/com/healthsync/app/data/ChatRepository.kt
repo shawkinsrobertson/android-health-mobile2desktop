@@ -70,7 +70,16 @@ class ChatRepository(private val supabase: SupabaseRestClient) {
                 id = row.getString("id"),
                 senderId = row.getString("sender_id"),
                 senderRole = row.getString("sender_role"),
-                body = row.optString("body").ifBlank { null },
+                // JSONObject.optString(key) (no fallback) returns the
+                // literal string "null" -- not blank, not Kotlin null --
+                // when the column's value is SQL NULL (org.json's own
+                // NULL sentinel still has a non-null toString()). Without
+                // the isNull() guard, a message with no body renders as
+                // the literal text "null" in MessageBubble below instead
+                // of being dropped. See WorkoutRepository.kt's toWorkout
+                // Session()/toSessionSet() for the same guard on other
+                // nullable columns.
+                body = if (row.isNull("body")) null else row.optString("body").ifBlank { null },
                 createdAt = Instant.parse(row.getString("created_at")),
             )
         }

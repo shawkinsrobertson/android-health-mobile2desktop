@@ -74,6 +74,100 @@ interface MetricValueOnlyRow {
   value: Record<string, unknown> | null;
 }
 
+// client_profiles.timezone (supabase/migrations/0038_client_timezone_and_
+// source_preference.sql) -- an IANA zone id Android writes on every sync
+// (SyncRepository.kt), since the server otherwise has no way to know what
+// timezone a client is actually in. Falls back to UTC (this file's old,
+// pre-0038 behavior) for a client who hasn't synced since this shipped, or
+// when no clientId is given at all -- never a hard failure, since getting
+// the day-bucketing slightly wrong for a handful of rows beats breaking
+// the page.
+async function getClientTimezone(supabase: SupabaseClient, clientId?: string): Promise<string> {
+  if (!clientId) return "UTC";
+  const { data } = await supabase
+    .from("client_profiles")
+    .select("timezone")
+    .eq("profile_id", clientId)
+    .maybeSingle();
+  return (data?.timezone as string | null) || "UTC";
+}
+
+// client_metric_source_preference -- a client's explicit "use this source
+// only" override for one metric_type, if they've set one. Null means no
+// preference: callers fall back to their existing merge-everything (or,
+// for steps, resolveOverlappingSources) behavior.
+async function getSourcePreference(
+  supabase: SupabaseClient,
+  clientId: string | undefined,
+  metricType: string,
+): Promise<string | null> {
+  if (!clientId) return null;
+  const { data } = await supabase
+    .from("client_metric_source_preference")
+    .select("source_package")
+    .eq("client_id", clientId)
+    .eq("metric_type", metricType)
+    .maybeSingle();
+  return (data?.source_package as string | null) ?? null;
+}
+
+function applySourcePreference<T extends { source_package: string | null }>(
+  rows: T[],
+  sourcePackage: string | null,
+): T[] {
+  return sourcePackage ? rows.filter((r) => r.source_package === sourcePackage) : rows;
+}
+
+function toStepsRow(row: MetricRow): StepsRow {
+  return {
+    start_time: row.start_time,
+    end_time: row.end_time ?? row.start_time,
+    count: metricNumber(row, "count"),
+    source_package: row.source_package,
+  };
+}
+
+// The UTC offset (ms) `timeZone` is at `instant` -- the value X such that
+// formatting `instant` in `timeZone` reads the same wall-clock time as
+// (instant + X) would in UTC. Used to convert a local calendar day's
+// midnight into the UTC instant it actually falls at, below.
+function tzOffsetMillis(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return asUtc - instant.getTime();
+}
+
+// yyyy-mm-dd calendar date `instant` falls on in `timeZone` -- en-CA is a
+// locale whose default date format happens to already be yyyy-mm-dd, used
+// here as a formatting shortcut, not for anything Canada-specific.
+function localDateKey(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+    instant,
+  );
+}
+
+// The UTC instant marking local midnight, in `timeZone`, of the calendar
+// day `instant` falls on there. One offset-correction pass -- exact
+// except within the literal hour of a DST transition, which prorating a
+// handful of minutes of step data across isn't worth a full DST-aware
+// date library for.
+function localDayStartUtc(instant: Date, timeZone: string): Date {
+  const key = localDateKey(instant, timeZone);
+  const [y, m, d] = key.split("-").map(Number);
+  const guess = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  return new Date(guess.getTime() - tzOffsetMillis(guess, timeZone));
+}
+
 // Merges possibly-overlapping [start, end] ms intervals into a minimal
 // sorted set of non-overlapping ones.
 function mergeIntervals(intervals: [number, number][]): [number, number][] {
@@ -128,10 +222,10 @@ function subtractIntervals(
 // certain which source is "truth" for a given window without more than
 // what's stored) -- but it's a real improvement over blind summing, and
 // doesn't require touching how the Android app syncs.
-function resolveOverlappingSources(rows: StepsRow[]): StepsRow[] {
+function resolveOverlappingSources(rows: StepsRow[], timeZone: string): StepsRow[] {
   const byDay = new Map<string, StepsRow[]>();
   for (const row of rows) {
-    const day = row.start_time.slice(0, 10);
+    const day = localDateKey(new Date(row.start_time), timeZone);
     const list = byDay.get(day);
     if (list) list.push(row);
     else byDay.set(day, [row]);
@@ -202,11 +296,14 @@ function resolveOverlappingSources(rows: StepsRow[]): StepsRow[] {
 // can write one record spanning several days. Crediting the whole count to
 // start_time's day, like a naive groupBy would, dumps it all onto one day
 // as a huge spike and leaves the days it actually covers looking empty.
-// Prorate each row's count across every UTC day it overlaps, weighted by
-// how much of the row's duration falls on that day.
+// Prorate each row's count across every day it overlaps *in the client's
+// own timezone*, weighted by how much of the row's duration falls on that
+// day -- bucketing this in UTC (the old behavior) shifts data across day
+// boundaries for any client not in UTC, which is nearly everyone.
 function accumulateStepsByDay(
   rows: { start_time: string; end_time: string; count: number | null }[],
   byDay: Map<string, number>,
+  timeZone: string,
 ) {
   for (const row of rows) {
     const start = new Date(row.start_time);
@@ -217,20 +314,22 @@ function accumulateStepsByDay(
     if (totalMs <= 0) {
       // Zero/negative-duration row (bad data, or start == end) -- nothing
       // to prorate across, just attribute it to the start day.
-      const day = row.start_time.slice(0, 10);
+      const day = localDateKey(start, timeZone);
       byDay.set(day, (byDay.get(day) ?? 0) + count);
       continue;
     }
 
     let cursor = start;
     while (cursor < end) {
-      const dayStart = new Date(
-        Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate()),
-      );
-      const nextDayStart = new Date(dayStart.getTime() + 86_400_000);
+      const dayStart = localDayStartUtc(cursor, timeZone);
+      // +25h is guaranteed to land in the next local calendar day
+      // regardless of whether today is a 23h (spring-forward) or 25h
+      // (fall-back) DST day; localDayStartUtc then snaps it back to that
+      // next day's own real start.
+      const nextDayStart = localDayStartUtc(new Date(dayStart.getTime() + 25 * 3_600_000), timeZone);
       const segmentEnd = end < nextDayStart ? end : nextDayStart;
       const segmentMs = segmentEnd.getTime() - cursor.getTime();
-      const day = dayStart.toISOString().slice(0, 10);
+      const day = localDateKey(dayStart, timeZone);
       byDay.set(day, (byDay.get(day) ?? 0) + count * (segmentMs / totalMs));
       cursor = segmentEnd;
     }
@@ -260,15 +359,21 @@ export async function getDailySteps(
     if (clientId) query = query.eq("client_id", clientId);
     return query;
   });
-  const data: StepsRow[] = rawRows.map((row) => ({
-    start_time: row.start_time,
-    end_time: row.end_time ?? row.start_time,
-    count: metricNumber(row, "count"),
-    source_package: row.source_package,
-  }));
+  const data: StepsRow[] = rawRows.map(toStepsRow);
+
+  const [timeZone, sourcePreference] = await Promise.all([
+    getClientTimezone(supabase, clientId),
+    getSourcePreference(supabase, clientId, "steps"),
+  ]);
+  // A client-chosen source needs no dedup heuristic -- with only one
+  // source in play there's nothing to reconcile, so this skips
+  // resolveOverlappingSources entirely rather than running it uselessly.
+  const resolved = sourcePreference
+    ? applySourcePreference(data, sourcePreference)
+    : resolveOverlappingSources(data, timeZone);
 
   const byDay = new Map<string, number>();
-  accumulateStepsByDay(resolveOverlappingSources(data), byDay);
+  accumulateStepsByDay(resolved, byDay, timeZone);
 
   return Array.from(byDay.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -290,7 +395,7 @@ export async function getSleepNights(
 
   let query = supabase
     .from("metrics")
-    .select("start_time, end_time")
+    .select("start_time, end_time, source_package")
     .eq("metric_type", "sleep_session")
     .gte("start_time", since.toISOString())
     .order("start_time", { ascending: true });
@@ -300,11 +405,20 @@ export async function getSleepNights(
 
   if (error) throw new Error(`Failed to load sleep sessions: ${error.message}`);
 
-  return (data ?? []).map((row) => {
+  const [timeZone, sourcePreference] = await Promise.all([
+    getClientTimezone(supabase, clientId),
+    getSourcePreference(supabase, clientId, "sleep_session"),
+  ]);
+  const rows = applySourcePreference(
+    (data ?? []) as { start_time: string; end_time: string; source_package: string | null }[],
+    sourcePreference,
+  );
+
+  return rows.map((row) => {
     const hours =
       (new Date(row.end_time).getTime() - new Date(row.start_time).getTime()) /
       (1000 * 60 * 60);
-    return { date: String(row.start_time).slice(0, 10), hours: Math.round(hours * 10) / 10 };
+    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 10) / 10 };
   });
 }
 
@@ -319,8 +433,15 @@ export async function getOverviewStats(
   supabase: SupabaseClient,
   clientId?: string,
 ): Promise<OverviewStats> {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const [timeZone, stepsPreference, heartRatePreference] = await Promise.all([
+    getClientTimezone(supabase, clientId),
+    getSourcePreference(supabase, clientId, "steps"),
+    getSourcePreference(supabase, clientId, "heart_rate"),
+  ]);
+  // The client's own local midnight, not the server's -- a Vercel/Node
+  // runtime's "local" time is effectively arbitrary (usually UTC), which
+  // has nothing to do with what day it actually is for this client.
+  const todayStart = localDayStartUtc(new Date(), timeZone);
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -371,8 +492,16 @@ export async function getOverviewStats(
   if (sleepRes.error) throw new Error(sleepRes.error.message);
   if (exerciseRes.error) throw new Error(exerciseRes.error.message);
 
-  const stepsToday = stepsRows.reduce((sum, r) => sum + (metricNumber(r, "count") ?? 0), 0);
-  const hrValues = hrSamples.map((r) => metricNumber(r, "bpm")).filter((v): v is number => v != null);
+  // Same dedup-or-preference treatment as getDailySteps -- this used to
+  // just sum every row with no regard for overlapping sources at all, so
+  // "Steps today" on the overview could be inflated even when the chart
+  // right below it (which does go through getDailySteps) wasn't.
+  const dedupedSteps = stepsPreference
+    ? applySourcePreference(stepsRows.map(toStepsRow), stepsPreference)
+    : resolveOverlappingSources(stepsRows.map(toStepsRow), timeZone);
+  const stepsToday = dedupedSteps.reduce((sum, r) => sum + (r.count ?? 0), 0);
+  const dedupedHr = applySourcePreference(hrSamples, heartRatePreference);
+  const hrValues = dedupedHr.map((r) => metricNumber(r, "bpm")).filter((v): v is number => v != null);
   const avgHeartRate7d =
     hrValues.length > 0
       ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)
@@ -417,15 +546,18 @@ export async function getDataPointSummary(
       return steps.length ? `${total.toLocaleString()} steps this week` : "No steps synced yet";
     }
     case "heart_rate_samples": {
-      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
-        supabase
+      const preference = await getSourcePreference(supabase, clientId, "heart_rate");
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) => {
+        let q = supabase
           .from("metrics")
           .select("value")
           .eq("metric_type", "heart_rate")
           .eq("client_id", clientId)
           .gte("start_time", since)
-          .range(from, to),
-      );
+          .range(from, to);
+        if (preference) q = q.eq("source_package", preference);
+        return q;
+      });
       const samples = data.map((r) => metricNumber(r, "bpm")).filter((v): v is number => v != null);
       if (!samples.length) return "No heart rate data synced yet";
       const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
@@ -447,28 +579,34 @@ export async function getDataPointSummary(
       return `${count ?? 0} workout${count === 1 ? "" : "s"} this week`;
     }
     case "blood_oxygen": {
-      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
-        supabase
+      const preference = await getSourcePreference(supabase, clientId, "blood_oxygen");
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) => {
+        let q = supabase
           .from("metrics")
           .select("value")
           .eq("metric_type", "blood_oxygen")
           .eq("client_id", clientId)
           .gte("start_time", since)
-          .range(from, to),
-      );
+          .range(from, to);
+        if (preference) q = q.eq("source_package", preference);
+        return q;
+      });
       const samples = data.map((r) => metricNumber(r, "percentage")).filter((v): v is number => v != null);
       if (!samples.length) return "No SpO2 data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg}% avg SpO2 this week`;
     }
     case "blood_pressure": {
-      const { data } = await supabase
+      const preference = await getSourcePreference(supabase, clientId, "blood_pressure");
+      let bpQuery = supabase
         .from("metrics")
         .select("value, start_time")
         .eq("metric_type", "blood_pressure")
         .eq("client_id", clientId)
         .order("start_time", { ascending: false })
         .limit(1);
+      if (preference) bpQuery = bpQuery.eq("source_package", preference);
+      const { data } = await bpQuery;
       const last = data?.[0] as MetricValueOnlyRow | undefined;
       const systolic = last ? metricNumber(last, "systolic_mmhg") : null;
       const diastolic = last ? metricNumber(last, "diastolic_mmhg") : null;
@@ -477,30 +615,36 @@ export async function getDataPointSummary(
         : "No blood pressure data synced yet";
     }
     case "respiratory_rate": {
-      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
-        supabase
+      const preference = await getSourcePreference(supabase, clientId, "respiratory_rate");
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) => {
+        let q = supabase
           .from("metrics")
           .select("value")
           .eq("metric_type", "respiratory_rate")
           .eq("client_id", clientId)
           .gte("start_time", since)
-          .range(from, to),
-      );
+          .range(from, to);
+        if (preference) q = q.eq("source_package", preference);
+        return q;
+      });
       const samples = data.map((r) => metricNumber(r, "breaths_per_minute")).filter((v): v is number => v != null);
       if (!samples.length) return "No respiratory rate data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg} breaths/min avg this week`;
     }
     case "blood_glucose": {
-      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
-        supabase
+      const preference = await getSourcePreference(supabase, clientId, "blood_glucose");
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) => {
+        let q = supabase
           .from("metrics")
           .select("value")
           .eq("metric_type", "blood_glucose")
           .eq("client_id", clientId)
           .gte("start_time", since)
-          .range(from, to),
-      );
+          .range(from, to);
+        if (preference) q = q.eq("source_package", preference);
+        return q;
+      });
       const samples = data.map((r) => metricNumber(r, "level_mg_dl")).filter((v): v is number => v != null);
       if (!samples.length) return "No blood glucose data synced yet";
       const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
@@ -571,8 +715,10 @@ export async function getDailySeries(
 
   const since = new Date();
   since.setDate(since.getDate() - days);
+  const timeZone = await getClientTimezone(supabase, clientId);
 
   if (dataPointKey === "exercise_sessions") {
+    const preference = await getSourcePreference(supabase, clientId, "exercise_session");
     let query = supabase
       .from("metrics")
       .select("start_time")
@@ -580,12 +726,13 @@ export async function getDailySeries(
       .gte("start_time", since.toISOString())
       .order("start_time", { ascending: true });
     if (clientId) query = query.eq("client_id", clientId);
+    if (preference) query = query.eq("source_package", preference);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     const byDay = new Map<string, number>();
     for (const row of (data ?? []) as { start_time: string }[]) {
-      const day = row.start_time.slice(0, 10);
+      const day = localDateKey(new Date(row.start_time), timeZone);
       byDay.set(day, (byDay.get(day) ?? 0) + 1);
     }
     return Array.from(byDay.entries())
@@ -596,6 +743,7 @@ export async function getDailySeries(
   const config = SAMPLE_SERIES_CONFIG[dataPointKey];
   if (!config) return [];
 
+  const preference = await getSourcePreference(supabase, clientId, config.metricType);
   const rows = await fetchAllRows<MetricRow>((from, to) => {
     let query = supabase
       .from("metrics")
@@ -605,12 +753,13 @@ export async function getDailySeries(
       .order("start_time", { ascending: true })
       .range(from, to);
     if (clientId) query = query.eq("client_id", clientId);
+    if (preference) query = query.eq("source_package", preference);
     return query;
   });
 
   const byDay = new Map<string, { sum: number; count: number }>();
   for (const row of rows) {
-    const day = row.start_time.slice(0, 10);
+    const day = localDateKey(new Date(row.start_time), timeZone);
     const value = metricNumber(row, config.valueField);
     if (value == null) continue;
     const bucket = byDay.get(day) ?? { sum: 0, count: 0 };

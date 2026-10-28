@@ -2,6 +2,9 @@ package com.healthsync.app.supabase
 
 import com.healthsync.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -17,6 +20,23 @@ import java.util.concurrent.TimeUnit
 // pages past this rather than trusting a single request not to get
 // silently truncated at it.
 private const val SELECT_PAGE_SIZE = 1000
+
+// Every SupabaseRestClient used to build its own OkHttpClient -- cheap-
+// looking, but OkHttpClient owns a real connection pool/thread pool, and
+// Square's own docs are explicit that it's meant to be a shared
+// singleton for exactly that pooling to do anything. With one built per
+// repository call (every screen's LaunchedEffect does
+// `Repository(SupabaseRestClient(token))`), every single request on every
+// screen paid a fresh TCP+TLS handshake instead of reusing a warm
+// connection -- a real, measurable contributor to "this screen takes
+// forever," not just a style nit.
+private val sharedHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+}
 
 /**
  * Minimal PostgREST client for pushing Health Connect data to Supabase.
@@ -44,11 +64,7 @@ class SupabaseRestClient(
     private val baseUrl: String = BuildConfig.SUPABASE_URL,
     private val anonKey: String = BuildConfig.SUPABASE_ANON_KEY,
 ) {
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val http = sharedHttpClient
 
     private val jsonMediaType = "application/json".toMediaType()
 
@@ -154,6 +170,26 @@ class SupabaseRestClient(
     }
 
     /**
+     * Delete every row in [table] matching [filters] (PostgREST filter
+     * syntax per value, same shape as [patch]'s). Used for clearing a
+     * client_metric_source_preference row back to "no preference" --
+     * generic, unlike [deleteByHealthConnectIdPrefix], which only exists
+     * for that one health-connect-id-prefix shape.
+     */
+    suspend fun delete(table: String, filters: Map<String, String>) {
+        var urlBuilder = restUrl(table)
+        filters.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Prefer", "return=minimal")
+            .delete()
+            .build()
+        execute(request)
+    }
+
+    /**
      * Read-only PostgREST select against [table] -- [params] become query
      * parameters verbatim, e.g. `mapOf("select" to "start_time,count",
      * "client_id" to "eq.<uuid>", "order" to "start_time.asc")`. RLS on
@@ -172,36 +208,62 @@ class SupabaseRestClient(
      * carries its own "limit" -- that's a caller deliberately asking for
      * a bounded top-N (e.g. "5 most recent workouts"), not something to
      * page past.
+     *
+     * The first page asks for an exact count (`Prefer: count=exact`),
+     * which PostgREST echoes back as a `Content-Range: 0-999/5432`
+     * response header -- that `/5432` total tells us how many more pages
+     * exist without a separate round trip, so every remaining page can
+     * be fetched concurrently instead of one-after-another. A dense
+     * table (per-minute Garmin step samples routinely need 5-10+ pages
+     * for a 14-day window) used to pay that many sequential round trips
+     * in a row; this pays roughly one round-trip's worth of latency
+     * regardless of how many pages there are.
      */
     suspend fun select(table: String, params: Map<String, String>): JSONArray {
         if (params.containsKey("limit")) {
             return JSONArray(executeReturningBody(selectRequest(table, params)))
         }
 
-        val all = JSONArray()
-        var offset = 0
-        while (true) {
-            val pageParams = params + mapOf(
-                "limit" to SELECT_PAGE_SIZE.toString(),
-                "offset" to offset.toString(),
-            )
-            val page = JSONArray(executeReturningBody(selectRequest(table, pageParams)))
-            for (i in 0 until page.length()) all.put(page.get(i))
-            if (page.length() < SELECT_PAGE_SIZE) break
-            offset += SELECT_PAGE_SIZE
+        val firstPageParams = params + mapOf("limit" to SELECT_PAGE_SIZE.toString(), "offset" to "0")
+        val (firstBody, totalCount) = executeReturningBodyWithCount(selectRequest(table, firstPageParams, countExact = true))
+        val firstPage = JSONArray(firstBody)
+
+        // No count header (shouldn't happen when we asked for one, but
+        // don't crash over it) or the first page already had everything.
+        if (totalCount == null || firstPage.length().toLong() >= totalCount) {
+            return firstPage
         }
+
+        val remainingPages = coroutineScope {
+            (SELECT_PAGE_SIZE.toLong() until totalCount step SELECT_PAGE_SIZE.toLong())
+                .map { offset ->
+                    async {
+                        val pageParams = params + mapOf(
+                            "limit" to SELECT_PAGE_SIZE.toString(),
+                            "offset" to offset.toString(),
+                        )
+                        JSONArray(executeReturningBody(selectRequest(table, pageParams)))
+                    }
+                }
+                .awaitAll()
+        }
+
+        val all = JSONArray()
+        for (i in 0 until firstPage.length()) all.put(firstPage.get(i))
+        for (page in remainingPages) for (i in 0 until page.length()) all.put(page.get(i))
         return all
     }
 
-    private fun selectRequest(table: String, params: Map<String, String>): Request {
+    private fun selectRequest(table: String, params: Map<String, String>, countExact: Boolean = false): Request {
         var urlBuilder = restUrl(table)
         params.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
-        return Request.Builder()
+        val builder = Request.Builder()
             .url(urlBuilder.build())
             .header("apikey", anonKey)
             .header("Authorization", "Bearer $accessToken")
             .get()
-            .build()
+        if (countExact) builder.header("Prefer", "count=exact")
+        return builder.build()
     }
 
     // OkHttp's call.execute() is blocking I/O; run it on Dispatchers.IO so
@@ -224,4 +286,23 @@ class SupabaseRestClient(
             bodyText
         }
     }
+
+    // Same as executeReturningBody, but also parses PostgREST's
+    // Content-Range response header ("0-999/5432") into the total row
+    // count after the '/' -- null if the header is absent, or "*"
+    // (PostgREST couldn't/wasn't asked to compute an exact count).
+    private suspend fun executeReturningBodyWithCount(request: Request): Pair<String, Long?> =
+        withContext(Dispatchers.IO) {
+            http.newCall(request).execute().use { response ->
+                val bodyText = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw IOException("Supabase request failed (${response.code} ${request.method} ${request.url}): $bodyText")
+                }
+                val total = response.header("Content-Range")
+                    ?.substringAfterLast('/')
+                    ?.takeIf { it != "*" }
+                    ?.toLongOrNull()
+                bodyText to total
+            }
+        }
 }

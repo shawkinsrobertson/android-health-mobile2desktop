@@ -3,6 +3,7 @@ package com.healthsync.app.data
 import com.healthsync.app.supabase.SupabaseRestClient
 import org.json.JSONArray
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 data class DataPoint(val key: String, val label: String)
@@ -41,16 +42,24 @@ private val METRIC_TYPE_BY_DATA_POINT = mapOf(
 
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
+private data class DataPointStepsRawRow(val startTime: String, val endTime: String, val count: Double, val sourcePackage: String?)
+
 /**
  * Kotlin port of dashboard/lib/queries.ts's getDataPointSummary -- one-line
  * "glance" summaries for the client dashboard's top-3 stat cards, same
  * 7-day window and same per-type wording so a client sees consistent
- * numbers between the app and the web dashboard. Deliberately simpler than
- * that file in one respect, matching HealthDataRepository.kt's own
- * documented precedent: no resolveOverlappingSources cross-source dedup
- * for the steps case (a day with two source apps writing overlapping
- * ranges will double-count here, same accepted "rough trends, not exact
- * totals" tradeoff already made for this app's Stats screen).
+ * numbers between the app and the web dashboard.
+ *
+ * Respects client_metric_source_preference (supabase/migrations/
+ * 0038_client_timezone_and_source_preference.sql) the same way web does:
+ * when a client has picked one source for a metric type, every query here
+ * filters to it. For steps specifically, with no preference set, this
+ * also runs the same per-local-day "pick the higher-total source as
+ * primary" dedup heuristic HealthDataRepository.kt's Stats screen does
+ * (see that file's resolveOverlappingSources for the fuller comment) --
+ * this used to just sum every row with no regard for overlapping
+ * sources, so a client with e.g. both a wearable and their phone's own
+ * step sensor would see an inflated weekly total here.
  *
  * Queries the unified `metrics` table (0035_metrics.sql), filtered by
  * `metric_type`, selecting the whole jsonb `value` column rather than a
@@ -60,25 +69,47 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
  */
 class DataPointRepository(private val supabase: SupabaseRestClient) {
 
+    private suspend fun getSourcePreference(clientId: String, metricType: String): String? {
+        val rows = supabase.select(
+            "client_metric_source_preference",
+            mapOf(
+                "select" to "source_package",
+                "client_id" to "eq.$clientId",
+                "metric_type" to "eq.$metricType",
+                "limit" to "1",
+            ),
+        )
+        return if (rows.length() == 0) null else rows.getJSONObject(0).optString("source_package").ifBlank { null }
+    }
+
     suspend fun getSummary(clientId: String, dataPointKey: String): String {
         val since = ISO_INSTANT.format(Instant.now().minusSeconds(7 * 86_400L))
         val metricType = METRIC_TYPE_BY_DATA_POINT[dataPointKey] ?: return "No data synced yet"
+        val preference = getSourcePreference(clientId, metricType)
 
-        suspend fun metricRows(select: String, extraFilters: Map<String, String> = emptyMap()): JSONArray =
-            supabase.select(
+        suspend fun metricRows(select: String, extraFilters: Map<String, String> = emptyMap()): JSONArray {
+            val filters = if (preference != null) extraFilters + ("source_package" to "eq.$preference") else extraFilters
+            return supabase.select(
                 "metrics",
                 mapOf(
                     "select" to select,
                     "client_id" to "eq.$clientId",
                     "metric_type" to "eq.$metricType",
-                ) + extraFilters,
+                ) + filters,
             )
+        }
 
         return when (dataPointKey) {
             "steps" -> {
-                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
-                if (rows.length() == 0) return "No steps synced yet"
-                val total = sumInts(rows, "count")
+                val total = if (preference != null) {
+                    val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
+                    if (rows.length() == 0) return "No steps synced yet"
+                    sumInts(rows, "count")
+                } else {
+                    val rows = metricRows("start_time,end_time,value,source_package", mapOf("start_time" to "gte.$since"))
+                    if (rows.length() == 0) return "No steps synced yet"
+                    resolveOverlappingSources(parseStepsRows(rows)).sumOf { it.count }.toLong()
+                }
                 "${total.thousands()} steps this week"
             }
             "heart_rate_samples" -> {
@@ -132,6 +163,103 @@ class DataPointRepository(private val supabase: SupabaseRestClient) {
             else -> "No data synced yet"
         }
     }
+
+    private fun parseStepsRows(rows: JSONArray): List<DataPointStepsRawRow> {
+        val parsed = mutableListOf<DataPointStepsRawRow>()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONObject(i)
+            val start = row.getString("start_time")
+            parsed.add(
+                DataPointStepsRawRow(
+                    startTime = start,
+                    endTime = row.optString("end_time").ifBlank { start },
+                    count = row.getJSONObject("value").optDouble("count", 0.0),
+                    sourcePackage = row.optString("source_package").ifBlank { null },
+                ),
+            )
+        }
+        return parsed
+    }
+
+    // Same heuristic as HealthDataRepository.kt's resolveOverlappingSources
+    // -- see that file for the fuller comment. Duplicated rather than
+    // shared, matching this file's and that one's existing independence
+    // from each other (each is its own self-contained, deliberately
+    // simplified counterpart to dashboard/lib/queries.ts).
+    private fun resolveOverlappingSources(rows: List<DataPointStepsRawRow>): List<DataPointStepsRawRow> {
+        val byDay = rows.groupBy { localDateOf(it.startTime) }
+        val resolved = mutableListOf<DataPointStepsRawRow>()
+
+        for (dayRows in byDay.values) {
+            val bySource = dayRows.groupBy { it.sourcePackage ?: "unknown" }
+            if (bySource.size <= 1) {
+                resolved.addAll(dayRows)
+                continue
+            }
+
+            val (primaryKey, primaryRows) = bySource.entries.maxBy { (_, rs) -> rs.sumOf { it.count } }
+            resolved.addAll(primaryRows)
+
+            val primaryIntervals = mergeIntervals(
+                primaryRows.map { Instant.parse(it.startTime).toEpochMilli() to Instant.parse(it.endTime).toEpochMilli() },
+            )
+
+            for ((key, sourceRows) in bySource) {
+                if (key == primaryKey) continue
+                for (row in sourceRows) {
+                    val startMs = Instant.parse(row.startTime).toEpochMilli()
+                    val endMs = Instant.parse(row.endTime).toEpochMilli()
+                    val totalMs = endMs - startMs
+                    if (totalMs <= 0) {
+                        resolved.add(row)
+                        continue
+                    }
+                    for ((gapStart, gapEnd) in subtractIntervals(startMs, endMs, primaryIntervals)) {
+                        resolved.add(
+                            row.copy(
+                                startTime = Instant.ofEpochMilli(gapStart).toString(),
+                                endTime = Instant.ofEpochMilli(gapEnd).toString(),
+                                count = row.count * ((gapEnd - gapStart).toDouble() / totalMs),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        return resolved
+    }
+
+    private fun mergeIntervals(intervals: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
+        if (intervals.isEmpty()) return emptyList()
+        val sorted = intervals.sortedBy { it.first }
+        val merged = mutableListOf(sorted.first())
+        for (cur in sorted.drop(1)) {
+            val last = merged.last()
+            if (cur.first <= last.second) {
+                merged[merged.lastIndex] = last.first to maxOf(last.second, cur.second)
+            } else {
+                merged.add(cur)
+            }
+        }
+        return merged
+    }
+
+    private fun subtractIntervals(start: Long, end: Long, covering: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
+        val gaps = mutableListOf<Pair<Long, Long>>()
+        var cursor = start
+        for ((cs, ce) in covering) {
+            if (ce <= cursor) continue
+            if (cs >= end) break
+            if (cs > cursor) gaps.add(cursor to minOf(cs, end))
+            cursor = maxOf(cursor, ce)
+            if (cursor >= end) break
+        }
+        if (cursor < end) gaps.add(cursor to end)
+        return gaps
+    }
+
+    private fun localDateOf(isoInstant: String): String =
+        Instant.parse(isoInstant).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 }
 
 private fun sumInts(rows: JSONArray, field: String): Long {

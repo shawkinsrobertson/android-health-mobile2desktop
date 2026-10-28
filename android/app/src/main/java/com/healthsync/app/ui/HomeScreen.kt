@@ -1,7 +1,6 @@
 package com.healthsync.app.ui
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -22,24 +21,20 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.healthsync.app.R
 import com.healthsync.app.data.HomeSummary
 import com.healthsync.app.data.TopDataPointSummary
 import com.healthsync.app.data.TrainingItem
 import com.healthsync.app.ui.home.NotificationShade
 import com.healthsync.app.ui.home.ShadeContent
-import com.healthsync.app.ui.nav.NavDestination
-import com.healthsync.app.ui.nav.SlideOutNav
 
 // Sync (manual + force re-sync + per-type status) lives entirely on
 // ProfileScreen now, reachable from the slide-out nav -- this screen is
-// purely the shade + nav. The greeting/date now live *inside* the shade
-// itself (see NotificationShade's doc comment), and the shade's own
+// purely the shade + content. The greeting/date now live *inside* the
+// shade itself (see NotificationShade's doc comment), and the shade's own
 // background is meant to extend to the very top of the screen -- this
 // screen deliberately does NOT wrap everything in one blanket inset
 // modifier the way it used to (`safeDrawingPadding()` on the outer Box),
@@ -47,23 +42,23 @@ import com.healthsync.app.ui.nav.SlideOutNav
 // along with everything else. Instead: NotificationShade applies its own
 // top (status bar) inset internally, and this screen applies bottom/nav-
 // bar inset only where it's actually needed (the scrollable content
-// column, and SlideOutNav's own position).
+// column). The slide-out nav itself is no longer rendered here -- it's a
+// persistent overlay MainActivity renders once, above the whole nav
+// graph, so it's reachable (and keeps its expanded/collapsed state) from
+// every screen, not just Home; this screen still reserves bottom space
+// for it (the Spacer below) since it still floats over this content too.
 @Composable
 fun HomeScreen(
     healthConnectAvailable: Boolean,
     hasPermissions: Boolean?,
     homeSummary: HomeSummary?,
     displayName: String?,
-    navExpanded: Boolean,
-    onToggleNav: () -> Unit,
     onRequestPermissions: () -> Unit,
     onInstallHealthConnect: () -> Unit,
-    onOpenStats: () -> Unit,
     onOpenWorkouts: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenInbox: () -> Unit,
     onOpenCheckIn: () -> Unit,
-    onOpenProfile: () -> Unit,
 ) {
     // Surface (not a bare Box/Column) is load-bearing here, not
     // decorative -- Scaffold used to wrap this screen in one implicitly,
@@ -86,93 +81,71 @@ fun HomeScreen(
         color = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                if (homeSummary != null) {
-                    NotificationShade(
-                        content = ShadeContent(
-                            displayName = displayName,
-                            hasUnreadMessages = homeSummary.hasUnreadMessages,
-                            latestMessage = homeSummary.latestMessage,
-                            upcomingEvents = homeSummary.upcomingEvents,
-                            checkInDue = homeSummary.checkInDue,
-                            weekDays = homeSummary.weekDays,
-                            onOpenInbox = onOpenInbox,
-                            onOpenCalendar = onOpenCalendar,
-                            onOpenCheckIn = onOpenCheckIn,
-                        ),
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxSize()
-                        .navigationBarsPadding()
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    when {
-                        !healthConnectAvailable -> {
-                            Text("Health Connect isn't installed on this device, or needs an update.")
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = onInstallHealthConnect) {
-                                Text("Install / update Health Connect")
-                            }
-                        }
-
-                        hasPermissions == null -> {
-                            CircularProgressIndicator()
-                        }
-
-                        hasPermissions == false -> {
-                            Text("Health Sync needs permission to read your Health Connect data.")
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = onRequestPermissions) {
-                                Text("Grant permissions")
-                            }
-                        }
-
-                        else -> Unit
-                    }
-
-                    if (homeSummary != null) {
-                        if (homeSummary.topDataPoints.isNotEmpty()) {
-                            Spacer(Modifier.height(20.dp))
-                            TopDataPointsRow(homeSummary.topDataPoints)
-                        }
-
-                        Spacer(Modifier.height(20.dp))
-                        Text("Your Training", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                        TrainingCard(homeSummary.trainingItem, onOpenWorkouts)
-                    }
-
-                    // Bottom padding so the last item isn't hidden behind
-                    // the slide-out nav anchored over this column.
-                    Spacer(Modifier.height(72.dp))
-                }
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (homeSummary != null) {
+                NotificationShade(
+                    content = ShadeContent(
+                        displayName = displayName,
+                        hasUnreadMessages = homeSummary.hasUnreadMessages,
+                        latestMessage = homeSummary.latestMessage,
+                        upcomingEvents = homeSummary.upcomingEvents,
+                        checkInDue = homeSummary.checkInDue,
+                        weekDays = homeSummary.weekDays,
+                        onOpenInbox = onOpenInbox,
+                        onOpenCalendar = onOpenCalendar,
+                        onOpenCheckIn = onOpenCheckIn,
+                    ),
+                )
             }
 
-            SlideOutNav(
-                destinations = listOf(
-                    NavDestination("Workouts", iconRes = R.drawable.ic_dumbbell, onClick = onOpenWorkouts),
-                    NavDestination("Calendar", iconRes = R.drawable.ic_calendar, onClick = onOpenCalendar),
-                    NavDestination("Inbox", iconRes = R.drawable.ic_inbox, onClick = onOpenInbox),
-                    NavDestination("Stats", iconRes = R.drawable.ic_stats, onClick = onOpenStats),
-                    NavDestination(
-                        "Profile",
-                        iconRes = R.drawable.ic_profile_placeholder,
-                        tinted = false,
-                        onClick = onOpenProfile,
-                    ),
-                ),
-                expanded = navExpanded,
-                onToggleExpanded = onToggleNav,
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+                    .fillMaxSize()
                     .navigationBarsPadding()
-                    .padding(16.dp),
-            )
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                when {
+                    !healthConnectAvailable -> {
+                        Text("Health Connect isn't installed on this device, or needs an update.")
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onInstallHealthConnect) {
+                            Text("Install / update Health Connect")
+                        }
+                    }
+
+                    hasPermissions == null -> {
+                        CircularProgressIndicator()
+                    }
+
+                    hasPermissions == false -> {
+                        Text("Health Sync needs permission to read your Health Connect data.")
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onRequestPermissions) {
+                            Text("Grant permissions")
+                        }
+                    }
+
+                    else -> Unit
+                }
+
+                if (homeSummary != null) {
+                    if (homeSummary.topDataPoints.isNotEmpty()) {
+                        Spacer(Modifier.height(20.dp))
+                        TopDataPointsRow(homeSummary.topDataPoints)
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+                    Text("Your Training", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    TrainingCard(homeSummary.trainingItem, onOpenWorkouts)
+                }
+
+                // Bottom padding so the last item isn't hidden behind
+                // the slide-out nav MainActivity floats over this
+                // screen (and every other screen) too.
+                Spacer(Modifier.height(72.dp))
+            }
         }
     }
 }

@@ -2611,3 +2611,303 @@ storybook ever imported `msw`/`mockdate`/`playwright`/`vitest` -- no
 `package-lock.json` via `npm install`. Verified against a genuinely fresh
 install this time: `npm ci`, `tsc --noEmit`, `next lint`, dummy-env `next
 build` all clean.
+
+## Phase 20 -- Dropped the pre-restructure tables
+
+The last deferred step from Phases 14-15: `library_*`, `assigned_*`,
+`document_responses`, the 9 original Health Connect tables, and
+`coach_notes` were kept in place through the whole restructure as a
+safety net while every consumer got cut over -- confirmed cut over and
+merged since PR #18. Re-ran a fresh repo-wide grep across `dashboard/`
+and `android/` immediately before writing `0037_drop_legacy_tables.sql`
+and found zero remaining references (only AI tool names like
+`get_library_exercises`, PostgREST relation aliases like
+`assigned_workouts:assignments(name)`, and `metric_type`/consent-key
+string values that happen to share a name with an old table -- none of
+which are an actual table reference), so dropped all of them. Order
+follows each group's own FK graph (children before parents), with
+`cascade` on every statement as a second line of defense rather than a
+substitute for getting that order right. `workout_sessions`/
+`workout_session_exercises`/`workout_session_sets` untouched, as their
+FKs were already repointed away from the dropped tables back in 0034.
+
+No application code changes needed -- this is a schema-only migration.
+Verified with `tsc --noEmit` (clean, as expected for a DB-only change).
+
+## Phase 21 -- Steps data accuracy: client timezone + chosen data source
+
+Follow-up to the Phase 16 pagination fix: steps still didn't match the
+client's wearable even after that shipped. Investigated directly (traced
+the root causes from the code's own comments rather than needing another
+multi-agent audit) and found two real, concrete issues, plus a feature
+request that turned out to simplify one of them.
+
+**Root causes.** (1) Android's on-device Stats/data-point screens never
+got the cross-source dedup web's `resolveOverlappingSources` already had
+-- both files had their own comments flagging the gap. Health Connect
+doesn't dedupe a wearable and a phone's own step sensor both reporting
+the same walk, so Android was summing both and showing more than the
+wearable alone ever reported. (2) Day-bucketing was inconsistent across
+platforms: web bucketed by **UTC** calendar day (deliberate, per that
+code's own comment), Android by the **device's real local** timezone --
+for any client not in UTC, the same data could land on different
+calendar days depending on which surface you looked at. Root enabler:
+nothing in the schema stored a client's timezone at all, and Android
+never sent one -- web had no way to do better than UTC even if it tried.
+
+**Schema (`0038_client_timezone_and_source_preference.sql`).**
+`client_profiles.timezone` (IANA zone id, Android writes it on every
+sync, same "device reports its own setting" pattern as
+`preferred_weight_unit`). `client_metric_source_preference` (one row per
+`(client, metric_type)` a client has explicitly overridden) -- the new
+feature requested alongside the fix: let a client pick an explicit
+source ("use my Garmin, not my phone") instead of relying on the merge
+heuristic. A set preference makes the heuristic moot for that type --
+with one source there's nothing left to reconcile.
+
+**Web (`lib/queries.ts`).** Added a small offset-correction timezone
+helper (`tzOffsetMillis`/`localDateKey`/`localDayStartUtc`, via
+`Intl.DateTimeFormat` rather than a new date-library dependency) and
+threaded a client's stored timezone through every per-day aggregation --
+`resolveOverlappingSources`, `accumulateStepsByDay`, sleep, exercise
+sessions, and the sample-series chart data all bucket by the client's
+real local day now. `getOverviewStats`' "today" boundary moved off the
+server's own ambient timezone (`new Date().setHours(0,0,0,0)` --
+effectively arbitrary on a Vercel/Node runtime) onto the same helper.
+Also closed a gap found along the way: "Steps today" on the overview
+never went through the dedup heuristic at all, unlike the chart right
+below it -- it does now. Every per-metric-type fetch also checks
+`client_metric_source_preference` first and filters to that source when
+set, skipping the heuristic entirely.
+
+**Android.** `SyncRepository.kt` patches `client_profiles.timezone` from
+`ZoneId.systemDefault().id` at the start of every sync -- cheap,
+idempotent, a failure here doesn't fail the sync itself. `HealthData
+Repository.kt`/`DataPointRepository.kt` each got their own
+`resolveOverlappingSources` (same heuristic as web -- group by local
+day, pick the higher-total source as primary, prorate the rest by
+non-overlapping time -- independently implemented per file rather than
+shared, matching those two files' existing independence from each
+other), gated the same way: check for a preference first, filter and
+skip the heuristic if one exists. `ProfileScreen.kt`'s "Data types"
+section gained a per-type source picker (`SourcePicker`, a `DropdownMenu`
+off a `TextButton`) -- "All sources" (clears the preference) plus
+whichever sources have actually been seen for that client+type, with a
+small known-package-to-friendly-name table (Garmin Connect, Samsung
+Health, Google Fit, etc.) and a title-cased fallback for anything
+unrecognized. `SupabaseRestClient.kt` gained a generic `delete(table,
+filters)` -- it previously only had a health-connect-id-prefix-specific
+one. `ProfileRepository.kt` gained the read/write methods for the new
+table, following its existing role as the place Android reads/writes
+`client_profiles`-adjacent settings.
+
+Verified: dashboard `tsc --noEmit`/`next lint` clean; Android
+`compileDebugKotlin`/`lintDebug` clean, independently re-run and the
+dedup/preference-gating logic spot-checked directly against the diff
+(not just the fork's own report) before committing. Two things flagged
+as unverified rather than claimed solid: the friendly-name package-id
+mapping (no real device/emulator here to confirm against), and the
+whole feature generally, same standing limitation as every prior pass --
+no live Supabase project in this environment to confirm against real
+multi-source data.
+
+## Phase 22 -- Android: dashboard load time + persistent nav
+
+Two more reported Android behaviors, investigated and fixed directly
+(no multi-agent audit needed -- both root causes were findable by
+reading the existing code and its own comments).
+
+**Dashboard slow to load, on both first load and navigating back.**
+Two compounding causes, both in `SupabaseRestClient.kt`, so the fix
+benefits every screen's repository calls, not just Dashboard/Stats:
+
+1. Every `SupabaseRestClient` instance built its own fresh `OkHttpClient`
+   (10+ construction sites across the repositories). Square's own
+   guidance is that `OkHttpClient` should be a shared singleton -- it
+   owns a real connection pool and thread pool, and a fresh instance per
+   call throws away TCP/TLS connection reuse on every single request.
+   Fixed with a `by lazy` shared singleton (`sharedHttpClient`); each
+   `SupabaseRestClient`'s own `http` now just points at it.
+2. `select()`'s pagination loop was strictly sequential (`while(true) {
+   fetch page; await }`), even though the call itself already runs
+   concurrently with the dashboard's other queries via `async`. A dense
+   per-minute Garmin steps history over a 14-day window can need
+   5-10+ pages for one query alone. Fixed by fetching the first page
+   with `Prefer: count=exact`, reading the total row count straight off
+   PostgREST's `Content-Range` response header (no separate count
+   round-trip needed), and fetching every remaining page in parallel via
+   `async`/`awaitAll` instead of one at a time.
+
+No live device/emulator in this environment to measure the actual
+before/after latency -- verified via `compileDebugKotlin` only. This is
+an acknowledged limitation, not a claimed fix confirmed on-device.
+
+**Persistent nav, collapse/expand driven only by the user.** Two
+separate bugs, both architectural:
+
+1. *Auto-collapses on navigate.* `SlideOutNav.kt` baked an unconditional
+   `onToggleExpanded()` call into every destination button's `onClick`
+   (previously "by design," per that file's own prior comment). Removed
+   it -- selecting a destination now only calls `destination.onClick`;
+   expand/collapse is driven solely by the dedicated toggle button,
+   independent of navigation.
+2. *Doesn't persist across screens.* `SlideOutNav` was only ever composed
+   inside `HomeScreen` -- every other screen (Dashboard/Workout/Calendar/
+   Inbox/Profile) had no nav chrome at all. Fixed by hoisting it out of
+   `HomeScreen` entirely and into `MainActivity`'s top-level composition,
+   rendered once as a persistent overlay (a sibling of `AuthNavHost` in
+   the same outer `Box`), gated on `role == "client" && userId != null`
+   to keep coach accounts nav-free exactly as before. `AuthNavHost.kt`'s
+   `dashboardRoute`/`workoutRoute`/`calendarRoute`/`inboxRoute` helpers
+   became public so `MainActivity` can build the same routes directly.
+   A `navigateTopLevel()` extension (`launchSingleTop` +
+   `popUpTo(ROUTE_HOME, saveState = true)` + `restoreState = true`, the
+   standard Jetpack Navigation Compose persistent-nav pattern) keeps the
+   back stack from growing unboundedly now that the nav can jump between
+   top-level destinations from anywhere, not just from Home.
+
+Hoisting the nav required hoisting its `expanded` state too -- now
+`rememberSaveable` (survives process death, not just in-session
+navigation) at the `MainActivity` level instead of `remember`ed inside
+`HomeScreen`. That in turn meant hoisting `userId`/`role`/`displayName`/
+`homeSummary` and their fetch out of `HomeScreen`'s own composable scope
+(which only exists while `ROUTE_HOME` is the active destination) up to
+the same level, since the nav needs `role`/`userId` to decide whether to
+render at all, regardless of which screen is showing. A deliberate bonus
+side effect: Home's role/summary data is no longer re-fetched from
+scratch every time a client navigates back to Home -- the same class of
+fix as the dashboard load-time issue above, just for Home specifically.
+
+Verified: `compileDebugKotlin`/`lintDebug` both clean across all four
+touched files (`SupabaseRestClient.kt`, `SlideOutNav.kt`,
+`AuthNavHost.kt`, `HomeScreen.kt`, `MainActivity.kt`); the lone lint hit
+in `MainActivity.kt` (`Uri.parse` vs `String.toUri`) is a pre-existing
+style suggestion unrelated to this change. As with the load-time fix
+above, there's no device/emulator here to confirm the nav's actual
+on-device feel (expand/collapse persistence across real navigation,
+animation smoothness) -- only compile, lint, and direct code review are
+available as verification in this environment.
+
+## Phase 23 -- Nav on-device follow-up + a real "null" message bug
+
+A screenshot from the just-shipped Phase 22 nav confirmed it now
+persists and stays collapsed/expanded correctly, but also surfaced two
+more issues: the nav visually overlapped Inbox's composer/Send button,
+and there was no way back to the Home screen from the nav at all. The
+same screenshot also showed a client chat message rendering as the
+literal text "null" -- not asked about, but a real bug, investigated
+and root-caused along with the other two.
+
+**Nav overlapping Inbox's Send button.** Root cause: `SlideOutNav`'s
+outer `Box` always reserves its fully-expanded width (`expandedWidth`,
+~354dp for 5 destinations) and right-aligns its content within that
+reserved space (`contentAlignment = CenterEnd`) so the toggle button
+doesn't visibly jump position when the pill expands/collapses. Anchored
+at the screen's true bottom-left corner, that means the *collapsed*
+toggle actually renders well to the right of the literal left edge --
+on narrower screens, close enough to collide with whatever a given
+screen pins at its own bottom-right (Inbox's composer row). Fixed by
+giving the nav extra bottom clearance (`NAV_BOTTOM_CLEARANCE = 80.dp`,
+on top of the normal 16dp edge padding) in `MainActivity.kt`, enough to
+clear a standard `OutlinedTextField` + `Button` composer row (~88dp
+tall) on any screen, not just Inbox.
+
+**No way back to Home from the nav.** The persistent nav's five
+destinations (Workouts/Calendar/Inbox/Stats/Profile) never included the
+Home screen itself -- reachable only via each screen's own back arrow.
+Added a sixth destination ("Home", using the user-supplied house-outline
+icon -- a new `ic_home.xml` vector drawable matching the existing
+icons' convention: 24dp viewport, 2dp stroke, round caps/joins, no
+fill) as the first item in the list, navigating to `ROUTE_HOME` via the
+same `navigateTopLevel()` helper as the others.
+
+**The "null" message bug.** Root cause: `ChatRepository.kt`'s
+`getMessages()` read a message's body via the single-argument
+`JSONObject.optString("body")`. org.json's own `NULL` sentinel has a
+`toString()` of `"null"`, and the no-fallback overload of `optString`
+returns that sentinel's `toString()` rather than Kotlin `null` or an
+empty string when the column is SQL `NULL` -- so a message whose body
+column was actually null rendered as the literal text "null" in
+`MessageBubble`. This codebase already has the correct fix for this
+exact org.json footgun elsewhere (`WorkoutRepository.kt`'s
+`toWorkoutSession()`/`toSessionSet()`, which guard every nullable
+column with `isNull(...)` first) -- `ChatRepository.kt` just didn't
+have it. A grep for the same no-fallback `optString(key)` pattern
+turned up two more real instances of the same bug class, both logic
+inversions rather than cosmetic text: `HomeSummaryRepository.kt`'s
+`loadCheckInDue()` read a null `submitted_at` as "already submitted"
+(so a client who hadn't actually submitted their check-in yet would
+have it silently marked not-due), and `loadWeekCompletion()` read a
+null `completed_at` as "completed" (so a merely-started, unfinished
+workout session would show as a solid DONE dot on Home's week strip
+instead of PARTIAL). All three fixed with the same `isNull(...)` guard
+pattern already established in `WorkoutRepository.kt`. (The other
+`optString` call sites in the codebase all use the two-argument
+`optString(key, fallback)` overload, which org.json implements safely --
+left untouched.)
+
+Verified: `compileDebugKotlin`/`lintDebug` clean. No device/emulator
+here to confirm the nav's new clearance looks right in practice or that
+a real null `chat_messages.body`/`check_in_responses.submitted_at`/
+`workout_sessions.completed_at` row reproduces as described -- the fix
+follows directly from org.json's documented `optString` behavior and
+this codebase's own existing correct usage of the same guard elsewhere,
+but isn't confirmed against live data in this environment.
+
+## Phase 24 -- Nav toggle unreachable once expanded (regression from Phase 23)
+
+On-device follow-up to Phase 23's Home icon: expanding the nav made the
+toggle button disappear entirely, with no way to collapse it again.
+
+**Root cause.** `SlideOutNav`'s anti-jump fix (Phase 22-era, predates
+this phase) reserves the pill's *fully expanded* width in an outer `Box`
+at all times and right-aligns the actual content within it, so the
+toggle button's on-screen X position is fixed regardless of expanded
+state. That fixed position is `left-edge + expandedWidth - toggle
+width` -- it was never actually validated against how much screen width
+is available. Going from 5 destinations to 6 (adding Home in Phase 23)
+pushed `expandedWidth` from ~354dp to ~412dp, and on screens narrower
+than that, the toggle's now-fixed position landed past the right edge
+of the display -- rendered, but literally off-screen and untappable.
+
+**Fix.** `SlideOutNav` now measures its real on-screen budget with
+`BoxWithConstraints` and caps the reserved width at `minOf(expandedWidth,
+maxWidth)`, so the toggle's fixed position can never exceed the visible
+area no matter how many destinations are configured or how narrow the
+screen is. If the destinations themselves don't fit in what's left
+after that cap (pill padding + toggle width), the destinations row now
+scrolls horizontally (`horizontalScroll` + `widthIn(max = ...)`) instead
+of overflowing invisibly off-screen -- so on a screen too narrow for all
+6 destinations to lay out flat, every destination is still reachable by
+swiping, rather than some of them silently becoming untappable too.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean. Still no device/
+emulator here to confirm the toggle is now visibly reachable on the
+screen size from the reporting screenshot, or that the horizontal-scroll
+fallback feels right in practice if it ever actually engages -- this is
+a from-first-principles layout fix (the `BoxWithConstraints`/`minOf`
+cap directly eliminates the off-screen-toggle failure mode the previous
+fixed-width approach had no guard against), not one confirmed visually
+against the reported device.
+
+**Follow-up, same report:** the owner wasn't convinced a horizontal
+scroll inside a bottom-corner pill nav would read as discoverable to
+users, and asked instead to simply not show the icon for whatever
+screen the user is already on. That's a better fix anyway -- it means
+every one of the 6 screens shows at most 5 destinations at once (never
+"go to where you already are"), which is exactly the icon count that
+already fit comfortably before Home was added, so the Phase 24 scroll
+fallback becomes a rare safety net (still useful for a route outside
+the nav's own 6, like `ComingSoonScreen`, which currently shows all 6
+since none of them match it) rather than the everyday behavior.
+Implemented by making `AuthNavHost.kt`'s `ROUTE_DASHBOARD`/
+`ROUTE_WORKOUT`/`ROUTE_CALENDAR`/`ROUTE_INBOX` route *templates* public
+(alongside the route-builder functions, which already were) and reading
+`navController.currentBackStackEntryAsState()` in `MainActivity.kt` to
+filter each destination out of the list when its route matches the
+current one -- comparing against the template directly works because
+Navigation Compose's own `destination.route` is the template string
+(e.g. `"workout/{clientId}"`), not the resolved path with the real
+`clientId` filled in, so no argument-decoding is needed to compare.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean.
