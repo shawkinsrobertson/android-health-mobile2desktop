@@ -12,6 +12,7 @@ import com.healthsync.app.healthconnect.SyncSpec
 import com.healthsync.app.healthconnect.allSyncSpecs
 import com.healthsync.app.supabase.SupabaseRestClient
 import java.time.Instant
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 private const val TAG = "SyncRepository"
@@ -71,6 +72,25 @@ class SyncRepository(
         var deleted = 0
         val errors = mutableListOf<String>()
         val readCounts = mutableMapOf<String, Int>()
+
+        // client_profiles.timezone (0038_client_timezone_and_source_
+        // preference.sql) -- the server otherwise has no way to know what
+        // timezone this client is in, so the dashboard's day-by-day
+        // bucketing (lib/queries.ts) falls back to UTC. Cheap, idempotent,
+        // and timezone changes (travel, a new device) only matter going
+        // forward, so just refreshing it on every sync is enough -- no
+        // separate "did it change" check needed. Failure here shouldn't
+        // fail the sync itself (the data still syncs fine either way, the
+        // dashboard just falls back to UTC bucketing same as before).
+        try {
+            supabase.patch(
+                "client_profiles",
+                filters = mapOf("profile_id" to "eq.$clientId"),
+                body = mapOf("timezone" to ZoneId.systemDefault().id),
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update timezone", e)
+        }
 
         for (spec in allSyncSpecs) {
             try {
