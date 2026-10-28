@@ -82,4 +82,60 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
         val array = rows.getJSONObject(0).optJSONArray("top_data_points") ?: return emptyList()
         return (0 until array.length()).map { array.getString(it) }
     }
+
+    // ---------------------------------------------------------------------
+    // client_metric_source_preference (supabase/migrations/0038_client_
+    // timezone_and_source_preference.sql) -- lets a client pin one Health
+    // Connect source (e.g. their Garmin, not their phone's own sensor) per
+    // metric type instead of relying on the dashboard's/this app's
+    // resolveOverlappingSources dedup heuristic. No row = no preference.
+    // ---------------------------------------------------------------------
+
+    /** The distinct `source_package`s actually seen for this client+type, most-recent-first. Not exhaustive by design -- a bounded recent sample is enough to populate a picker, not a full-history scan. */
+    suspend fun loadDistinctSources(clientId: String, metricType: String): List<String> {
+        val rows = supabase.select(
+            "metrics",
+            mapOf(
+                "select" to "source_package",
+                "client_id" to "eq.$clientId",
+                "metric_type" to "eq.$metricType",
+                "order" to "start_time.desc",
+                "limit" to "300",
+            ),
+        )
+        val seen = LinkedHashSet<String>()
+        for (i in 0 until rows.length()) {
+            rows.getJSONObject(i).optString("source_package").ifBlank { null }?.let { seen.add(it) }
+        }
+        return seen.toList()
+    }
+
+    /** Every preference this client has set, keyed by metric_type -- one query instead of one per data type when populating the whole "Data types" list. */
+    suspend fun loadAllSourcePreferences(clientId: String): Map<String, String> {
+        val rows = supabase.select(
+            "client_metric_source_preference",
+            mapOf("select" to "metric_type,source_package", "client_id" to "eq.$clientId"),
+        )
+        val result = mutableMapOf<String, String>()
+        for (i in 0 until rows.length()) {
+            val row = rows.getJSONObject(i)
+            result[row.getString("metric_type")] = row.getString("source_package")
+        }
+        return result
+    }
+
+    suspend fun setSourcePreference(clientId: String, metricType: String, sourcePackage: String) {
+        supabase.upsert(
+            "client_metric_source_preference",
+            rows = listOf(mapOf("client_id" to clientId, "metric_type" to metricType, "source_package" to sourcePackage)),
+            onConflict = "client_id,metric_type",
+        )
+    }
+
+    suspend fun clearSourcePreference(clientId: String, metricType: String) {
+        supabase.delete(
+            "client_metric_source_preference",
+            filters = mapOf("client_id" to "eq.$clientId", "metric_type" to "eq.$metricType"),
+        )
+    }
 }

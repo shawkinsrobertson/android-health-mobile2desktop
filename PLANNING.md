@@ -2633,3 +2633,80 @@ FKs were already repointed away from the dropped tables back in 0034.
 
 No application code changes needed -- this is a schema-only migration.
 Verified with `tsc --noEmit` (clean, as expected for a DB-only change).
+
+## Phase 21 -- Steps data accuracy: client timezone + chosen data source
+
+Follow-up to the Phase 16 pagination fix: steps still didn't match the
+client's wearable even after that shipped. Investigated directly (traced
+the root causes from the code's own comments rather than needing another
+multi-agent audit) and found two real, concrete issues, plus a feature
+request that turned out to simplify one of them.
+
+**Root causes.** (1) Android's on-device Stats/data-point screens never
+got the cross-source dedup web's `resolveOverlappingSources` already had
+-- both files had their own comments flagging the gap. Health Connect
+doesn't dedupe a wearable and a phone's own step sensor both reporting
+the same walk, so Android was summing both and showing more than the
+wearable alone ever reported. (2) Day-bucketing was inconsistent across
+platforms: web bucketed by **UTC** calendar day (deliberate, per that
+code's own comment), Android by the **device's real local** timezone --
+for any client not in UTC, the same data could land on different
+calendar days depending on which surface you looked at. Root enabler:
+nothing in the schema stored a client's timezone at all, and Android
+never sent one -- web had no way to do better than UTC even if it tried.
+
+**Schema (`0038_client_timezone_and_source_preference.sql`).**
+`client_profiles.timezone` (IANA zone id, Android writes it on every
+sync, same "device reports its own setting" pattern as
+`preferred_weight_unit`). `client_metric_source_preference` (one row per
+`(client, metric_type)` a client has explicitly overridden) -- the new
+feature requested alongside the fix: let a client pick an explicit
+source ("use my Garmin, not my phone") instead of relying on the merge
+heuristic. A set preference makes the heuristic moot for that type --
+with one source there's nothing left to reconcile.
+
+**Web (`lib/queries.ts`).** Added a small offset-correction timezone
+helper (`tzOffsetMillis`/`localDateKey`/`localDayStartUtc`, via
+`Intl.DateTimeFormat` rather than a new date-library dependency) and
+threaded a client's stored timezone through every per-day aggregation --
+`resolveOverlappingSources`, `accumulateStepsByDay`, sleep, exercise
+sessions, and the sample-series chart data all bucket by the client's
+real local day now. `getOverviewStats`' "today" boundary moved off the
+server's own ambient timezone (`new Date().setHours(0,0,0,0)` --
+effectively arbitrary on a Vercel/Node runtime) onto the same helper.
+Also closed a gap found along the way: "Steps today" on the overview
+never went through the dedup heuristic at all, unlike the chart right
+below it -- it does now. Every per-metric-type fetch also checks
+`client_metric_source_preference` first and filters to that source when
+set, skipping the heuristic entirely.
+
+**Android.** `SyncRepository.kt` patches `client_profiles.timezone` from
+`ZoneId.systemDefault().id` at the start of every sync -- cheap,
+idempotent, a failure here doesn't fail the sync itself. `HealthData
+Repository.kt`/`DataPointRepository.kt` each got their own
+`resolveOverlappingSources` (same heuristic as web -- group by local
+day, pick the higher-total source as primary, prorate the rest by
+non-overlapping time -- independently implemented per file rather than
+shared, matching those two files' existing independence from each
+other), gated the same way: check for a preference first, filter and
+skip the heuristic if one exists. `ProfileScreen.kt`'s "Data types"
+section gained a per-type source picker (`SourcePicker`, a `DropdownMenu`
+off a `TextButton`) -- "All sources" (clears the preference) plus
+whichever sources have actually been seen for that client+type, with a
+small known-package-to-friendly-name table (Garmin Connect, Samsung
+Health, Google Fit, etc.) and a title-cased fallback for anything
+unrecognized. `SupabaseRestClient.kt` gained a generic `delete(table,
+filters)` -- it previously only had a health-connect-id-prefix-specific
+one. `ProfileRepository.kt` gained the read/write methods for the new
+table, following its existing role as the place Android reads/writes
+`client_profiles`-adjacent settings.
+
+Verified: dashboard `tsc --noEmit`/`next lint` clean; Android
+`compileDebugKotlin`/`lintDebug` clean, independently re-run and the
+dedup/preference-gating logic spot-checked directly against the diff
+(not just the fork's own report) before committing. Two things flagged
+as unverified rather than claimed solid: the friendly-name package-id
+mapping (no real device/emulator here to confirm against), and the
+whole feature generally, same standing limitation as every prior pass --
+no live Supabase project in this environment to confirm against real
+multi-source data.

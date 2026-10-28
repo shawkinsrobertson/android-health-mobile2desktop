@@ -154,6 +154,26 @@ class SupabaseRestClient(
     }
 
     /**
+     * Delete every row in [table] matching [filters] (PostgREST filter
+     * syntax per value, same shape as [patch]'s). Used for clearing a
+     * client_metric_source_preference row back to "no preference" --
+     * generic, unlike [deleteByHealthConnectIdPrefix], which only exists
+     * for that one health-connect-id-prefix shape.
+     */
+    suspend fun delete(table: String, filters: Map<String, String>) {
+        var urlBuilder = restUrl(table)
+        filters.forEach { (key, value) -> urlBuilder = urlBuilder.addQueryParameter(key, value) }
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Prefer", "return=minimal")
+            .delete()
+            .build()
+        execute(request)
+    }
+
+    /**
      * Read-only PostgREST select against [table] -- [params] become query
      * parameters verbatim, e.g. `mapOf("select" to "start_time,count",
      * "client_id" to "eq.<uuid>", "order" to "start_time.asc")`. RLS on

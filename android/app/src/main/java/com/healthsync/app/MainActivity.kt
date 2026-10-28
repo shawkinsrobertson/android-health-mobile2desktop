@@ -152,6 +152,7 @@ class MainActivity : ComponentActivity() {
                             isSyncing = profileIsSyncing,
                             lastResult = profileLastResult,
                             syncStateStore = syncStateStore,
+                            authRepository = authRepository,
                             onSyncNow = { SyncScheduler.triggerManualSync(this@MainActivity) },
                             onForceResync = {
                                 profileScope.launch {
