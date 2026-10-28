@@ -2853,3 +2853,39 @@ a real null `chat_messages.body`/`check_in_responses.submitted_at`/
 follows directly from org.json's documented `optString` behavior and
 this codebase's own existing correct usage of the same guard elsewhere,
 but isn't confirmed against live data in this environment.
+
+## Phase 24 -- Nav toggle unreachable once expanded (regression from Phase 23)
+
+On-device follow-up to Phase 23's Home icon: expanding the nav made the
+toggle button disappear entirely, with no way to collapse it again.
+
+**Root cause.** `SlideOutNav`'s anti-jump fix (Phase 22-era, predates
+this phase) reserves the pill's *fully expanded* width in an outer `Box`
+at all times and right-aligns the actual content within it, so the
+toggle button's on-screen X position is fixed regardless of expanded
+state. That fixed position is `left-edge + expandedWidth - toggle
+width` -- it was never actually validated against how much screen width
+is available. Going from 5 destinations to 6 (adding Home in Phase 23)
+pushed `expandedWidth` from ~354dp to ~412dp, and on screens narrower
+than that, the toggle's now-fixed position landed past the right edge
+of the display -- rendered, but literally off-screen and untappable.
+
+**Fix.** `SlideOutNav` now measures its real on-screen budget with
+`BoxWithConstraints` and caps the reserved width at `minOf(expandedWidth,
+maxWidth)`, so the toggle's fixed position can never exceed the visible
+area no matter how many destinations are configured or how narrow the
+screen is. If the destinations themselves don't fit in what's left
+after that cap (pill padding + toggle width), the destinations row now
+scrolls horizontally (`horizontalScroll` + `widthIn(max = ...)`) instead
+of overflowing invisibly off-screen -- so on a screen too narrow for all
+6 destinations to lay out flat, every destination is still reachable by
+swiping, rather than some of them silently becoming untappable too.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean. Still no device/
+emulator here to confirm the toggle is now visibly reachable on the
+screen size from the reporting screenshot, or that the horizontal-scroll
+fallback feels right in practice if it ever actually engages -- this is
+a from-first-principles layout fix (the `BoxWithConstraints`/`minOf`
+cap directly eliminates the off-screen-toggle failure mode the previous
+fixed-width approach had no guard against), not one confirmed visually
+against the reported device.
