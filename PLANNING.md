@@ -2582,3 +2582,32 @@ codebase -- confirmed by reading the actual `Scaffold`/`Surface` call
 sites and `Theme.kt`, not inferred from the screenshots alone. Still
 pending a real-device visual confirmation, same standing limitation as
 every Android change in this project.
+
+## Phase 19 -- Pre-merge: finished an incomplete storybook removal
+
+Checking PR #18 before merging to `main` found both Vercel deployment
+checks failing. Every local verification this whole restructure relied
+on had reused already-installed `node_modules` rather than a fresh
+install, so a partial dependency removal several commits back on this
+branch (dashboard storybook setup, "removed storybook and related
+dependencies") never got caught locally -- it deleted `.storybook/` and
+the Next.js-specific `@storybook/*` packages, but left 10 `.stories.tsx`
+files importing the now-gone `@storybook/nextjs-vite`, plus `vitest.config.ts`,
+`.eslintrc.json`'s `plugin:storybook/recommended` extend, and several
+now-fully-orphaned devDependencies (`storybook`, `eslint-plugin-storybook`,
+`vitest`, `@vitest/browser-playwright`, `@vitest/coverage-v8`, `msw`,
+`playwright`, `mockdate`, `vite`) and `public/mockServiceWorker.js` in
+place. Next.js type-checks every file in the project during `next
+build`, regardless of whether anything imports it, so the orphaned story
+files' dangling import failed the build outright -- reproduced locally
+with `npm ci` + a dummy-env `next build` (vs. this session's prior checks,
+which never re-installed from the lockfile and so never saw it).
+
+Finished the removal: deleted the 10 story files, `vitest.config.ts`,
+and `public/mockServiceWorker.js`; dropped the dead ESLint extend and the
+now-unused devDependencies (confirmed via grep that nothing outside
+storybook ever imported `msw`/`mockdate`/`playwright`/`vitest` -- no
+`.test.ts` files or e2e setup exist in this project). Regenerated
+`package-lock.json` via `npm install`. Verified against a genuinely fresh
+install this time: `npm ci`, `tsc --noEmit`, `next lint`, dummy-env `next
+build` all clean.
