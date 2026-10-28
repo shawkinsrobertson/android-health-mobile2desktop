@@ -2611,3 +2611,25 @@ storybook ever imported `msw`/`mockdate`/`playwright`/`vitest` -- no
 `package-lock.json` via `npm install`. Verified against a genuinely fresh
 install this time: `npm ci`, `tsc --noEmit`, `next lint`, dummy-env `next
 build` all clean.
+
+## Phase 20 -- Dropped the pre-restructure tables
+
+The last deferred step from Phases 14-15: `library_*`, `assigned_*`,
+`document_responses`, the 9 original Health Connect tables, and
+`coach_notes` were kept in place through the whole restructure as a
+safety net while every consumer got cut over -- confirmed cut over and
+merged since PR #18. Re-ran a fresh repo-wide grep across `dashboard/`
+and `android/` immediately before writing `0037_drop_legacy_tables.sql`
+and found zero remaining references (only AI tool names like
+`get_library_exercises`, PostgREST relation aliases like
+`assigned_workouts:assignments(name)`, and `metric_type`/consent-key
+string values that happen to share a name with an old table -- none of
+which are an actual table reference), so dropped all of them. Order
+follows each group's own FK graph (children before parents), with
+`cascade` on every statement as a second line of defense rather than a
+substitute for getting that order right. `workout_sessions`/
+`workout_session_exercises`/`workout_session_sets` untouched, as their
+FKs were already repointed away from the dropped tables back in 0034.
+
+No application code changes needed -- this is a schema-only migration.
+Verified with `tsc --noEmit` (clean, as expected for a DB-only change).
