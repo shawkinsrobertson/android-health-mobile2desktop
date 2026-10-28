@@ -2787,3 +2787,69 @@ above, there's no device/emulator here to confirm the nav's actual
 on-device feel (expand/collapse persistence across real navigation,
 animation smoothness) -- only compile, lint, and direct code review are
 available as verification in this environment.
+
+## Phase 23 -- Nav on-device follow-up + a real "null" message bug
+
+A screenshot from the just-shipped Phase 22 nav confirmed it now
+persists and stays collapsed/expanded correctly, but also surfaced two
+more issues: the nav visually overlapped Inbox's composer/Send button,
+and there was no way back to the Home screen from the nav at all. The
+same screenshot also showed a client chat message rendering as the
+literal text "null" -- not asked about, but a real bug, investigated
+and root-caused along with the other two.
+
+**Nav overlapping Inbox's Send button.** Root cause: `SlideOutNav`'s
+outer `Box` always reserves its fully-expanded width (`expandedWidth`,
+~354dp for 5 destinations) and right-aligns its content within that
+reserved space (`contentAlignment = CenterEnd`) so the toggle button
+doesn't visibly jump position when the pill expands/collapses. Anchored
+at the screen's true bottom-left corner, that means the *collapsed*
+toggle actually renders well to the right of the literal left edge --
+on narrower screens, close enough to collide with whatever a given
+screen pins at its own bottom-right (Inbox's composer row). Fixed by
+giving the nav extra bottom clearance (`NAV_BOTTOM_CLEARANCE = 80.dp`,
+on top of the normal 16dp edge padding) in `MainActivity.kt`, enough to
+clear a standard `OutlinedTextField` + `Button` composer row (~88dp
+tall) on any screen, not just Inbox.
+
+**No way back to Home from the nav.** The persistent nav's five
+destinations (Workouts/Calendar/Inbox/Stats/Profile) never included the
+Home screen itself -- reachable only via each screen's own back arrow.
+Added a sixth destination ("Home", using the user-supplied house-outline
+icon -- a new `ic_home.xml` vector drawable matching the existing
+icons' convention: 24dp viewport, 2dp stroke, round caps/joins, no
+fill) as the first item in the list, navigating to `ROUTE_HOME` via the
+same `navigateTopLevel()` helper as the others.
+
+**The "null" message bug.** Root cause: `ChatRepository.kt`'s
+`getMessages()` read a message's body via the single-argument
+`JSONObject.optString("body")`. org.json's own `NULL` sentinel has a
+`toString()` of `"null"`, and the no-fallback overload of `optString`
+returns that sentinel's `toString()` rather than Kotlin `null` or an
+empty string when the column is SQL `NULL` -- so a message whose body
+column was actually null rendered as the literal text "null" in
+`MessageBubble`. This codebase already has the correct fix for this
+exact org.json footgun elsewhere (`WorkoutRepository.kt`'s
+`toWorkoutSession()`/`toSessionSet()`, which guard every nullable
+column with `isNull(...)` first) -- `ChatRepository.kt` just didn't
+have it. A grep for the same no-fallback `optString(key)` pattern
+turned up two more real instances of the same bug class, both logic
+inversions rather than cosmetic text: `HomeSummaryRepository.kt`'s
+`loadCheckInDue()` read a null `submitted_at` as "already submitted"
+(so a client who hadn't actually submitted their check-in yet would
+have it silently marked not-due), and `loadWeekCompletion()` read a
+null `completed_at` as "completed" (so a merely-started, unfinished
+workout session would show as a solid DONE dot on Home's week strip
+instead of PARTIAL). All three fixed with the same `isNull(...)` guard
+pattern already established in `WorkoutRepository.kt`. (The other
+`optString` call sites in the codebase all use the two-argument
+`optString(key, fallback)` overload, which org.json implements safely --
+left untouched.)
+
+Verified: `compileDebugKotlin`/`lintDebug` clean. No device/emulator
+here to confirm the nav's new clearance looks right in practice or that
+a real null `chat_messages.body`/`check_in_responses.submitted_at`/
+`workout_sessions.completed_at` row reproduces as described -- the fix
+follows directly from org.json's documented `optString` behavior and
+this codebase's own existing correct usage of the same guard elsewhere,
+but isn't confirmed against live data in this environment.

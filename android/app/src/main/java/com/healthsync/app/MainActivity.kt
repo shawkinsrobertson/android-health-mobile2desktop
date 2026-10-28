@@ -75,6 +75,11 @@ private fun NavHostController.navigateTopLevel(route: String) {
     }
 }
 
+// 80dp beyond the normal 16dp edge padding -- enough to clear a
+// bottom-pinned OutlinedTextField + Button row like InboxScreen's
+// composer (≈88dp tall) without needing per-screen adjustments.
+private val NAV_BOTTOM_CLEARANCE = 80.dp
+
 /** Maps a finished manual-sync [WorkInfo] to the [SyncResult] shape the UI already knows how to render. */
 private fun WorkInfo.toSyncResult(): SyncResult? = when (state) {
     WorkInfo.State.SUCCEEDED -> SyncResult(
@@ -338,6 +343,11 @@ class MainActivity : ComponentActivity() {
                     SlideOutNav(
                         destinations = listOf(
                             NavDestination(
+                                "Home",
+                                iconRes = R.drawable.ic_home,
+                                onClick = { navController.navigateTopLevel(ROUTE_HOME) },
+                            ),
+                            NavDestination(
                                 "Workouts",
                                 iconRes = R.drawable.ic_dumbbell,
                                 onClick = { navController.navigateTopLevel(workoutRoute(id)) },
@@ -366,10 +376,18 @@ class MainActivity : ComponentActivity() {
                         ),
                         expanded = navExpanded,
                         onToggleExpanded = { navExpanded = !navExpanded },
+                        // Extra bottom clearance beyond the usual 16dp --
+                        // on Inbox, the nav's own reserved touch width
+                        // (see SlideOutNav's expandedWidth comment) put
+                        // its collapsed toggle right on top of the
+                        // composer's Send button, which sits at the same
+                        // navigation-bar-hugging height otherwise. Lifting
+                        // the whole nav up clears any screen's own
+                        // bottom-pinned controls, not just Inbox's.
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .navigationBarsPadding()
-                            .padding(16.dp),
+                            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = NAV_BOTTOM_CLEARANCE),
                     )
                 }
                 }

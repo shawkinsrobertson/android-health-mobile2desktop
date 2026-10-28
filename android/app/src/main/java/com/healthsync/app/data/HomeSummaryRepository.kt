@@ -224,7 +224,14 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
             ),
         )
         if (responseRows.length() == 0) return true
-        return responseRows.getJSONObject(0).optString("submitted_at").isBlank()
+        // isNull() guard: optString("submitted_at") alone returns the
+        // literal string "null" (not blank) when the column is SQL NULL
+        // -- a response row that exists but hasn't actually been
+        // submitted yet would otherwise read as "already submitted" and
+        // wrongly report checkInDue = false. See ChatRepository.kt's
+        // getMessages() for the same org.json footgun.
+        val response = responseRows.getJSONObject(0)
+        return response.isNull("submitted_at") || response.optString("submitted_at").isBlank()
     }
 
     private suspend fun loadWeekCompletion(clientId: String): List<WeekDay> {
@@ -250,7 +257,11 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
             val performedOn = LocalDate.parse(row.getString("performed_on"))
-            if (row.optString("completed_at").isNotBlank()) {
+            // Same org.json footgun as above: a session that's merely
+            // started (completed_at still SQL NULL) would otherwise read
+            // optString("completed_at") as the literal "null" -- non-blank
+            // -- and get counted as DONE instead of PARTIAL below.
+            if (!row.isNull("completed_at") && row.optString("completed_at").isNotBlank()) {
                 completedDates.add(performedOn)
             } else {
                 startedDates.add(performedOn)
