@@ -32,26 +32,27 @@ export default async function ClientAssignedWorkoutPage({
   const supabase = await createClient();
 
   const { data: workout, error } = await supabase
-    .from("assigned_workouts")
+    .from("assignments")
     .select("id, name, description, photo_path, photo_url, video_path, video_url")
     .eq("id", params.assignedWorkoutId)
     .eq("client_id", profile.id)
+    .eq("type", "workout")
     .single();
 
   if (error || !workout) redirect("/client/assigned");
 
   const [{ data: exerciseRows }, { data: blockRows }] = await Promise.all([
     supabase
-      .from("assigned_workout_exercises")
+      .from("assignment_components")
       .select(
-        "id, order_index, block_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
       )
-      .eq("assigned_workout_id", workout.id)
+      .eq("assignment_id", workout.id)
       .order("order_index"),
     supabase
-      .from("assigned_workout_blocks")
+      .from("assignment_component_groups")
       .select("id, block_type, rounds, notes")
-      .eq("assigned_workout_id", workout.id),
+      .eq("assignment_id", workout.id),
   ]);
 
   const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];

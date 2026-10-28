@@ -2236,3 +2236,378 @@ after every stage that touched a storied component's markup/sizing),
 and `./gradlew :app:compileDebugKotlin`/`:app:lintDebug` for Android --
 same manual-review-plus-compile posture as every prior Android pass in
 this project.
+
+## Phase 14 -- Primitives restructure: Visibility Scope
+
+Starting point for a longer-running effort: restructure the codebase
+around a small set of shared product primitives (Template, Assignment,
+Timeline, Metric, Scheduled Event, Proposal) instead of continuing to
+add one bespoke table per feature. Proposal (`ai_assistant_proposals`,
+Phase 5) was already the one primitive genuinely built this way.
+Visibility Scope is cross-cutting rather than a sibling primitive, and
+is being settled first because Template/Assignment/Metric/Scheduled
+Event unification all need to adopt one visibility convention from the
+start rather than inventing a fourth mechanism on top of the three that
+already exist. Timeline (chat vs. coach_notes) is deferred pending a
+separate design discussion -- unlike the others, unifying it is a real
+design task (chat has realtime/threading/attachments coach_notes never
+needed), not a mechanical collapse.
+
+**The three existing mechanisms, audited.** (1) `coach_notes.is_private`
+-- a boolean, checked explicitly by `lib/assistant.ts`'s
+`fetchCoachNotesForAssistant` (`.eq("is_private", false)`). (2)
+`calendar_events` -- no column at all; the AI assistant's only calendar
+fetcher (`fetchBusyBlocksForAssistant`) calls `getBusyBlocks`, never
+`listEvents`, so event titles/descriptions structurally never reach the
+model regardless of any flag. (3) `client_data_consent` -- a *different*
+axis entirely (client-granted permission to share a data type with their
+coach at all, not AI-context exclusion), keyed by `data_type`, read via
+`getConsentMap`/`isConsented` in `lib/assistant.ts`.
+
+**Decision: two sanctioned mechanisms for AI-context exclusion, not
+one.** A boolean column (`is_private`, or `ai_excluded` for any future
+table that isn't already using a more specific name) for row-level
+opt-out, checked explicitly inside whichever `lib/assistant.ts` fetcher
+reads that table -- this is the pattern Template/Assignment and a future
+unified Timeline should follow. *Or* query-shape enforcement, where the
+AI-facing fetcher is structurally incapable of returning the sensitive
+fields (calendar's busy-blocks-only accessor) -- acceptable when a
+summary/aggregate view already exists for other reasons, but not a
+substitute for a column on a table that has no such narrower accessor.
+Every future AI-facing fetcher must live in `lib/assistant.ts` and be
+traceable to one of these two mechanisms -- that invariant (not a new
+column type) is the actual primitive here.
+
+**Fix: client_data_consent's data_type is no longer a closed set.**
+Its own migration comment said adding a data type later should be "a new
+row shape, not a schema change," but the `CHECK` constraint it shipped
+with contradicted that, proven when `0024_blood_glucose.sql` had to drop
+and recreate the constraint just to add one value. `0032_visibility_scope.sql`
+drops it for good -- `data_type` is now plain `not null text`, matching
+`isConsented`'s own already-open-ended treatment of the key. Unlike the
+AI-exclusion axis, this remains deliberately its own mechanism (client
+consent to share, not coach/AI privacy) rather than being folded into it.
+
+Verification: schema-only change (a dropped `CHECK` constraint), no
+application code depended on its presence -- confirmed via
+`grep -rn "client_data_consent_data_type_check"` returning only this
+migration and `0024`'s now-historical add/drop of the same constraint.
+
+## Phase 15 -- Primitives restructure: Template, Assignment, Metric, Timeline
+
+The remaining four primitives from Phase 14's framing, built out and cut
+over end to end: schema, RPCs, every dashboard consumer, and (for
+Assignment/Metric) the Android code that reads or writes the same tables
+directly. Proposal (`ai_assistant_proposals`, Phase 5) and Scheduled
+Event (settled by Phase 14's visibility decision -- no further change
+needed) required no work here.
+
+**Methodology.** Each primitive's schema and RPC rewrite was designed
+directly, grounded in the exact current migrations (re-read in full, not
+assumed from memory) and a blast-radius check of which Android files
+query the old tables directly -- that check changed the plan materially:
+Template has zero Android coupling (safe to restructure alone), but
+Assignment (`WorkoutRepository.kt`) and Metric (the full Health Connect
+sync pipeline + two data repositories) are read or written by Android
+directly, so each needed its Postgres migration and its Android/dashboard
+cutover done together, not staged separately -- a half-migrated primitive
+whose write path and read path disagree about where the data lives is
+worse than not migrating at all. The dashboard-and-Android cutover for
+each primitive (the large, mechanical file-by-file rewrite once the
+schema design was settled) was delegated to a forked agent per primitive,
+run against the already-written migration as its spec; each was required
+to re-grep for stragglers and run the full verification suite
+(`tsc --noEmit`, `next lint`, dummy-env `next build`, the Storybook vitest
+project, and for Android, `gradlew compileDebugKotlin`/`lintDebug` plus
+manual review in place of an emulator) before reporting back.
+
+**Template** (`0033_templates.sql`). `library_exercises`/`workouts`/
+`programs`/`documents` collapse into one `templates` table (`type`
+discriminator), with `library_workout_exercises`/`library_program_workouts`
+collapsing into one generic `template_components` join (parent/child
+instead of workout_id/exercise_id or program_id/workout_id) and
+`library_workout_blocks` becoming `template_component_groups`. Exercises
+never had a draft/published `status` column before (0029-31 added it to
+the other three only, since nothing ever needed an AI-drafted exercise)
+-- that gap closes for free since every row now shares one column.
+Shared (coach_id null) base exercises keep working via the same relaxed
+RLS 0006 introduced, now expressed once instead of per-table. The three
+`assign_*_to_client` RPCs were rewritten in this same migration to read
+their source content from the new tables -- deferring that to the
+Assignment pass would have let a coach's post-cutover edit go straight
+into `templates` while the RPCs kept reading stale `library_*` rows.
+22 dashboard files cut over (library pages/actions, the three AI-drafting
+libs, assistant tool definitions); AI tool names (`get_library_exercises`
+etc.) kept unchanged on purpose -- only the queries behind them moved.
+
+**Assignment** (`0034_assignments.sql`). `assigned_programs`/`workouts`/
+`documents` collapse into one `assignments` table; `assigned_workout_
+exercises` (flattened, no standalone "assigned exercise" concept, so it
+stays a flattened child row rather than a join) becomes `assignment_
+components`; `assigned_workout_blocks` becomes `assignment_component_
+groups`; `document_responses` becomes `assignment_responses`. Program→
+workout nesting stays a direct nullable `parent_assignment_id` +
+`order_index` on the child row (not a join table) -- 0005's own reasoning
+still holds, since every assigned row is a private one-off copy, unlike
+templates' genuinely-reusable many-to-many composition.
+`workout_sessions`/`workout_session_exercises`'s FK *targets* were
+repointed to the new tables with their column names (`assigned_workout_id`
+etc.) left untouched, so every session-tracking query on both platforms
+-- `SessionLogger.tsx`, `WorkoutClock.tsx`, Android's timer/set-logging
+code -- needed zero changes. 18 dashboard files and `WorkoutRepository.kt`
+(its three content-display reads; its session/timer/set reads and writes
+were already untouched by the FK repoint) cut over, including PostgREST
+relation aliasing (`block_id:group_id`, `assignments(name)`) where a
+TypeScript interface or a shared helper (`lib/workout-blocks.ts`) depended
+on the old field name, to keep the diff at the query layer only.
+
+**Metric** (`0035_metrics.sql`). The 9 per-Health-Connect-type tables
+collapse into one `metrics` table: `metric_type` (free text, no `CHECK`
+-- unlike `templates.type`/`assignments.type`, this one actually delivers
+the "new type is a new row, not a migration" goal 0014's consent table
+promised and didn't keep) plus a `value` jsonb column holding whatever
+fields are specific to that type. The Android sync engine
+(`SyncRepository.kt`) turned out to already be fully data-driven --
+it upserts by table name and row map from `SyncSpec.kt`'s per-type
+closures with zero per-type special-casing in the engine itself -- so the
+real change is almost entirely in `SyncSpec.kt` (9 specs now emit
+`metric_type`-tagged rows into one table name) plus one string in
+`SyncRepository.kt` (`onConflict` gained `metric_type`). One relaxation,
+accepted deliberately rather than worked around: `sleep_stages`' real
+composite FK to its parent session (added in 0022) has no equivalent,
+since Postgres can't FK into a jsonb field -- harmless, because Android's
+own deletion already removes a session's stages by `health_connect_id`
+*prefix* match, independent of that FK, which only ever mattered for a
+direct SQL delete this product has never done. `client_data_consent`'s
+key namespace (`"heart_rate_samples"`, etc.) is deliberately left
+unrenamed -- it's a different, client-facing taxonomy from the new
+storage-layer `metric_type` values, and conflating the two was explicitly
+avoided in both the migration and the Android/dashboard cutover.
+
+**Timeline** (`0036_timeline_entries.sql`, notes only). Per the design
+discussion: chat (`chat_threads`/`chat_messages`/`chat_message_reactions`)
+keeps its own schema -- it earned its complexity (Realtime, bidirectional
+authorship, reply-threading, reactions, pinning, an anti-spoofing insert
+check), none of which `coach_notes` or any future session-log/activity
+entry type needs, and unifying it would touch Android's live
+`postgres_changes` subscription to buy a unification nothing is asking
+for. `coach_notes` becomes the first `entry_type='note'` row in a generic
+`timeline_entries` table with an open-ended `entry_type` (same posture as
+`metrics.metric_type`); `is_private` keeps its exact name and meaning
+(AI-context exclusion, the boolean-column mechanism Phase 14 sanctioned).
+A future "everything that happened with this client" view, if ever built,
+reads `timeline_entries UNION ALL chat_messages` at query time -- a
+read-time composition, not something this migration needs to build.
+
+**What's deliberately not done.** Every old table (`library_*`,
+`assigned_*`, the 9 health tables, `coach_notes`) stays in place as a
+safety net, unreferenced by application code but not dropped. Dropping
+them is a separate, explicitly deferred step -- destructive, and only
+done on direct request once the new tables have had time to prove out.
+
+Verified per-primitive as described above; the full combined diff was
+re-verified with a final `tsc --noEmit` and a repo-wide grep for every old
+table name after all four cutovers landed, turning up only the
+intentionally-kept AI tool names, the consent-key namespace, and
+historical migration-number comments.
+
+## Phase 16 -- Android Stats screen: steps truncating to the oldest few days
+
+Post-Phase-15 smoke test found the "Steps, last 14 days" chart on
+Android's Stats screen (`DashboardScreen.kt`) showing only the oldest 4
+days in the window while "Sleep, last 14 days" right below it correctly
+showed all 12. Investigated with the same two-investigator-plus-supervisor
+pattern Phase 13 established (one agent on web/schema, one on Android,
+one independently re-verifying both against the actual code before
+anything shipped).
+
+**Root cause.** `HealthDataRepository.kt`'s `stepsDeferred`/`sleepDeferred`
+queries both passed `order: "start_time.asc"` + `limit: "2000"`.
+`SupabaseRestClient.select()` auto-paginates past PostgREST's 1000-row
+page cap *unless* the caller's own params already include `limit`, in
+which case it issues one single capped request instead. Ascending order
++ a single capped page means a metric type with more rows than the cap in
+the window loses everything past it -- which in ascending order is the
+*newest* end, not the oldest. Steps (dense per-sample rows, especially
+with multiple sources) exceeds 2000 rows in 14 days; sleep (~1-2 rows/
+night) essentially never does, which is exactly why only steps truncated.
+
+**Confirmed pre-existing**, not a Phase 15 regression -- diffed against
+the commit immediately before that work began and found the identical
+pattern already there, untouched by the Metric cutover (which only
+renamed the table and added the `metric_type` filter). Also confirmed to
+be the *same bug class* the web dashboard already hit and fixed in
+`562f711` ("Paginate sample-based queries past PostgREST's 1000-row
+default cap") -- that commit's own message notes the bug had previously
+been misdiagnosed as duplication/proration twice before being correctly
+identified as plain truncation, which is almost certainly why this class
+of bug reads as "duplication or cutoff, not sure which" in institutional
+memory. The web fix (`lib/queries.ts`'s `fetchAllRows()`) was never
+ported to this Android screen. `DataPointRepository.kt`'s steps query
+was checked and confirmed clean -- it never set `limit`, so it was never
+vulnerable.
+
+**Fix.** Removed the `limit` param from both queries, letting
+`SupabaseRestClient.select()`'s existing pagination run -- both queries
+are already date-bounded by `sinceIso`, so this only changes behavior
+when there's enough real data to need more than one page. A `desc`+
+re-sort alternative was considered and rejected: `bucketSleepByNight`
+(unlike `bucketStepsByDay`) doesn't re-sort its own output, and
+`DashboardScreen`'s "last night's sleep" reads `sleepNights.lastOrNull()`
+assuming ascending order already -- a naive `desc` flip would have
+silently swapped "last night" for "first night in the window," the same
+class of silent-wrong-data bug this fix was for.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. No live Supabase access in this environment (standing constraint
+throughout this project) to confirm against real row counts -- this
+remains a high-confidence code-reading fix pending a real-device check.
+
+## Phase 17 -- Android light/dark mode audit
+
+Requested audit against four rules: text/background contrast, card
+background matching page background (with a border + shadow instead of a
+second fill tone), uniform stat-tile sizing, and titles/buttons that don't
+wrap or resize when a sibling's state changes. Same two-audit-plus-
+supervisor methodology as Phase 13 and the steps-data-bug investigation --
+one agent on color/card-surface, one on stat-tile/title-button layout, a
+supervisor independently re-verifying both against the real code (and
+sweeping `CoachHomeScreen.kt`/`ComingSoonScreen.kt`/`SlideOutNav.kt`,
+which neither investigator had named) before anything shipped.
+
+**Text contrast: clean, no changes.** Every `Text` color already pairs
+with the token backing its real container everywhere.
+
+**Card bg = page bg: `Theme.kt`'s card/page split was systemic and
+deliberate -- reversed.** `background` and `surface`/`secondary`/
+`primaryContainer`/`surfaceVariant` previously resolved to different
+tones (page vs. card) in both themes; now all resolve to the same
+`Primary` value, so a card reads as distinct only via its own border +
+elevation (most `OutlinedCard` usage already had both and needed no
+other change). `LightSecondary`/`DarkSecondary` removed from `Color.kt`
+as now-unused. Two things that depended on the old two-tone split would
+have broken *worse* once unified, so they shipped in the same change:
+`home/NotificationShade.kt`'s `PreviewCard`/`EventPreviewCard` and their
+date chip had no border at all and were only visible by fill-color
+contrast against their parent panel -- added a real border to each.
+`DashboardScreen.kt`'s `SleepBarChart` bar fill used `colorScheme.secondary`
+(already washed-out against the page, visible in an earlier bug-hunt
+screenshot) -- would have gone fully invisible; moved to
+`ExtendedColors.info`. The shade's own outer panel (no border, fills with
+`surface`) was reviewed and left alone -- it's header chrome anchored to
+the status bar, not a card, so becoming page-colored is a harmless side
+effect, not a regression.
+
+**Stat tiles: one real bug, `HomeScreen.kt`'s `TopDataPointsRow`.**
+`weight(1f)` only equalized width; a tile whose value wrapped to two
+lines rendered taller than its siblings. Fixed with
+`height(IntrinsicSize.Min)` on the row and `fillMaxHeight()` on each
+card.
+
+**Titles wrapping / buttons resizing between states: confirmed, including
+the named case.** `WorkoutScreen.kt`'s in-progress header had no
+`maxLines`/overflow on the title and no fixed width on the Pause/Resume
+or Finish/Finishing buttons, so the title wrapped as a button's own label
+changed its width -- split into two rows (title alone with `maxLines = 1`
++ ellipsis; buttons below) and gave each button a `widthIn(min = ...)`
+sized to its own longest label, so neither the wrap nor the per-button
+resize can happen. Same title treatment applied to the pre-workout header
+for consistency (never actually triggers today, no adjacent
+state-changing button, but kept matching). The same "button resizes with
+its own label" pattern, standalone rather than title-adjacent, got the
+same `widthIn(min = ...)` fix in six more places: `ProfileScreen.kt`'s
+Sync now / Force full re-sync buttons, `InboxScreen.kt`'s Send button,
+`LoginScreen.kt`'s Send code button, `VerifyCodeScreen.kt`'s Verify and
+Resend code buttons, and `CalendarScreen.kt`'s Connect/Manage button.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. Minimum button widths are estimated from label length and Material3
+default content padding, not measured against a render -- worth a visual
+check on a real device, same caveat as every other Android-only change in
+this project (no emulator in this environment).
+
+## Phase 18 -- Phase 17's fix didn't actually fix it: two root causes the audit missed
+
+Real-device screenshots after Phase 17 shipped showed both problems still
+present -- dark, barely-legible text on dark backgrounds, and cards still
+visibly a different color than the page. Phase 17's audit checked every
+explicit color pairing and every token value and found both genuinely
+clean; the actual bugs were in two mechanisms neither investigator was
+asked to look for -- not wrong colors, but *missing* ones and an automatic
+Material3 behavior neither had reason to suspect from reading token
+values alone. Diagnosed directly this time (the mechanism was concrete
+enough, and the stakes of guessing wrong on a second pass were high
+enough, to verify in code rather than delegate).
+
+**Dark-on-dark text: every screen's `Scaffold` had the bug `HomeScreen.kt`
+already found and fixed once.** `HomeScreen.kt` doesn't use `Scaffold` --
+it has its own `Surface(color = Color.Transparent, contentColor =
+MaterialTheme.colorScheme.onBackground)` with a comment explaining
+exactly why both params are required together: `Color.Transparent` isn't
+a role Material3's `contentColorFor()` can map to an "on-X" text color,
+so if `contentColor` isn't given explicitly it resolves to
+`Color.Unspecified`, and `LocalContentColor` becomes `Unspecified` for
+every descendant -- any `Text` that doesn't set its own explicit `color`
+(as `StatRow`/`StepsBarChart`/`SleepBarChart`'s values, `WorkoutScreen`'s
+title, and others don't) then falls through to a near-black default,
+regardless of theme. Every *other* screen uses `Scaffold(containerColor =
+Color.Transparent)` -- the exact same setup, minus the `contentColor`
+HomeScreen's own comment says is required. Fixed by adding
+`contentColor = MaterialTheme.colorScheme.onBackground` to all 9 of
+them (`CalendarScreen`, `ProfileScreen`, `ComingSoonScreen`,
+`VerifyCodeScreen`, `InboxScreen`, `WorkoutScreen`, `CoachHomeScreen`,
+`LoginScreen`, `DashboardScreen`), matching the pattern already proven
+correct once.
+
+**Card color still different from the page: Material3's automatic
+elevation tint, using `primary` by default.** `Theme.kt` never set
+`colorScheme.surfaceTint`, so it defaulted to `primary` (the warm
+accent). Every `OutlinedCard` here sets a nonzero elevation
+(`CardDefaults.outlinedCardElevation`), and Material3's `Surface` blends
+`surfaceTint` over an elevated surface's fill at an alpha proportional to
+that elevation to simulate a lighting/elevation effect -- so despite
+`surface` and `background` now resolving to the identical base color
+(Phase 17's fix), every card still rendered with a visible accent-tinted
+overlay the flat page never got. Fixed by pinning `surfaceTint` to the
+same `Primary` value as `background`/`surface` in both color schemes,
+making the blend a no-op -- a card's fill is now actually identical to
+the page, with only its border marking it as a card, which was the
+actual, original ask.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean. Both root causes are standard, well-documented Material3
+mechanisms (`contentColorFor`'s role-mapping fallback, `Surface`'s tonal
+elevation blend) rather than anything specific to guesswork about this
+codebase -- confirmed by reading the actual `Scaffold`/`Surface` call
+sites and `Theme.kt`, not inferred from the screenshots alone. Still
+pending a real-device visual confirmation, same standing limitation as
+every Android change in this project.
+
+## Phase 19 -- Pre-merge: finished an incomplete storybook removal
+
+Checking PR #18 before merging to `main` found both Vercel deployment
+checks failing. Every local verification this whole restructure relied
+on had reused already-installed `node_modules` rather than a fresh
+install, so a partial dependency removal several commits back on this
+branch (dashboard storybook setup, "removed storybook and related
+dependencies") never got caught locally -- it deleted `.storybook/` and
+the Next.js-specific `@storybook/*` packages, but left 10 `.stories.tsx`
+files importing the now-gone `@storybook/nextjs-vite`, plus `vitest.config.ts`,
+`.eslintrc.json`'s `plugin:storybook/recommended` extend, and several
+now-fully-orphaned devDependencies (`storybook`, `eslint-plugin-storybook`,
+`vitest`, `@vitest/browser-playwright`, `@vitest/coverage-v8`, `msw`,
+`playwright`, `mockdate`, `vite`) and `public/mockServiceWorker.js` in
+place. Next.js type-checks every file in the project during `next
+build`, regardless of whether anything imports it, so the orphaned story
+files' dangling import failed the build outright -- reproduced locally
+with `npm ci` + a dummy-env `next build` (vs. this session's prior checks,
+which never re-installed from the lockfile and so never saw it).
+
+Finished the removal: deleted the 10 story files, `vitest.config.ts`,
+and `public/mockServiceWorker.js`; dropped the dead ESLint extend and the
+now-unused devDependencies (confirmed via grep that nothing outside
+storybook ever imported `msw`/`mockdate`/`playwright`/`vitest` -- no
+`.test.ts` files or e2e setup exist in this project). Regenerated
+`package-lock.json` via `npm install`. Verified against a genuinely fresh
+install this time: `npm ci`, `tsc --noEmit`, `next lint`, dummy-env `next
+build` all clean.

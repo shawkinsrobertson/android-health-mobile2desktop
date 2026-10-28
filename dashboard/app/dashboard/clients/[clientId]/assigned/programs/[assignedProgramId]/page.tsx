@@ -25,27 +25,30 @@ export default async function AssignedProgramPage({
   const supabase = await createClient();
 
   const { data: program, error } = await supabase
-    .from("assigned_programs")
-    .select("id, name, description, photo_path, photo_url, video_path, video_url, assigned_at, source_library_program_id")
+    .from("assignments")
+    .select("id, name, description, photo_path, photo_url, video_path, video_url, assigned_at, source_template_id")
     .eq("id", params.assignedProgramId)
     .eq("client_id", params.clientId)
     .eq("coach_id", coach.id)
+    .eq("type", "program")
     .single();
 
   if (error || !program) redirect(`/dashboard/clients/${params.clientId}`);
 
   const [{ data: workoutRows }, { photoUrl, videoUrl }, sourceStillExists] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, order_index")
-      .eq("assigned_program_id", program.id)
+      .eq("parent_assignment_id", program.id)
+      .eq("type", "workout")
       .order("order_index"),
     resolveMediaPair(supabase, program),
-    program.source_library_program_id
+    program.source_template_id
       ? supabase
-          .from("library_programs")
+          .from("templates")
           .select("id")
-          .eq("id", program.source_library_program_id)
+          .eq("id", program.source_template_id)
+          .eq("type", "program")
           .eq("coach_id", coach.id)
           .maybeSingle()
           .then((r) => !!r.data)
@@ -70,7 +73,7 @@ export default async function AssignedProgramPage({
             <>
               {" · "}
               <Link
-                href={`/dashboard/library/programs/${program.source_library_program_id}`}
+                href={`/dashboard/library/programs/${program.source_template_id}`}
                 className="underline hover:text-ink-primary"
               >
                 originally from your library

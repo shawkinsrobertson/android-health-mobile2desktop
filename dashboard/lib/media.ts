@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Shared helpers for the `library-media` Storage bucket (see
-// supabase/migrations/0004_libraries.sql). Every media-bearing table
-// (library_exercises, library_workouts, library_programs, library_documents,
-// and their assigned_* snapshots) stores a `*_path` (Storage object) and/or
-// a `*_url` (external link) column per media slot -- either, both, or
+// supabase/migrations/0004_libraries.sql, now templates per
+// 0033_templates.sql). Every media-bearing table (templates, and the
+// assigned_* snapshots) stores a `*_path` (Storage object) and/or a
+// `*_url` (external link) column per media slot -- either, both, or
 // neither may be set. The bucket is private, so a path is never rendered
 // directly: it always goes through a signed URL minted per-request.
 

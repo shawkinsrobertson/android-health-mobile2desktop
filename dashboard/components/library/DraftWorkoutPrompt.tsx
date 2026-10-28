@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 // Coach-level entry point for outcome #4 ("draft workouts from a text
 // prompt") -- not tied to any client, so it lives on the Workouts list
 // page rather than the per-client AssistantChat. On success the new
-// draft (library_workouts.status = 'draft') is immediately visible in
+// draft (templates.status = 'draft') is immediately visible in
 // the list below, and the coach is taken straight to it to review.
 export function DraftWorkoutPrompt() {
   const router = useRouter();

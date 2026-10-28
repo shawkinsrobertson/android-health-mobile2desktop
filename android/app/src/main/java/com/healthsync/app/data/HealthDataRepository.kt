@@ -69,41 +69,52 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         // to "today" and look like zero.
         val todayIso = LocalDate.now(ZoneId.systemDefault()).toString()
 
+        // All three queries below now hit the unified `metrics` table
+        // (supabase/migrations/0035_metrics.sql), scoped by `metric_type`;
+        // type-specific fields (count/bpm) live under the jsonb `value`
+        // column, read back out in bucketStepsByDay/averageBpm below.
         val stepsDeferred = async {
             supabase.select(
-                "steps",
+                "metrics",
                 mapOf(
-                    "select" to "start_time,count",
+                    "select" to "start_time,value",
                     "client_id" to "eq.$clientId",
+                    "metric_type" to "eq.steps",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
-                    // Already date-bounded to `days` -- this just avoids
-                    // select() falling back to its full-pagination path
-                    // (see SupabaseRestClient.select()'s doc comment) for a
-                    // preview that doesn't need to be exhaustive anyway.
-                    "limit" to "2000",
+                    // No `limit` here on purpose -- a dense metric type
+                    // (steps especially, with multiple sources) can exceed
+                    // a hard cap within the `days` window, and with
+                    // ascending order a single-page cap silently drops the
+                    // *newest* rows, not the oldest. Already date-bounded
+                    // to `days`, so this falls through to select()'s normal
+                    // auto-pagination and still returns every row in range.
+                    // Same bug web dashboard's 562f711 fixed in
+                    // lib/queries.ts's fetchAllRows() -- this screen never
+                    // got the equivalent fix until now.
                 ),
             )
         }
         val sleepDeferred = async {
             supabase.select(
-                "sleep_sessions",
+                "metrics",
                 mapOf(
                     "select" to "start_time,end_time",
                     "client_id" to "eq.$clientId",
+                    "metric_type" to "eq.sleep_session",
                     "start_time" to "gte.$sinceIso",
                     "order" to "start_time.asc",
-                    "limit" to "2000",
                 ),
             )
         }
         val hrDeferred = async {
             supabase.select(
-                "heart_rate_samples",
+                "metrics",
                 mapOf(
-                    "select" to "bpm",
+                    "select" to "value",
                     "client_id" to "eq.$clientId",
-                    "sample_time" to "gte.$sevenDaysAgoIso",
+                    "metric_type" to "eq.heart_rate",
+                    "start_time" to "gte.$sevenDaysAgoIso",
                 ),
             )
         }
@@ -152,7 +163,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
             val day = localDateOf(row.getString("start_time"))
-            val count = row.optLong("count", 0)
+            val count = row.getJSONObject("value").optLong("count", 0)
             byDay[day] = (byDay[day] ?: 0L) + count
         }
         return byDay.entries.sortedBy { it.key }.map { DailySteps(it.key, it.value) }
@@ -175,7 +186,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         if (rows.length() == 0) return null
         var sum = 0.0
         for (i in 0 until rows.length()) {
-            sum += rows.getJSONObject(i).optDouble("bpm", 0.0)
+            sum += rows.getJSONObject(i).getJSONObject("value").optDouble("bpm", 0.0)
         }
         return Math.round(sum / rows.length()).toInt()
     }

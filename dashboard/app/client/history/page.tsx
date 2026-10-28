@@ -27,7 +27,7 @@ export default async function ClientWorkoutHistoryPage() {
 
   const { data } = await supabase
     .from("workout_sessions")
-    .select("id, assigned_workout_id, completed_at, started_at, total_paused_seconds, assigned_workouts(name)")
+    .select("id, assigned_workout_id, completed_at, started_at, total_paused_seconds, assigned_workouts:assignments(name)")
     .eq("client_id", profile.id)
     .not("completed_at", "is", null)
     .order("completed_at", { ascending: false });

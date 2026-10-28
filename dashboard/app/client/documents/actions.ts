@@ -15,10 +15,11 @@ export async function submitDocumentResponse(assignedDocumentId: string, formDat
   const supabase = await createClient();
 
   const { data: doc, error: docError } = await supabase
-    .from("assigned_documents")
+    .from("assignments")
     .select("id, coach_id, document_type, form_schema")
     .eq("id", assignedDocumentId)
     .eq("client_id", profile.id)
+    .eq("type", "document")
     .single();
 
   if (docError || !doc || doc.document_type !== "form") {
@@ -26,9 +27,9 @@ export async function submitDocumentResponse(assignedDocumentId: string, formDat
   }
 
   const { data: existingResponse } = await supabase
-    .from("document_responses")
+    .from("assignment_responses")
     .select("answers")
-    .eq("assigned_document_id", assignedDocumentId)
+    .eq("assignment_id", assignedDocumentId)
     .maybeSingle();
   const existingAnswers = (existingResponse?.answers ?? {}) as FormAnswers;
 
@@ -82,16 +83,16 @@ export async function submitDocumentResponse(assignedDocumentId: string, formDat
     redirect(`${path}?error=${encodeURIComponent(message)}`);
   }
 
-  const { error } = await supabase.from("document_responses").upsert(
+  const { error } = await supabase.from("assignment_responses").upsert(
     {
-      assigned_document_id: assignedDocumentId,
+      assignment_id: assignedDocumentId,
       client_id: profile.id,
       coach_id: doc.coach_id,
       answers,
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "assigned_document_id" },
+    { onConflict: "assignment_id" },
   );
 
   if (error) {

@@ -58,8 +58,9 @@ export default async function WorkoutLibraryPage() {
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("library_workouts")
+    .from("templates")
     .select("id, name, description, photo_path, photo_url, status")
+    .eq("type", "workout")
     .order("name");
 
   const all = (data ?? []) as WorkoutRow[];

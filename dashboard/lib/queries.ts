@@ -52,6 +52,28 @@ interface StepsRow {
   source_package: string | null;
 }
 
+// Raw shape of a row selected from the unified `metrics` table
+// (supabase/migrations/0035_metrics.sql) -- type-specific fields live
+// nested under `value` rather than as flat columns. mapMetricRow below
+// flattens one back into the StepsRow shape resolveOverlappingSources/
+// accumulateStepsByDay already expect, so neither of those pure functions
+// needed to change.
+interface MetricRow {
+  start_time: string;
+  end_time: string | null;
+  value: Record<string, unknown> | null;
+  source_package: string | null;
+}
+
+function metricNumber(row: { value?: Record<string, unknown> | null }, field: string): number | null {
+  const raw = row.value?.[field];
+  return typeof raw === "number" ? raw : raw != null ? Number(raw) : null;
+}
+
+interface MetricValueOnlyRow {
+  value: Record<string, unknown> | null;
+}
+
 // Merges possibly-overlapping [start, end] ms intervals into a minimal
 // sorted set of non-overlapping ones.
 function mergeIntervals(intervals: [number, number][]): [number, number][] {
@@ -223,10 +245,11 @@ export async function getDailySteps(
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const data = await fetchAllRows<StepsRow>((from, to) => {
+  const rawRows = await fetchAllRows<MetricRow>((from, to) => {
     let query = supabase
-      .from("steps")
-      .select("start_time, end_time, count, source_package")
+      .from("metrics")
+      .select("start_time, end_time, value, source_package")
+      .eq("metric_type", "steps")
       .gte("start_time", since.toISOString())
       // id as a tiebreaker keeps page boundaries stable when many rows
       // share the same start_time (seen in practice -- per-minute Garmin
@@ -237,6 +260,12 @@ export async function getDailySteps(
     if (clientId) query = query.eq("client_id", clientId);
     return query;
   });
+  const data: StepsRow[] = rawRows.map((row) => ({
+    start_time: row.start_time,
+    end_time: row.end_time ?? row.start_time,
+    count: metricNumber(row, "count"),
+    source_package: row.source_package,
+  }));
 
   const byDay = new Map<string, number>();
   accumulateStepsByDay(resolveOverlappingSources(data), byDay);
@@ -260,8 +289,9 @@ export async function getSleepNights(
   since.setDate(since.getDate() - days);
 
   let query = supabase
-    .from("sleep_sessions")
+    .from("metrics")
     .select("start_time, end_time")
+    .eq("metric_type", "sleep_session")
     .gte("start_time", since.toISOString())
     .order("start_time", { ascending: true });
   if (clientId) query = query.eq("client_id", clientId);
@@ -295,13 +325,15 @@ export async function getOverviewStats(
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   let sleepQuery = supabase
-    .from("sleep_sessions")
+    .from("metrics")
     .select("start_time, end_time")
+    .eq("metric_type", "sleep_session")
     .order("start_time", { ascending: false })
     .limit(1);
   let exerciseQuery = supabase
-    .from("exercise_sessions")
+    .from("metrics")
     .select("id", { count: "exact", head: true })
+    .eq("metric_type", "exercise_session")
     .gte("start_time", sevenDaysAgo.toISOString());
 
   if (clientId) {
@@ -310,22 +342,24 @@ export async function getOverviewStats(
   }
 
   const [stepsRows, hrSamples, sleepRes, exerciseRes] = await Promise.all([
-    fetchAllRows<{ count: number | null }>((from, to) => {
+    fetchAllRows<MetricRow>((from, to) => {
       let q = supabase
-        .from("steps")
-        .select("count")
+        .from("metrics")
+        .select("start_time, end_time, value, source_package")
+        .eq("metric_type", "steps")
         .gte("start_time", todayStart.toISOString())
         .order("start_time", { ascending: true })
         .range(from, to);
       if (clientId) q = q.eq("client_id", clientId);
       return q;
     }),
-    fetchAllRows<{ bpm: number }>((from, to) => {
+    fetchAllRows<MetricRow>((from, to) => {
       let q = supabase
-        .from("heart_rate_samples")
-        .select("bpm")
-        .gte("sample_time", sevenDaysAgo.toISOString())
-        .order("sample_time", { ascending: true })
+        .from("metrics")
+        .select("start_time, end_time, value, source_package")
+        .eq("metric_type", "heart_rate")
+        .gte("start_time", sevenDaysAgo.toISOString())
+        .order("start_time", { ascending: true })
         .range(from, to);
       if (clientId) q = q.eq("client_id", clientId);
       return q;
@@ -337,8 +371,8 @@ export async function getOverviewStats(
   if (sleepRes.error) throw new Error(sleepRes.error.message);
   if (exerciseRes.error) throw new Error(exerciseRes.error.message);
 
-  const stepsToday = stepsRows.reduce((sum, r) => sum + (r.count ?? 0), 0);
-  const hrValues = hrSamples.map((r) => r.bpm);
+  const stepsToday = stepsRows.reduce((sum, r) => sum + (metricNumber(r, "count") ?? 0), 0);
+  const hrValues = hrSamples.map((r) => metricNumber(r, "bpm")).filter((v): v is number => v != null);
   const avgHeartRate7d =
     hrValues.length > 0
       ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)
@@ -383,15 +417,16 @@ export async function getDataPointSummary(
       return steps.length ? `${total.toLocaleString()} steps this week` : "No steps synced yet";
     }
     case "heart_rate_samples": {
-      const data = await fetchAllRows<{ bpm: number }>((from, to) =>
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
         supabase
-          .from("heart_rate_samples")
-          .select("bpm")
+          .from("metrics")
+          .select("value")
+          .eq("metric_type", "heart_rate")
           .eq("client_id", clientId)
-          .gte("sample_time", since)
+          .gte("start_time", since)
           .range(from, to),
       );
-      const samples = data.map((r) => r.bpm);
+      const samples = data.map((r) => metricNumber(r, "bpm")).filter((v): v is number => v != null);
       if (!samples.length) return "No heart rate data synced yet";
       const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
       return `${avg} bpm avg this week`;
@@ -404,60 +439,69 @@ export async function getDataPointSummary(
     }
     case "exercise_sessions": {
       const { count } = await supabase
-        .from("exercise_sessions")
+        .from("metrics")
         .select("id", { count: "exact", head: true })
+        .eq("metric_type", "exercise_session")
         .eq("client_id", clientId)
         .gte("start_time", since);
       return `${count ?? 0} workout${count === 1 ? "" : "s"} this week`;
     }
     case "blood_oxygen": {
-      const data = await fetchAllRows<{ percentage: number }>((from, to) =>
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
         supabase
-          .from("blood_oxygen")
-          .select("percentage")
+          .from("metrics")
+          .select("value")
+          .eq("metric_type", "blood_oxygen")
           .eq("client_id", clientId)
-          .gte("sample_time", since)
+          .gte("start_time", since)
           .range(from, to),
       );
-      const samples = data.map((r) => Number(r.percentage));
+      const samples = data.map((r) => metricNumber(r, "percentage")).filter((v): v is number => v != null);
       if (!samples.length) return "No SpO2 data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg}% avg SpO2 this week`;
     }
     case "blood_pressure": {
       const { data } = await supabase
-        .from("blood_pressure")
-        .select("systolic_mmhg, diastolic_mmhg, sample_time")
+        .from("metrics")
+        .select("value, start_time")
+        .eq("metric_type", "blood_pressure")
         .eq("client_id", clientId)
-        .order("sample_time", { ascending: false })
+        .order("start_time", { ascending: false })
         .limit(1);
-      const last = data?.[0];
-      return last ? `${last.systolic_mmhg}/${last.diastolic_mmhg} mmHg (most recent)` : "No blood pressure data synced yet";
+      const last = data?.[0] as MetricValueOnlyRow | undefined;
+      const systolic = last ? metricNumber(last, "systolic_mmhg") : null;
+      const diastolic = last ? metricNumber(last, "diastolic_mmhg") : null;
+      return systolic != null && diastolic != null
+        ? `${systolic}/${diastolic} mmHg (most recent)`
+        : "No blood pressure data synced yet";
     }
     case "respiratory_rate": {
-      const data = await fetchAllRows<{ breaths_per_minute: number }>((from, to) =>
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
         supabase
-          .from("respiratory_rate")
-          .select("breaths_per_minute")
+          .from("metrics")
+          .select("value")
+          .eq("metric_type", "respiratory_rate")
           .eq("client_id", clientId)
-          .gte("sample_time", since)
+          .gte("start_time", since)
           .range(from, to),
       );
-      const samples = data.map((r) => Number(r.breaths_per_minute));
+      const samples = data.map((r) => metricNumber(r, "breaths_per_minute")).filter((v): v is number => v != null);
       if (!samples.length) return "No respiratory rate data synced yet";
       const avg = Math.round((samples.reduce((a, b) => a + b, 0) / samples.length) * 10) / 10;
       return `${avg} breaths/min avg this week`;
     }
     case "blood_glucose": {
-      const data = await fetchAllRows<{ level_mg_dl: number }>((from, to) =>
+      const data = await fetchAllRows<MetricValueOnlyRow>((from, to) =>
         supabase
-          .from("blood_glucose")
-          .select("level_mg_dl")
+          .from("metrics")
+          .select("value")
+          .eq("metric_type", "blood_glucose")
           .eq("client_id", clientId)
-          .gte("sample_time", since)
+          .gte("start_time", since)
           .range(from, to),
       );
-      const samples = data.map((r) => Number(r.level_mg_dl));
+      const samples = data.map((r) => metricNumber(r, "level_mg_dl")).filter((v): v is number => v != null);
       if (!samples.length) return "No blood glucose data synced yet";
       const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
       return `${avg} mg/dL avg this week`;
@@ -495,16 +539,18 @@ export function unitFor(key: string): string {
   }
 }
 
-// sample_time-keyed tables with one plain numeric reading per row --
-// bucketed to a daily average, same shape as getDailySteps/getSleepNights,
-// so all eight DATA_POINTS keys can feed one overlay chart
-// (components/DataOverlayChart.tsx) through a single entry point.
-const SAMPLE_SERIES_CONFIG: Record<string, { table: string; valueCol: string }> = {
-  heart_rate_samples: { table: "heart_rate_samples", valueCol: "bpm" },
-  blood_oxygen: { table: "blood_oxygen", valueCol: "percentage" },
-  blood_pressure: { table: "blood_pressure", valueCol: "systolic_mmhg" },
-  respiratory_rate: { table: "respiratory_rate", valueCol: "breaths_per_minute" },
-  blood_glucose: { table: "blood_glucose", valueCol: "level_mg_dl" },
+// One plain numeric reading per row, keyed by start_time -- bucketed to a
+// daily average, same shape as getDailySteps/getSleepNights, so all eight
+// DATA_POINTS keys can feed one overlay chart (components/
+// DataOverlayChart.tsx) through a single entry point. All five now query
+// the unified `metrics` table (0035_metrics.sql); `valueField` names the
+// field inside the jsonb `value` column rather than a top-level column.
+const SAMPLE_SERIES_CONFIG: Record<string, { metricType: string; valueField: string }> = {
+  heart_rate_samples: { metricType: "heart_rate", valueField: "bpm" },
+  blood_oxygen: { metricType: "blood_oxygen", valueField: "percentage" },
+  blood_pressure: { metricType: "blood_pressure", valueField: "systolic_mmhg" },
+  respiratory_rate: { metricType: "respiratory_rate", valueField: "breaths_per_minute" },
+  blood_glucose: { metricType: "blood_glucose", valueField: "level_mg_dl" },
 };
 
 export async function getDailySeries(
@@ -528,8 +574,9 @@ export async function getDailySeries(
 
   if (dataPointKey === "exercise_sessions") {
     let query = supabase
-      .from("exercise_sessions")
+      .from("metrics")
       .select("start_time")
+      .eq("metric_type", "exercise_session")
       .gte("start_time", since.toISOString())
       .order("start_time", { ascending: true });
     if (clientId) query = query.eq("client_id", clientId);
@@ -549,15 +596,13 @@ export async function getDailySeries(
   const config = SAMPLE_SERIES_CONFIG[dataPointKey];
   if (!config) return [];
 
-  const rows = await fetchAllRows<Record<string, unknown>>((from, to) => {
-    // Supabase's select() type-parses its argument against the schema at
-    // compile time, which only works for string literals -- the column
-    // name here is only known at runtime (config.valueCol varies per data
-    // type), so the builder is cast through `any` to select it dynamically.
-    let query = (supabase.from(config.table) as unknown as { select: (columns: string) => any })
-      .select(`sample_time, ${config.valueCol}`)
-      .gte("sample_time", since.toISOString())
-      .order("sample_time", { ascending: true })
+  const rows = await fetchAllRows<MetricRow>((from, to) => {
+    let query = supabase
+      .from("metrics")
+      .select("start_time, end_time, value, source_package")
+      .eq("metric_type", config.metricType)
+      .gte("start_time", since.toISOString())
+      .order("start_time", { ascending: true })
       .range(from, to);
     if (clientId) query = query.eq("client_id", clientId);
     return query;
@@ -565,9 +610,11 @@ export async function getDailySeries(
 
   const byDay = new Map<string, { sum: number; count: number }>();
   for (const row of rows) {
-    const day = String(row.sample_time).slice(0, 10);
+    const day = row.start_time.slice(0, 10);
+    const value = metricNumber(row, config.valueField);
+    if (value == null) continue;
     const bucket = byDay.get(day) ?? { sum: 0, count: 0 };
-    bucket.sum += Number(row[config.valueCol]);
+    bucket.sum += value;
     bucket.count += 1;
     byDay.set(day, bucket);
   }

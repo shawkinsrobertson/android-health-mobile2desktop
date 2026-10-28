@@ -14,12 +14,12 @@ export const dynamic = "force-dynamic";
 
 interface JoinRow {
   id: string;
-  workout_id: string;
+  child_id: string;
   order_index: number;
   week_number: number | null;
   day_of_week: number | null;
   notes: string | null;
-  library_workouts: { name: string } | null;
+  workout: { name: string } | null;
 }
 
 export default async function ProgramDetailPage({
@@ -37,19 +37,28 @@ export default async function ProgramDetailPage({
 
   const [{ data: program, error }, { data: joinRows }, { data: workouts }, { data: clientRows }] = await Promise.all([
     supabase
-      .from("library_programs")
+      .from("templates")
       .select("id, name, description, photo_path, photo_url, video_path, video_url, status")
       .eq("id", params.programId)
+      .eq("type", "program")
       .eq("coach_id", profile.id)
       .single(),
     supabase
-      .from("library_program_workouts")
-      .select("id, workout_id, order_index, week_number, day_of_week, notes, library_workouts(name)")
-      .eq("program_id", params.programId)
+      .from("template_components")
+      .select(
+        "id, child_id, order_index, week_number, day_of_week, notes, workout:templates!template_components_child_id_fkey(name)",
+      )
+      .eq("parent_id", params.programId)
       .order("order_index"),
     // status='published' only -- see the same filter and comment on the
     // client page's workout picker.
-    supabase.from("library_workouts").select("id, name").eq("coach_id", profile.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "workout")
+      .eq("coach_id", profile.id)
+      .eq("status", "published")
+      .order("name"),
     supabase
       .from("client_profiles")
       .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
@@ -65,8 +74,8 @@ export default async function ProgramDetailPage({
 
   const items: ProgramWorkoutItem[] = ((joinRows ?? []) as unknown as JoinRow[]).map((row) => ({
     id: row.id,
-    workout_id: row.workout_id,
-    workout_name: row.library_workouts?.name ?? "Unknown workout",
+    workout_id: row.child_id,
+    workout_name: row.workout?.name ?? "Unknown workout",
     order_index: row.order_index,
     week_number: row.week_number,
     day_of_week: row.day_of_week,

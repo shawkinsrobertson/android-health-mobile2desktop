@@ -96,40 +96,63 @@ export default async function ClientDetailPage({
   ] = await Promise.all([
     // status='published' only -- an AI-drafted workout (lib/workout-drafting.ts)
     // can't be assigned to a client until the coach reviews and publishes it.
-    supabase.from("library_workouts").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "workout")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
     // status='published' only -- same reasoning, for AI-drafted programs
     // (lib/program-drafting.ts).
-    supabase.from("library_programs").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("type", "program")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
     // status='published' only -- same reasoning as the workout picker above.
-    supabase.from("library_documents").select("id, name").eq("coach_id", coach.id).eq("status", "published").order("name"),
     supabase
-      .from("assigned_workouts")
+      .from("templates")
+      .select("id, name")
+      .eq("type", "document")
+      .eq("coach_id", coach.id)
+      .eq("status", "published")
+      .order("name"),
+    supabase
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
-      .is("assigned_program_id", null)
+      .eq("type", "workout")
+      .is("parent_assignment_id", null)
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_programs")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
+      .eq("type", "program")
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("assigned_documents")
+      .from("assignments")
       .select("id, name, assigned_at")
       .eq("client_id", params.clientId)
+      .eq("type", "document")
       .order("assigned_at", { ascending: false }),
     supabase
-      .from("coach_notes")
+      .from("timeline_entries")
       .select("id, body, is_private, created_at")
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId)
+      .eq("entry_type", "note")
       .order("created_at", { ascending: false })
       .limit(3),
     supabase
-      .from("coach_notes")
+      .from("timeline_entries")
       .select("id", { count: "exact", head: true })
       .eq("coach_id", coach.id)
-      .eq("client_id", params.clientId),
+      .eq("client_id", params.clientId)
+      .eq("entry_type", "note"),
     supabase
       .from("calendar_connections")
       .select("id")

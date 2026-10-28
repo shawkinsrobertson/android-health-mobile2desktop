@@ -33,10 +33,11 @@ export default async function WorkoutSessionPage({
 
   const [{ data: workout }, { data: session, error: sessionError }] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, coach_id")
       .eq("id", params.assignedWorkoutId)
       .eq("client_id", profile.id)
+      .eq("type", "workout")
       .single(),
     supabase
       .from("workout_sessions")
@@ -49,16 +50,16 @@ export default async function WorkoutSessionPage({
   if (!workout || sessionError || !session) redirect(`/client/assigned/workouts/${params.assignedWorkoutId}`);
 
   const { data: exerciseRows } = await supabase
-    .from("assigned_workout_exercises")
+    .from("assignment_components")
     .select(
-      "id, order_index, block_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+      "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
     )
-    .eq("assigned_workout_id", workout.id)
+    .eq("assignment_id", workout.id)
     .order("order_index");
   const { data: blockRows } = await supabase
-    .from("assigned_workout_blocks")
+    .from("assignment_component_groups")
     .select("id, block_type, rounds, notes")
-    .eq("assigned_workout_id", workout.id);
+    .eq("assignment_id", workout.id);
 
   const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];
   const blocks = (blockRows ?? []) as AssignedBlock[];

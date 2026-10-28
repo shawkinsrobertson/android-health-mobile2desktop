@@ -2,17 +2,18 @@ package com.healthsync.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Design-system tokens (strip-down pass), matching dashboard/app/globals.css --
-// a basic light/dark neutral scale plus the same warm accent, replacing the
-// prior multi-tier custom palette. TextTertiary is only given for dark mode
-// in the source mockups; light mode reuses the same near-black since it's
-// the color for text/icons on top of an Accent-colored surface (used via
-// the onPrimary ColorScheme role only -- see Theme.kt), and Accent itself
-// is theme-invariant.
+// Design-system tokens, matching dashboard/app/globals.css -- a basic
+// light/dark neutral scale plus the same warm accent. There's no separate
+// card-surface tone: cards and the page they sit on share Primary, and a
+// card reads as distinct via its own border + elevation instead (see
+// Theme.kt). TextTertiary is only given for dark mode in the source
+// mockups; light mode reuses the same near-black since it's the color for
+// text/icons on top of an Accent-colored surface (used via the onPrimary
+// ColorScheme role only -- see Theme.kt), and Accent itself is
+// theme-invariant.
 
 // Light theme
 val LightPrimary = Color(0xFFFFFFFF)
-val LightSecondary = Color(0xFFFAFAFA)
 val LightAccent = Color(0xFFC1573B)
 val LightTextPrimary = Color(0xFF171717)
 val LightTextSecondary = Color(0xFF525252)
@@ -20,7 +21,6 @@ val LightTextTertiary = Color(0xFF171717)
 
 // Dark theme
 val DarkPrimary = Color(0xFF171717)
-val DarkSecondary = Color(0xFF262626)
 val DarkAccent = Color(0xFFC1573B)
 val DarkTextPrimary = Color(0xFFFAFAFA)
 val DarkTextSecondary = Color(0xFFA3A3A3)

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.DailySteps
 import com.healthsync.app.data.DashboardData
+import com.healthsync.app.ui.theme.ExtendedColors
 import com.healthsync.app.data.HealthDataRepository
 import com.healthsync.app.data.SleepNight
 import com.healthsync.app.supabase.SupabaseRestClient
@@ -86,6 +87,12 @@ fun DashboardScreen(
             )
         },
         containerColor = Color.Transparent,
+        // See HomeScreen.kt's Surface comment -- Transparent has no "on-X"
+        // text color Scaffold can infer, so this has to be explicit or
+        // every Text without its own color silently renders black. This
+        // screen's own StatRow/StepsBarChart/SleepBarChart values never
+        // set an explicit color, so this is exactly where it showed up.
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -197,7 +204,7 @@ private fun SleepBarChart(data: List<SleepNight>) {
                         modifier = Modifier
                             .fillMaxWidth((night.hours / maxHours).toFloat())
                             .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.secondary),
+                            .background(ExtendedColors.current.info),
                     )
                 }
                 Text(

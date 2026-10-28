@@ -18,10 +18,11 @@ export default async function ClientNotesPage({ params }: { params: { clientId: 
     getClientProfile(params.clientId, supabase),
     supabase.from("profiles").select("full_name, email").eq("id", params.clientId).single(),
     supabase
-      .from("coach_notes")
+      .from("timeline_entries")
       .select("id, body, is_private, created_at")
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId)
+      .eq("entry_type", "note")
       .order("created_at", { ascending: false }),
   ]);
 

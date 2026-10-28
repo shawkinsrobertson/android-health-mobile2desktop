@@ -85,11 +85,12 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
     suspend fun getTodaysWorkout(clientId: String): AssignedWorkout? {
         val rows = supabase.select(
-            "assigned_workouts",
+            "assignments",
             mapOf(
                 "select" to "id,coach_id,name",
                 "client_id" to "eq.$clientId",
-                "assigned_program_id" to "is.null",
+                "type" to "eq.workout",
+                "parent_assignment_id" to "is.null",
                 "order" to "assigned_at.desc",
                 "limit" to "1",
             ),
@@ -117,10 +118,11 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
      */
     suspend fun getNextTrainingItem(clientId: String): TrainingItem? {
         val programRows = supabase.select(
-            "assigned_programs",
+            "assignments",
             mapOf(
                 "select" to "id,name",
                 "client_id" to "eq.$clientId",
+                "type" to "eq.program",
                 "order" to "assigned_at.desc",
                 "limit" to "1",
             ),
@@ -131,10 +133,11 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
             val programName = program.getString("name")
 
             val workoutRows = supabase.select(
-                "assigned_workouts",
+                "assignments",
                 mapOf(
                     "select" to "id,coach_id,name",
-                    "assigned_program_id" to "eq.$programId",
+                    "parent_assignment_id" to "eq.$programId",
+                    "type" to "eq.workout",
                     "order" to "order_index.asc",
                 ),
             )
@@ -175,10 +178,10 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
     suspend fun getWorkoutExercises(assignedWorkoutId: String): List<AssignedWorkoutExercise> {
         val rows = supabase.select(
-            "assigned_workout_exercises",
+            "assignment_components",
             mapOf(
                 "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds",
-                "assigned_workout_id" to "eq.$assignedWorkoutId",
+                "assignment_id" to "eq.$assignedWorkoutId",
                 "order" to "order_index.asc",
             ),
         )

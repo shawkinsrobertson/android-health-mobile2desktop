@@ -6,9 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "lint": "next lint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
@@ -27,35 +25,14 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@chromatic-com/storybook": "latest",
-    "@storybook/addon-a11y": "^10.6.2",
-    "@storybook/addon-docs": "^10.6.2",
-    "@storybook/addon-mcp": "^10.6.2",
-    "@storybook/addon-vitest": "^10.6.2",
-    "@storybook/nextjs-vite": "^10.6.2",
     "@types/node": "^20.14.15",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@vitest/browser-playwright": "^4",
-    "@vitest/coverage-v8": "^4",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.5",
-    "eslint-plugin-storybook": "^10.6.2",
-    "mockdate": "^3.0.5",
-    "msw": "^2.15.0",
-    "msw-storybook-addon": "^3.0.3",
-    "playwright": "latest",
     "postcss": "^8.4.40",
-    "storybook": "^10.6.2",
     "tailwindcss": "^3.4.7",
-    "typescript": "^5.5.4",
-    "vite": "latest",
-    "vitest": "^4"
-  },
-  "msw": {
-    "workerDirectory": [
-      "public"
-    ]
+    "typescript": "^5.5.4"
   }
 }

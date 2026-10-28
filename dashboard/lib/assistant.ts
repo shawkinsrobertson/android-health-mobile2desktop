@@ -133,17 +133,20 @@ export interface AssistantCoachNote {
 
 // First real enforcement of coach_notes.is_private -- the UI has promised
 // "excluded from the AI assistant's context" since the note editor
-// shipped (0013_coach_notes.sql), but nothing queried on it until now.
+// shipped (0013_coach_notes.sql). Notes now live in timeline_entries
+// (entry_type='note', 0036_timeline_entries.sql) alongside future
+// session-log/activity entry types; is_private keeps the same meaning.
 export async function fetchCoachNotesForAssistant(
   supabase: SupabaseClient,
   coachId: string,
   clientId: string,
 ): Promise<AssistantCoachNote[]> {
   const { data, error } = await supabase
-    .from("coach_notes")
+    .from("timeline_entries")
     .select("body, created_at")
     .eq("coach_id", coachId)
     .eq("client_id", clientId)
+    .eq("entry_type", "note")
     .eq("is_private", false)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -269,9 +272,10 @@ export async function fetchAssignedWorkoutsForAssistant(
   clientId: string,
 ): Promise<AssignedWorkoutSummary[]> {
   const { data, error } = await supabase
-    .from("assigned_workouts")
+    .from("assignments")
     .select("id, name, assigned_at")
     .eq("client_id", clientId)
+    .eq("type", "workout")
     .order("assigned_at", { ascending: false });
 
   if (error) throw new Error(`Failed to load assigned workouts: ${error.message}`);
@@ -299,10 +303,10 @@ export async function fetchAssignedWorkoutExercisesForAssistant(
   assignedWorkoutId: string,
 ): Promise<AssignedExerciseSummary[]> {
   const { data, error } = await supabase
-    .from("assigned_workout_exercises")
+    .from("assignment_components")
     .select("id, name, sets, reps, weight_note, rest_seconds, tempo, notes")
     .eq("client_id", clientId)
-    .eq("assigned_workout_id", assignedWorkoutId)
+    .eq("assignment_id", assignedWorkoutId)
     .order("order_index");
 
   if (error) throw new Error(`Failed to load assigned workout exercises: ${error.message}`);

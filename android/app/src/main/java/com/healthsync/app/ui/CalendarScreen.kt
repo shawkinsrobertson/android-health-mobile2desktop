@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -95,6 +96,12 @@ fun CalendarScreen(clientId: String, authRepository: AuthRepository, onBack: () 
             )
         },
         containerColor = Color.Transparent,
+        // contentColor is explicit because Transparent isn't a role
+        // Surface/Scaffold can map to an "on-X" text color on its own --
+        // see HomeScreen.kt's Surface for the fuller explanation of this
+        // exact failure mode (every Text without its own explicit color
+        // silently renders black/unreadable instead of theme-correct).
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -129,10 +136,13 @@ fun CalendarScreen(clientId: String, authRepository: AuthRepository, onBack: () 
                 )
                 Spacer(Modifier.height(8.dp))
             }
-            Button(onClick = {
-                val uri = Uri.parse("${BuildConfig.DASHBOARD_URL}/dashboard/calendar")
-                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            }) {
+            Button(
+                modifier = Modifier.widthIn(min = 220.dp),
+                onClick = {
+                    val uri = Uri.parse("${BuildConfig.DASHBOARD_URL}/dashboard/calendar")
+                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                },
+            ) {
                 Text(if (currentConnection != null) "Manage in browser" else "Connect Google Calendar")
             }
 

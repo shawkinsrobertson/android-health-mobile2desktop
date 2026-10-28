@@ -56,9 +56,10 @@ export async function createDocument(formData: FormData) {
     }
 
     const { data, error } = await supabase
-      .from("library_documents")
+      .from("templates")
       .insert({
         coach_id: coach.id,
+        type: "document",
         name,
         description,
         document_type: documentType,
@@ -92,9 +93,10 @@ export async function updateDocument(documentId: string, formData: FormData) {
   const supabase = await createClient();
 
   const { data: existing } = await supabase
-    .from("library_documents")
+    .from("templates")
     .select("document_type, file_path")
     .eq("id", documentId)
+    .eq("type", "document")
     .eq("coach_id", coach.id)
     .single();
 
@@ -124,9 +126,10 @@ export async function updateDocument(documentId: string, formData: FormData) {
     }
 
     const { error } = await supabase
-      .from("library_documents")
+      .from("templates")
       .update(update)
       .eq("id", documentId)
+      .eq("type", "document")
       .eq("coach_id", coach.id);
 
     if (error) throw new Error(error.message);
@@ -144,9 +147,10 @@ export async function deleteDocument(documentId: string) {
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("library_documents")
+    .from("templates")
     .delete()
     .eq("id", documentId)
+    .eq("type", "document")
     .eq("coach_id", coach.id);
 
   if (error) {
@@ -166,9 +170,10 @@ export async function publishDocument(documentId: string) {
   const supabase = await createClient();
 
   await supabase
-    .from("library_documents")
+    .from("templates")
     .update({ status: "published" })
     .eq("id", documentId)
+    .eq("type", "document")
     .eq("coach_id", coach.id);
 
   revalidatePath(LIST_PATH);

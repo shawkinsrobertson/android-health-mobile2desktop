@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,10 @@ fun LoginScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("Sign in") }) },
         containerColor = Color.Transparent,
+        // See HomeScreen.kt's Surface comment -- Transparent has no "on-X"
+        // text color Scaffold can infer, so this has to be explicit or
+        // every Text without its own color silently renders black.
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -69,6 +74,7 @@ fun LoginScreen(
                 Spacer(Modifier.height(12.dp))
             }
             Button(
+                modifier = Modifier.widthIn(min = 128.dp),
                 onClick = {
                     val trimmed = email.trim()
                     submitting = true

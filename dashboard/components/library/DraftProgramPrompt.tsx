@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 // Coach-level entry point for drafting a multi-workout program from a
 // text prompt -- same shape as DraftWorkoutPrompt.tsx, not tied to any
-// client. On success the new draft (library_programs.status = 'draft')
+// client. On success the new draft (templates.status = 'draft')
 // is immediately visible in the list below, and the coach is taken
 // straight to it to review.
 export function DraftProgramPrompt() {

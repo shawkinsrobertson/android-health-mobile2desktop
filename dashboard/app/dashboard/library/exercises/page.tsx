@@ -28,8 +28,9 @@ export default async function ExerciseLibraryPage({
 
   const supabase = await createClient();
   let query = supabase
-    .from("library_exercises")
+    .from("templates")
     .select("id, name, category, photo_path, photo_url, coach_id")
+    .eq("type", "exercise")
     .order("name");
   if (q) {
     // Matches name or category -- a coach searching "squat" or "legs"

@@ -27,29 +27,30 @@ export default async function AssignedWorkoutPage({
   const supabase = await createClient();
 
   const { data: workout, error } = await supabase
-    .from("assigned_workouts")
+    .from("assignments")
     .select(
-      "id, name, description, photo_path, photo_url, video_path, video_url, assigned_at, source_library_workout_id",
+      "id, name, description, photo_path, photo_url, video_path, video_url, assigned_at, source_template_id",
     )
     .eq("id", params.assignedWorkoutId)
     .eq("client_id", params.clientId)
     .eq("coach_id", coach.id)
+    .eq("type", "workout")
     .single();
 
   if (error || !workout) redirect(`/dashboard/clients/${params.clientId}`);
 
   const [{ data: exerciseRows }, { data: blockRows }] = await Promise.all([
     supabase
-      .from("assigned_workout_exercises")
+      .from("assignment_components")
       .select(
-        "id, order_index, block_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
       )
-      .eq("assigned_workout_id", workout.id)
+      .eq("assignment_id", workout.id)
       .order("order_index"),
     supabase
-      .from("assigned_workout_blocks")
+      .from("assignment_component_groups")
       .select("id, block_type, rounds, notes")
-      .eq("assigned_workout_id", workout.id),
+      .eq("assignment_id", workout.id),
   ]);
 
   const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];
@@ -58,11 +59,12 @@ export default async function AssignedWorkoutPage({
   const [{ photoUrl, videoUrl }, exerciseMedia, sourceStillExists] = await Promise.all([
     resolveMediaPair(supabase, workout),
     Promise.all(exercises.map((e) => resolveMediaPair(supabase, e))),
-    workout.source_library_workout_id
+    workout.source_template_id
       ? supabase
-          .from("library_workouts")
+          .from("templates")
           .select("id")
-          .eq("id", workout.source_library_workout_id)
+          .eq("id", workout.source_template_id)
+          .eq("type", "workout")
           .eq("coach_id", coach.id)
           .maybeSingle()
           .then((r) => !!r.data)
@@ -106,7 +108,7 @@ export default async function AssignedWorkoutPage({
             <>
               {" · "}
               <Link
-                href={`/dashboard/library/workouts/${workout.source_library_workout_id}`}
+                href={`/dashboard/library/workouts/${workout.source_template_id}`}
                 className="underline hover:text-ink-primary"
               >
                 originally from your library

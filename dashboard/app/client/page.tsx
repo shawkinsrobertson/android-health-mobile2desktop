@@ -53,16 +53,17 @@ export default async function ClientDashboardPage() {
   // every other "assigned workouts" list in the app already uses.
   const [{ data: nextWorkout }, { data: recentSessionsRaw }] = await Promise.all([
     supabase
-      .from("assigned_workouts")
+      .from("assignments")
       .select("id, name, photo_path, photo_url, video_path, video_url")
       .eq("client_id", profile.id)
-      .is("assigned_program_id", null)
+      .eq("type", "workout")
+      .is("parent_assignment_id", null)
       .order("assigned_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabase
       .from("workout_sessions")
-      .select("id, assigned_workout_id, completed_at, started_at, total_paused_seconds, assigned_workouts(name)")
+      .select("id, assigned_workout_id, completed_at, started_at, total_paused_seconds, assigned_workouts:assignments(name)")
       .eq("client_id", profile.id)
       .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
@@ -75,9 +76,9 @@ export default async function ClientDashboardPage() {
     ? await Promise.all([
         resolveMediaPair(supabase, nextWorkout),
         supabase
-          .from("assigned_workout_exercises")
+          .from("assignment_components")
           .select("id", { count: "exact", head: true })
-          .eq("assigned_workout_id", nextWorkout.id),
+          .eq("assignment_id", nextWorkout.id),
       ])
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;

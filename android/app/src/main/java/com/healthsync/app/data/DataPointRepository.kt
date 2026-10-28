@@ -10,7 +10,10 @@ data class DataPoint(val key: String, val label: String)
 // Mirrors dashboard/app/client/data-points.ts exactly -- same 8 keys, same
 // order, same labels -- since client_profiles.top_data_points stores keys
 // from this exact list and both platforms need to agree on what each one
-// means and is called.
+// means and is called. This is the client-facing consent/display taxonomy
+// (also shared with client_data_consent.data_type) -- deliberately a
+// *different* namespace from metrics.metric_type (the storage-layer
+// discriminator from supabase/migrations/0035_metrics.sql), mapped below.
 val DATA_POINTS = listOf(
     DataPoint("steps", "Steps"),
     DataPoint("heart_rate_samples", "Heart rate"),
@@ -24,6 +27,18 @@ val DATA_POINTS = listOf(
 
 fun labelFor(key: String): String = DATA_POINTS.firstOrNull { it.key == key }?.label ?: key
 
+// dataPointKey (the consent/display taxonomy above) -> metrics.metric_type.
+private val METRIC_TYPE_BY_DATA_POINT = mapOf(
+    "steps" to "steps",
+    "heart_rate_samples" to "heart_rate",
+    "sleep_sessions" to "sleep_session",
+    "exercise_sessions" to "exercise_session",
+    "blood_oxygen" to "blood_oxygen",
+    "blood_pressure" to "blood_pressure",
+    "respiratory_rate" to "respiratory_rate",
+    "blood_glucose" to "blood_glucose",
+)
+
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
 /**
@@ -36,48 +51,46 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
  * for the steps case (a day with two source apps writing overlapping
  * ranges will double-count here, same accepted "rough trends, not exact
  * totals" tradeoff already made for this app's Stats screen).
+ *
+ * Queries the unified `metrics` table (0035_metrics.sql), filtered by
+ * `metric_type`, selecting the whole jsonb `value` column rather than a
+ * PostgREST json-path projection -- type-specific fields are read back out
+ * of the nested JSONObject in Kotlin below instead of relying on
+ * `->>`/cast query-string syntax.
  */
 class DataPointRepository(private val supabase: SupabaseRestClient) {
 
     suspend fun getSummary(clientId: String, dataPointKey: String): String {
         val since = ISO_INSTANT.format(Instant.now().minusSeconds(7 * 86_400L))
+        val metricType = METRIC_TYPE_BY_DATA_POINT[dataPointKey] ?: return "No data synced yet"
+
+        suspend fun metricRows(select: String, extraFilters: Map<String, String> = emptyMap()): JSONArray =
+            supabase.select(
+                "metrics",
+                mapOf(
+                    "select" to select,
+                    "client_id" to "eq.$clientId",
+                    "metric_type" to "eq.$metricType",
+                ) + extraFilters,
+            )
 
         return when (dataPointKey) {
             "steps" -> {
-                val rows = supabase.select(
-                    "steps",
-                    mapOf(
-                        "select" to "count",
-                        "client_id" to "eq.$clientId",
-                        "start_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
                 if (rows.length() == 0) return "No steps synced yet"
                 val total = sumInts(rows, "count")
                 "${total.thousands()} steps this week"
             }
             "heart_rate_samples" -> {
-                val rows = supabase.select(
-                    "heart_rate_samples",
-                    mapOf(
-                        "select" to "bpm",
-                        "client_id" to "eq.$clientId",
-                        "sample_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
                 if (rows.length() == 0) return "No heart rate data synced yet"
                 val avg = averageDouble(rows, "bpm")
                 "${Math.round(avg)} bpm avg this week"
             }
             "sleep_sessions" -> {
-                val rows = supabase.select(
-                    "sleep_sessions",
-                    mapOf(
-                        "select" to "start_time,end_time",
-                        "client_id" to "eq.$clientId",
-                        "start_time" to "gte.$since",
-                        "order" to "start_time.asc",
-                    ),
+                val rows = metricRows(
+                    "start_time,end_time",
+                    mapOf("start_time" to "gte.$since", "order" to "start_time.asc"),
                 )
                 if (rows.length() == 0) return "No sleep data synced yet"
                 val last = rows.getJSONObject(rows.length() - 1)
@@ -88,66 +101,30 @@ class DataPointRepository(private val supabase: SupabaseRestClient) {
                 "${Math.round(hours * 10) / 10.0}h last night"
             }
             "exercise_sessions" -> {
-                val rows = supabase.select(
-                    "exercise_sessions",
-                    mapOf(
-                        "select" to "id",
-                        "client_id" to "eq.$clientId",
-                        "start_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("id", mapOf("start_time" to "gte.$since"))
                 val count = rows.length()
                 "$count workout${if (count == 1) "" else "s"} this week"
             }
             "blood_oxygen" -> {
-                val rows = supabase.select(
-                    "blood_oxygen",
-                    mapOf(
-                        "select" to "percentage",
-                        "client_id" to "eq.$clientId",
-                        "sample_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
                 if (rows.length() == 0) return "No SpO2 data synced yet"
                 val avg = averageDouble(rows, "percentage")
                 "${Math.round(avg * 10) / 10.0}% avg SpO2 this week"
             }
             "blood_pressure" -> {
-                val rows = supabase.select(
-                    "blood_pressure",
-                    mapOf(
-                        "select" to "systolic_mmhg,diastolic_mmhg,sample_time",
-                        "client_id" to "eq.$clientId",
-                        "order" to "sample_time.desc",
-                        "limit" to "1",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("order" to "start_time.desc", "limit" to "1"))
                 if (rows.length() == 0) return "No blood pressure data synced yet"
-                val last = rows.getJSONObject(0)
+                val last = rows.getJSONObject(0).getJSONObject("value")
                 "${last.getInt("systolic_mmhg")}/${last.getInt("diastolic_mmhg")} mmHg (most recent)"
             }
             "respiratory_rate" -> {
-                val rows = supabase.select(
-                    "respiratory_rate",
-                    mapOf(
-                        "select" to "breaths_per_minute",
-                        "client_id" to "eq.$clientId",
-                        "sample_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
                 if (rows.length() == 0) return "No respiratory rate data synced yet"
                 val avg = averageDouble(rows, "breaths_per_minute")
                 "${Math.round(avg * 10) / 10.0} breaths/min avg this week"
             }
             "blood_glucose" -> {
-                val rows = supabase.select(
-                    "blood_glucose",
-                    mapOf(
-                        "select" to "level_mg_dl",
-                        "client_id" to "eq.$clientId",
-                        "sample_time" to "gte.$since",
-                    ),
-                )
+                val rows = metricRows("value", mapOf("start_time" to "gte.$since"))
                 if (rows.length() == 0) return "No blood glucose data synced yet"
                 val avg = averageDouble(rows, "level_mg_dl")
                 "${Math.round(avg)} mg/dL avg this week"
@@ -159,13 +136,13 @@ class DataPointRepository(private val supabase: SupabaseRestClient) {
 
 private fun sumInts(rows: JSONArray, field: String): Long {
     var sum = 0L
-    for (i in 0 until rows.length()) sum += rows.getJSONObject(i).optLong(field, 0)
+    for (i in 0 until rows.length()) sum += rows.getJSONObject(i).getJSONObject("value").optLong(field, 0)
     return sum
 }
 
 private fun averageDouble(rows: JSONArray, field: String): Double {
     var sum = 0.0
-    for (i in 0 until rows.length()) sum += rows.getJSONObject(i).optDouble(field, 0.0)
+    for (i in 0 until rows.length()) sum += rows.getJSONObject(i).getJSONObject("value").optDouble(field, 0.0)
     return sum / rows.length()
 }
 

@@ -15,8 +15,8 @@ import type { AssistantToolContext } from "@/lib/assistant-tools";
 // nothing else -- see lib/proposals.ts for why. The workout/program
 // drafting tools pulled in below are the exception: they follow the
 // Stage 4/5/8 convention instead, writing a real status='draft' row
-// directly into library_workouts/library_programs (reviewed on the real
-// Workouts/Programs pages, not a proposal queue) -- but the one thing
+// directly into templates (reviewed on the real Workouts/Programs
+// pages, not a proposal queue) -- but the one thing
 // both patterns share is the same guarantee this file exists to
 // enforce: nothing here ever assigns anything to a client, and nothing
 // becomes visible to one without an explicit, separate coach action.
@@ -92,10 +92,11 @@ export function buildWriteTools(ctx: AssistantToolContext) {
       }),
       run: async ({ assignedWorkoutId, summary, changes }) => {
         const { data: workout } = await ctx.supabase
-          .from("assigned_workouts")
+          .from("assignments")
           .select("name")
           .eq("id", assignedWorkoutId)
           .eq("client_id", ctx.clientId)
+          .eq("type", "workout")
           .single();
         if (!workout) throw new Error("Assigned workout not found");
 
@@ -117,10 +118,10 @@ export function buildWriteTools(ctx: AssistantToolContext) {
             }
 
             const { data: existing } = await ctx.supabase
-              .from("assigned_workout_exercises")
+              .from("assignment_components")
               .select("name, sets, reps, weight_note, rest_seconds, tempo, notes")
               .eq("id", change.exerciseId)
-              .eq("assigned_workout_id", assignedWorkoutId)
+              .eq("assignment_id", assignedWorkoutId)
               .single();
             if (!existing) throw new Error(`Exercise ${change.exerciseId} not found in this workout`);
 

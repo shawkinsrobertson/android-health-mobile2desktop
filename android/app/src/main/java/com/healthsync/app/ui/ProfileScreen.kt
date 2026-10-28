@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -102,6 +103,10 @@ fun ProfileScreen(
             )
         },
         containerColor = Color.Transparent,
+        // See HomeScreen.kt's Surface comment -- Transparent has no "on-X"
+        // text color Scaffold can infer, so this has to be explicit or
+        // every Text without its own color silently renders black.
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -122,7 +127,11 @@ fun ProfileScreen(
             Spacer(Modifier.height(20.dp))
             Text("Sync", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { lastAction = "sync"; onSyncNow() }, enabled = !isSyncing) {
+            TextButton(
+                modifier = Modifier.widthIn(min = 112.dp),
+                onClick = { lastAction = "sync"; onSyncNow() },
+                enabled = !isSyncing,
+            ) {
                 Text(if (isSyncing) "Syncing…" else if (justSynced) "Synced ✓" else "Sync now")
             }
             lastResult?.let { result ->
@@ -140,7 +149,11 @@ fun ProfileScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-            TextButton(onClick = { confirmingResync = true }, enabled = !isSyncing) {
+            TextButton(
+                modifier = Modifier.widthIn(min = 176.dp),
+                onClick = { confirmingResync = true },
+                enabled = !isSyncing,
+            ) {
                 Text(if (isSyncing) "Syncing…" else if (justResynced) "Synced ✓" else "Force full re-sync")
             }
             Text(

@@ -8,10 +8,10 @@ import { buildWorkoutDraftTools } from "@/lib/workout-drafting";
 // #4 -- the coach asked for a multi-workout running program, which Stage
 // 4's single-workout drafting couldn't produce). Same draft/review/
 // publish pattern as workouts/documents: writes directly into
-// library_programs/library_program_workouts with status='draft'
-// (migration 0031), not into ai_assistant_proposals, and a draft program
+// templates/template_components (type='program') with status='draft'
+// (migration 0033), not into ai_assistant_proposals, and a draft program
 // is excluded from every assignment picker until the coach publishes it
-// (see the page.tsx files that list library_programs for assignment).
+// (see the page.tsx files that list templates for assignment).
 //
 // A program is built out of workouts, so this reuses
 // buildWorkoutDraftTools from lib/workout-drafting.ts rather than
@@ -62,8 +62,9 @@ function buildProgramDraftTools(
       inputSchema: z.object({}),
       run: async () => {
         const { data } = await supabase
-          .from("library_workouts")
+          .from("templates")
           .select("id, name, status")
+          .eq("type", "workout")
           .eq("coach_id", coachId)
           .order("name");
         return JSON.stringify(data ?? []);
@@ -98,18 +99,18 @@ function buildProgramDraftTools(
       }),
       run: async ({ name, description, workouts }) => {
         const { data: program, error: programError } = await supabase
-          .from("library_programs")
-          .insert({ coach_id: coachId, name, description: description ?? null, status: "draft" })
+          .from("templates")
+          .insert({ coach_id: coachId, type: "program", name, description: description ?? null, status: "draft" })
           .select("id")
           .single();
         if (programError || !program) throw new Error(programError?.message ?? "Failed to create draft program");
 
         for (let i = 0; i < workouts.length; i++) {
           const w = workouts[i];
-          await supabase.from("library_program_workouts").insert({
+          await supabase.from("template_components").insert({
             coach_id: coachId,
-            program_id: program.id,
-            workout_id: w.workoutId,
+            parent_id: program.id,
+            child_id: w.workoutId,
             order_index: i,
             week_number: w.weekNumber ?? null,
             day_of_week: w.dayOfWeek ?? null,
