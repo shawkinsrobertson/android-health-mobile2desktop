@@ -54,15 +54,19 @@ private val ITEM_SPACING = 6.dp
 // inbox/stats/profile) with the same toggle arrow now at the *end* of the
 // row, tapping it again collapses back to just the round button -- per
 // the mockup, where the collapsed state's lone circular arrow button
-// visually IS the expanded pill's trailing arrow icon.
+// visually IS the expanded pill's trailing arrow icon. Selecting a
+// destination does NOT collapse the pill as a side effect -- expand/
+// collapse is driven only by the toggle button itself, independent of
+// navigation, so the nav's open/closed state reflects what the user last
+// chose, not what screen they happen to be on.
 //
-// [expanded]/[onToggleExpanded] are hoisted by the caller (MainActivity)
-// rather than `remember`ed internally here, so the open/closed state
-// survives navigating to a destination and back to Home -- SlideOutNav
-// itself gets torn down and recomposed fresh on that round trip (it's
-// nested inside HomeScreen, which AuthNavHost's `composable(ROUTE_HOME)`
-// recreates every time Home is re-entered), so internal `remember` state
-// would have reset to closed on every return.
+// [expanded]/[onToggleExpanded] are hoisted by the caller (MainActivity,
+// rendered once as a persistent overlay above the nav graph rather than
+// nested inside any one screen) rather than `remember`ed internally
+// here, so the open/closed state survives navigating between
+// destinations -- a SlideOutNav `remember`ed inside a given screen would
+// reset every time that screen's own composable is torn down and
+// recreated by navigation.
 @Composable
 fun SlideOutNav(
     destinations: List<NavDestination>,
@@ -118,19 +122,13 @@ fun SlideOutNav(
                                 iconRes = destination.iconRes,
                                 contentDescription = destination.label,
                                 contentColor = if (destination.tinted) MaterialTheme.colorScheme.onPrimary else Color.Unspecified,
-                                onClick = {
-                                    onToggleExpanded()
-                                    destination.onClick()
-                                },
+                                onClick = destination.onClick,
                             )
                         } else {
                             NavGlyphButton(
                                 glyph = destination.glyph.orEmpty(),
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                                onClick = {
-                                    onToggleExpanded()
-                                    destination.onClick()
-                                },
+                                onClick = destination.onClick,
                             )
                         }
                     }

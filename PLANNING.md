@@ -2710,3 +2710,80 @@ mapping (no real device/emulator here to confirm against), and the
 whole feature generally, same standing limitation as every prior pass --
 no live Supabase project in this environment to confirm against real
 multi-source data.
+
+## Phase 22 -- Android: dashboard load time + persistent nav
+
+Two more reported Android behaviors, investigated and fixed directly
+(no multi-agent audit needed -- both root causes were findable by
+reading the existing code and its own comments).
+
+**Dashboard slow to load, on both first load and navigating back.**
+Two compounding causes, both in `SupabaseRestClient.kt`, so the fix
+benefits every screen's repository calls, not just Dashboard/Stats:
+
+1. Every `SupabaseRestClient` instance built its own fresh `OkHttpClient`
+   (10+ construction sites across the repositories). Square's own
+   guidance is that `OkHttpClient` should be a shared singleton -- it
+   owns a real connection pool and thread pool, and a fresh instance per
+   call throws away TCP/TLS connection reuse on every single request.
+   Fixed with a `by lazy` shared singleton (`sharedHttpClient`); each
+   `SupabaseRestClient`'s own `http` now just points at it.
+2. `select()`'s pagination loop was strictly sequential (`while(true) {
+   fetch page; await }`), even though the call itself already runs
+   concurrently with the dashboard's other queries via `async`. A dense
+   per-minute Garmin steps history over a 14-day window can need
+   5-10+ pages for one query alone. Fixed by fetching the first page
+   with `Prefer: count=exact`, reading the total row count straight off
+   PostgREST's `Content-Range` response header (no separate count
+   round-trip needed), and fetching every remaining page in parallel via
+   `async`/`awaitAll` instead of one at a time.
+
+No live device/emulator in this environment to measure the actual
+before/after latency -- verified via `compileDebugKotlin` only. This is
+an acknowledged limitation, not a claimed fix confirmed on-device.
+
+**Persistent nav, collapse/expand driven only by the user.** Two
+separate bugs, both architectural:
+
+1. *Auto-collapses on navigate.* `SlideOutNav.kt` baked an unconditional
+   `onToggleExpanded()` call into every destination button's `onClick`
+   (previously "by design," per that file's own prior comment). Removed
+   it -- selecting a destination now only calls `destination.onClick`;
+   expand/collapse is driven solely by the dedicated toggle button,
+   independent of navigation.
+2. *Doesn't persist across screens.* `SlideOutNav` was only ever composed
+   inside `HomeScreen` -- every other screen (Dashboard/Workout/Calendar/
+   Inbox/Profile) had no nav chrome at all. Fixed by hoisting it out of
+   `HomeScreen` entirely and into `MainActivity`'s top-level composition,
+   rendered once as a persistent overlay (a sibling of `AuthNavHost` in
+   the same outer `Box`), gated on `role == "client" && userId != null`
+   to keep coach accounts nav-free exactly as before. `AuthNavHost.kt`'s
+   `dashboardRoute`/`workoutRoute`/`calendarRoute`/`inboxRoute` helpers
+   became public so `MainActivity` can build the same routes directly.
+   A `navigateTopLevel()` extension (`launchSingleTop` +
+   `popUpTo(ROUTE_HOME, saveState = true)` + `restoreState = true`, the
+   standard Jetpack Navigation Compose persistent-nav pattern) keeps the
+   back stack from growing unboundedly now that the nav can jump between
+   top-level destinations from anywhere, not just from Home.
+
+Hoisting the nav required hoisting its `expanded` state too -- now
+`rememberSaveable` (survives process death, not just in-session
+navigation) at the `MainActivity` level instead of `remember`ed inside
+`HomeScreen`. That in turn meant hoisting `userId`/`role`/`displayName`/
+`homeSummary` and their fetch out of `HomeScreen`'s own composable scope
+(which only exists while `ROUTE_HOME` is the active destination) up to
+the same level, since the nav needs `role`/`userId` to decide whether to
+render at all, regardless of which screen is showing. A deliberate bonus
+side effect: Home's role/summary data is no longer re-fetched from
+scratch every time a client navigates back to Home -- the same class of
+fix as the dashboard load-time issue above, just for Home specifically.
+
+Verified: `compileDebugKotlin`/`lintDebug` both clean across all four
+touched files (`SupabaseRestClient.kt`, `SlideOutNav.kt`,
+`AuthNavHost.kt`, `HomeScreen.kt`, `MainActivity.kt`); the lone lint hit
+in `MainActivity.kt` (`Uri.parse` vs `String.toUri`) is a pre-existing
+style suggestion unrelated to this change. As with the load-time fix
+above, there's no device/emulator here to confirm the nav's actual
+on-device feel (expand/collapse persistence across real navigation,
+animation smoothness) -- only compile, lint, and direct code review are
+available as verification in this environment.

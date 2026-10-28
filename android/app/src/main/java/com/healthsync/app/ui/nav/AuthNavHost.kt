@@ -22,10 +22,15 @@ private const val ROUTE_INBOX = "inbox/{clientId}"
 private const val ROUTE_COMING_SOON = "coming_soon/{title}"
 
 private fun verifyCodeRoute(email: String) = "verify_code/${Uri.encode(email)}"
-private fun dashboardRoute(clientId: String) = "dashboard/${Uri.encode(clientId)}"
-private fun workoutRoute(clientId: String) = "workout/${Uri.encode(clientId)}"
-private fun calendarRoute(clientId: String) = "calendar/${Uri.encode(clientId)}"
-private fun inboxRoute(clientId: String) = "inbox/${Uri.encode(clientId)}"
+// Public -- MainActivity's persistent nav (rendered once, above the nav
+// graph, see HomeScreen.kt's old doc comment for why it moved there)
+// builds these same routes directly via navController.navigate() rather
+// than going through HomeNavCallbacks, which only ever existed for
+// ROUTE_HOME's own content.
+fun dashboardRoute(clientId: String) = "dashboard/${Uri.encode(clientId)}"
+fun workoutRoute(clientId: String) = "workout/${Uri.encode(clientId)}"
+fun calendarRoute(clientId: String) = "calendar/${Uri.encode(clientId)}"
+fun inboxRoute(clientId: String) = "inbox/${Uri.encode(clientId)}"
 fun comingSoonRoute(title: String) = "coming_soon/${Uri.encode(title)}"
 
 // Bundled rather than four positional lambdas -- HomeScreen's SlideOutNav

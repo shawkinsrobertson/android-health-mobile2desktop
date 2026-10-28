@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -20,6 +22,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -42,11 +46,34 @@ import com.healthsync.app.ui.InboxScreen
 import com.healthsync.app.ui.ProfileScreen
 import com.healthsync.app.ui.WorkoutScreen
 import com.healthsync.app.ui.nav.AuthNavHost
+import com.healthsync.app.ui.nav.NavDestination
 import com.healthsync.app.ui.nav.ROUTE_HOME
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
+import com.healthsync.app.ui.nav.ROUTE_PROFILE
+import com.healthsync.app.ui.nav.SlideOutNav
+import com.healthsync.app.ui.nav.calendarRoute
+import com.healthsync.app.ui.nav.dashboardRoute
+import com.healthsync.app.ui.nav.inboxRoute
+import com.healthsync.app.ui.nav.workoutRoute
 import com.healthsync.app.ui.theme.HealthSyncTheme
 import com.healthsync.app.ui.theme.dashboardBackgroundBrush
 import kotlinx.coroutines.launch
+
+// Standard "persistent nav" navigation pattern -- without this, bouncing
+// between top-level destinations via the slide-out nav (Calendar ->
+// Inbox -> Calendar -> ... without ever returning to Home first) grows
+// the back stack unboundedly, since each hop would otherwise just be a
+// plain push. popUpTo(ROUTE_HOME) keeps Home as the floor every such hop
+// returns to on system back; saveState/restoreState keep each
+// destination's own scroll position etc. intact across hops rather than
+// resetting it every time.
+private fun NavHostController.navigateTopLevel(route: String) {
+    navigate(route) {
+        launchSingleTop = true
+        popUpTo(ROUTE_HOME) { saveState = true }
+        restoreState = true
+    }
+}
 
 /** Maps a finished manual-sync [WorkInfo] to the [SyncResult] shape the UI already knows how to render. */
 private fun WorkInfo.toSyncResult(): SyncResult? = when (state) {
@@ -120,6 +147,74 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Hoisted here, above AuthNavHost, rather than inside
+                // homeContent's own trailing lambda below -- that lambda
+                // is only composed while ROUTE_HOME is the active
+                // destination, so state declared inside it (as all of
+                // this used to be) got torn down and re-fetched from
+                // scratch every single time a client navigated away from
+                // Home and back. Living here instead means the fetch
+                // below runs once per signed-in session, and -- the
+                // actual reason it moved -- userId/role are available to
+                // build the persistent nav further down regardless of
+                // which screen is currently showing, not just Home.
+                var userId by remember { mutableStateOf<String?>(null) }
+                var role by remember { mutableStateOf<String?>(null) }
+                var displayName by remember { mutableStateOf<String?>(null) }
+                var homeSummary by remember { mutableStateOf<HomeSummary?>(null) }
+                // rememberSaveable (not plain remember) so the nav's
+                // open/closed state also survives process death
+                // (rotation, the system reclaiming a backgrounded app),
+                // not just in-session navigation between screens.
+                var navExpanded by rememberSaveable { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    val token = authRepository.getValidAccessToken()
+                    if (token == null) {
+                        // getValidAccessToken() clears the stored
+                        // session itself when it was GoTrue that
+                        // explicitly rejected the refresh token (see
+                        // its own doc comment) -- getUserId() still
+                        // returning something means this failure was
+                        // just a transient one (network, a 5xx) and
+                        // the session is fine, so leave the screen
+                        // alone rather than sign someone out over a
+                        // momentary connectivity blip.
+                        if (authRepository.getUserId() == null) {
+                            onSignOut()
+                        }
+                        return@LaunchedEffect
+                    }
+                    val id = authRepository.getUserId() ?: return@LaunchedEffect
+                    userId = id
+                    role = try {
+                        ProfileRepository(SupabaseRestClient(token)).loadRole(id)
+                    } catch (e: Exception) {
+                        "client"
+                    }
+                    if (role != "coach") {
+                        displayName = try {
+                            ProfileRepository(SupabaseRestClient(token)).loadDisplayName(id)
+                        } catch (e: Exception) {
+                            null
+                        }
+                        // loadSummary() itself already catches each of
+                        // its four sub-fetches independently and falls
+                        // back to empty/false per one -- this outer
+                        // catch is only a last-resort guard against
+                        // something failing before that point (e.g.
+                        // SupabaseRestClient's own init check). A
+                        // non-null empty HomeSummary is what actually
+                        // lets HomeScreen tell "still loading" apart
+                        // from "loaded, nothing to show."
+                        homeSummary = try {
+                            HomeSummaryRepository(SupabaseRestClient(token)).loadSummary(id)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                }
+
                 AuthNavHost(
                     navController = navController,
                     startDestination = if (loggedIn) ROUTE_HOME else ROUTE_LOGIN,
@@ -188,72 +283,14 @@ class MainActivity : ComponentActivity() {
 
                     val email by authRepository.emailFlow.collectAsState(initial = null)
 
-                    // Fetched once per Home composition, purely to decide
-                    // what this screen shows -- a coach sees their client
-                    // roster instead of the Health Connect/sync UI, since
-                    // coaches don't sync their own device data through
-                    // this app. Defaults to "client" on any failure (no
-                    // network, RLS surprise, etc.) so a signed-in client
-                    // is never stuck on a blank screen over this.
-                    var userId by remember { mutableStateOf<String?>(null) }
-                    var role by remember { mutableStateOf<String?>(null) }
-                    var displayName by remember { mutableStateOf<String?>(null) }
-                    var homeSummary by remember { mutableStateOf<HomeSummary?>(null) }
-                    // Hoisted here (not `remember`ed inside SlideOutNav)
-                    // so it survives navigating to a destination and back
-                    // to Home -- AuthNavHost's ROUTE_HOME composable, and
-                    // everything nested inside it including HomeScreen/
-                    // SlideOutNav, gets torn down and recreated on that
-                    // round trip; this val lives in MainActivity's own
-                    // composition, which doesn't.
-                    var navExpanded by rememberSaveable { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        val token = authRepository.getValidAccessToken()
-                        if (token == null) {
-                            // getValidAccessToken() clears the stored
-                            // session itself when it was GoTrue that
-                            // explicitly rejected the refresh token (see
-                            // its own doc comment) -- getUserId() still
-                            // returning something means this failure was
-                            // just a transient one (network, a 5xx) and
-                            // the session is fine, so leave the screen
-                            // alone rather than sign someone out over a
-                            // momentary connectivity blip.
-                            if (authRepository.getUserId() == null) {
-                                onSignOut()
-                            }
-                            return@LaunchedEffect
-                        }
-                        val id = authRepository.getUserId() ?: return@LaunchedEffect
-                        userId = id
-                        role = try {
-                            ProfileRepository(SupabaseRestClient(token)).loadRole(id)
-                        } catch (e: Exception) {
-                            "client"
-                        }
-                        if (role != "coach") {
-                            displayName = try {
-                                ProfileRepository(SupabaseRestClient(token)).loadDisplayName(id)
-                            } catch (e: Exception) {
-                                null
-                            }
-                            // loadSummary() itself already catches each of
-                            // its four sub-fetches independently and falls
-                            // back to empty/false per one -- this outer
-                            // catch is only a last-resort guard against
-                            // something failing before that point (e.g.
-                            // SupabaseRestClient's own init check). A
-                            // non-null empty HomeSummary is what actually
-                            // lets HomeScreen tell "still loading" apart
-                            // from "loaded, nothing to show."
-                            homeSummary = try {
-                                HomeSummaryRepository(SupabaseRestClient(token)).loadSummary(id)
-                            } catch (e: Exception) {
-                                null
-                            }
-                        }
-                    }
-
+                    // userId/role/displayName/homeSummary are hoisted
+                    // above AuthNavHost now (see the comment up there) --
+                    // this just reads them. role == null (still loading)
+                    // falls through to HomeScreen same as role == "client"
+                    // does, rather than a third branch here, since
+                    // HomeScreen already has its own "still loading"
+                    // states (hasPermissions == null, homeSummary == null)
+                    // to show meanwhile.
                     if (role == "coach") {
                         CoachHomeScreen(
                             authRepository = authRepository,
@@ -267,8 +304,6 @@ class MainActivity : ComponentActivity() {
                             hasPermissions = hasPermissions,
                             homeSummary = homeSummary,
                             displayName = displayName,
-                            navExpanded = navExpanded,
-                            onToggleNav = { navExpanded = !navExpanded },
                             onRequestPermissions = {
                                 permissionLauncher.launch(healthConnectManager.requiredPermissions)
                             },
@@ -276,14 +311,66 @@ class MainActivity : ComponentActivity() {
                                 val uri = Uri.parse("market://details?id=com.google.android.apps.healthdata")
                                 startActivity(Intent(Intent.ACTION_VIEW, uri))
                             },
-                            onOpenStats = { userId?.let { nav.onOpenDashboard(it) } },
                             onOpenWorkouts = { userId?.let { nav.onOpenWorkout(it) } },
                             onOpenCalendar = { userId?.let { nav.onOpenCalendar(it) } },
                             onOpenInbox = { userId?.let { nav.onOpenInbox(it) } },
                             onOpenCheckIn = { nav.onOpenComingSoon("Weekly check-in") },
-                            onOpenProfile = nav.onOpenProfile,
                         )
                     }
+                }
+
+                // Persistent slide-out nav -- rendered once, above the
+                // whole nav graph (a sibling of AuthNavHost in this same
+                // Box, drawn on top of it), instead of nested inside
+                // HomeScreen the way it used to be. That meant it only
+                // ever existed while Home itself was the active screen --
+                // every other destination (Dashboard/Workout/Calendar/
+                // Inbox/Profile) had no nav at all, not just a reset one.
+                // Living here instead makes it reachable, and keeps its
+                // expanded/collapsed state, from every one of those
+                // screens too. Coach accounts never had this nav
+                // (CoachHomeScreen has its own client-list UI instead) --
+                // gating on role == "client" preserves that, and also
+                // naturally keeps it off Login/VerifyCode, since role is
+                // still null pre-auth.
+                if (role == "client" && userId != null) {
+                    val id = userId!!
+                    SlideOutNav(
+                        destinations = listOf(
+                            NavDestination(
+                                "Workouts",
+                                iconRes = R.drawable.ic_dumbbell,
+                                onClick = { navController.navigateTopLevel(workoutRoute(id)) },
+                            ),
+                            NavDestination(
+                                "Calendar",
+                                iconRes = R.drawable.ic_calendar,
+                                onClick = { navController.navigateTopLevel(calendarRoute(id)) },
+                            ),
+                            NavDestination(
+                                "Inbox",
+                                iconRes = R.drawable.ic_inbox,
+                                onClick = { navController.navigateTopLevel(inboxRoute(id)) },
+                            ),
+                            NavDestination(
+                                "Stats",
+                                iconRes = R.drawable.ic_stats,
+                                onClick = { navController.navigateTopLevel(dashboardRoute(id)) },
+                            ),
+                            NavDestination(
+                                "Profile",
+                                iconRes = R.drawable.ic_profile_placeholder,
+                                tinted = false,
+                                onClick = { navController.navigateTopLevel(ROUTE_PROFILE) },
+                            ),
+                        ),
+                        expanded = navExpanded,
+                        onToggleExpanded = { navExpanded = !navExpanded },
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .navigationBarsPadding()
+                            .padding(16.dp),
+                    )
                 }
                 }
             }
