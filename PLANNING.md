@@ -2889,3 +2889,25 @@ a from-first-principles layout fix (the `BoxWithConstraints`/`minOf`
 cap directly eliminates the off-screen-toggle failure mode the previous
 fixed-width approach had no guard against), not one confirmed visually
 against the reported device.
+
+**Follow-up, same report:** the owner wasn't convinced a horizontal
+scroll inside a bottom-corner pill nav would read as discoverable to
+users, and asked instead to simply not show the icon for whatever
+screen the user is already on. That's a better fix anyway -- it means
+every one of the 6 screens shows at most 5 destinations at once (never
+"go to where you already are"), which is exactly the icon count that
+already fit comfortably before Home was added, so the Phase 24 scroll
+fallback becomes a rare safety net (still useful for a route outside
+the nav's own 6, like `ComingSoonScreen`, which currently shows all 6
+since none of them match it) rather than the everyday behavior.
+Implemented by making `AuthNavHost.kt`'s `ROUTE_DASHBOARD`/
+`ROUTE_WORKOUT`/`ROUTE_CALENDAR`/`ROUTE_INBOX` route *templates* public
+(alongside the route-builder functions, which already were) and reading
+`navController.currentBackStackEntryAsState()` in `MainActivity.kt` to
+filter each destination out of the list when its route matches the
+current one -- comparing against the template directly works because
+Navigation Compose's own `destination.route` is the template string
+(e.g. `"workout/{clientId}"`), not the resolved path with the real
+`clientId` filled in, so no argument-decoding is needed to compare.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean.

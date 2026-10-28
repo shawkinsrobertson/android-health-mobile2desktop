@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -47,9 +48,13 @@ import com.healthsync.app.ui.ProfileScreen
 import com.healthsync.app.ui.WorkoutScreen
 import com.healthsync.app.ui.nav.AuthNavHost
 import com.healthsync.app.ui.nav.NavDestination
+import com.healthsync.app.ui.nav.ROUTE_CALENDAR
+import com.healthsync.app.ui.nav.ROUTE_DASHBOARD
 import com.healthsync.app.ui.nav.ROUTE_HOME
+import com.healthsync.app.ui.nav.ROUTE_INBOX
 import com.healthsync.app.ui.nav.ROUTE_LOGIN
 import com.healthsync.app.ui.nav.ROUTE_PROFILE
+import com.healthsync.app.ui.nav.ROUTE_WORKOUT
 import com.healthsync.app.ui.nav.SlideOutNav
 import com.healthsync.app.ui.nav.calendarRoute
 import com.healthsync.app.ui.nav.dashboardRoute
@@ -340,40 +345,80 @@ class MainActivity : ComponentActivity() {
                 // still null pre-auth.
                 if (role == "client" && userId != null) {
                     val id = userId!!
+                    // The destination matching the screen currently on
+                    // top of the back stack is left out -- there's no
+                    // reason to offer an icon that just re-navigates to
+                    // where the user already is, and (the real motivation)
+                    // it keeps the nav down to at most 5 icons at a time
+                    // on every one of these six screens instead of always
+                    // reserving room for all 6, which is the width that
+                    // already fit comfortably before Home was added --
+                    // SlideOutNav's horizontal-scroll fallback becomes a
+                    // rare safety net for an unlisted route (e.g.
+                    // ComingSoonScreen) instead of the everyday case.
+                    // `currentBackStackEntryAsState()` reflects the route
+                    // *template* (e.g. "workout/{clientId}"), which is
+                    // exactly what ROUTE_WORKOUT etc. are -- no need to
+                    // decode the actual clientId argument to compare.
+                    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
                     SlideOutNav(
-                        destinations = listOf(
-                            NavDestination(
-                                "Home",
-                                iconRes = R.drawable.ic_home,
-                                onClick = { navController.navigateTopLevel(ROUTE_HOME) },
-                            ),
-                            NavDestination(
-                                "Workouts",
-                                iconRes = R.drawable.ic_dumbbell,
-                                onClick = { navController.navigateTopLevel(workoutRoute(id)) },
-                            ),
-                            NavDestination(
-                                "Calendar",
-                                iconRes = R.drawable.ic_calendar,
-                                onClick = { navController.navigateTopLevel(calendarRoute(id)) },
-                            ),
-                            NavDestination(
-                                "Inbox",
-                                iconRes = R.drawable.ic_inbox,
-                                onClick = { navController.navigateTopLevel(inboxRoute(id)) },
-                            ),
-                            NavDestination(
-                                "Stats",
-                                iconRes = R.drawable.ic_stats,
-                                onClick = { navController.navigateTopLevel(dashboardRoute(id)) },
-                            ),
-                            NavDestination(
-                                "Profile",
-                                iconRes = R.drawable.ic_profile_placeholder,
-                                tinted = false,
-                                onClick = { navController.navigateTopLevel(ROUTE_PROFILE) },
-                            ),
-                        ),
+                        destinations = buildList {
+                            if (currentRoute != ROUTE_HOME) {
+                                add(
+                                    NavDestination(
+                                        "Home",
+                                        iconRes = R.drawable.ic_home,
+                                        onClick = { navController.navigateTopLevel(ROUTE_HOME) },
+                                    ),
+                                )
+                            }
+                            if (currentRoute != ROUTE_WORKOUT) {
+                                add(
+                                    NavDestination(
+                                        "Workouts",
+                                        iconRes = R.drawable.ic_dumbbell,
+                                        onClick = { navController.navigateTopLevel(workoutRoute(id)) },
+                                    ),
+                                )
+                            }
+                            if (currentRoute != ROUTE_CALENDAR) {
+                                add(
+                                    NavDestination(
+                                        "Calendar",
+                                        iconRes = R.drawable.ic_calendar,
+                                        onClick = { navController.navigateTopLevel(calendarRoute(id)) },
+                                    ),
+                                )
+                            }
+                            if (currentRoute != ROUTE_INBOX) {
+                                add(
+                                    NavDestination(
+                                        "Inbox",
+                                        iconRes = R.drawable.ic_inbox,
+                                        onClick = { navController.navigateTopLevel(inboxRoute(id)) },
+                                    ),
+                                )
+                            }
+                            if (currentRoute != ROUTE_DASHBOARD) {
+                                add(
+                                    NavDestination(
+                                        "Stats",
+                                        iconRes = R.drawable.ic_stats,
+                                        onClick = { navController.navigateTopLevel(dashboardRoute(id)) },
+                                    ),
+                                )
+                            }
+                            if (currentRoute != ROUTE_PROFILE) {
+                                add(
+                                    NavDestination(
+                                        "Profile",
+                                        iconRes = R.drawable.ic_profile_placeholder,
+                                        tinted = false,
+                                        onClick = { navController.navigateTopLevel(ROUTE_PROFILE) },
+                                    ),
+                                )
+                            }
+                        },
                         expanded = navExpanded,
                         onToggleExpanded = { navExpanded = !navExpanded },
                         // Extra bottom clearance beyond the usual 16dp --
