@@ -323,7 +323,7 @@ export default async function ClientDetailPage({
                   items={assignedWorkouts}
                   hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/workouts/${id}`}
                   assignLabel="Workout"
-                  emptyAssignLabel="No workouts in your library yet."
+                  createHref="/dashboard/library/workouts/new"
                   fieldName="workout_id"
                   options={libraryWorkouts}
                   action={assignWorkoutToClient.bind(null, params.clientId)}
@@ -333,7 +333,7 @@ export default async function ClientDetailPage({
                   items={assignedPrograms}
                   hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/programs/${id}`}
                   assignLabel="Program"
-                  emptyAssignLabel="No programs in your library yet."
+                  createHref="/dashboard/library/programs/new"
                   fieldName="program_id"
                   options={libraryPrograms}
                   action={assignProgramToClient.bind(null, params.clientId)}
@@ -343,7 +343,7 @@ export default async function ClientDetailPage({
                   items={assignedDocuments}
                   hrefFor={(id) => `/dashboard/clients/${params.clientId}/assigned/documents/${id}`}
                   assignLabel="Document"
-                  emptyAssignLabel="No documents in your library yet."
+                  createHref="/dashboard/library/documents/new"
                   fieldName="document_id"
                   options={libraryDocuments}
                   action={assignDocumentToClient.bind(null, params.clientId)}
@@ -420,7 +420,7 @@ function AssignedCategory({
   items,
   hrefFor,
   assignLabel,
-  emptyAssignLabel,
+  createHref,
   fieldName,
   options,
   action,
@@ -429,7 +429,7 @@ function AssignedCategory({
   items: AssignedRow[];
   hrefFor: (id: string) => string;
   assignLabel: string;
-  emptyAssignLabel: string;
+  createHref: string;
   fieldName: string;
   options: { id: string; name: string }[];
   action: (formData: FormData) => void | Promise<void>;
@@ -454,12 +454,12 @@ function AssignedCategory({
         </ul>
       )}
 
-      {options.length === 0 ? (
-        <p className="text-xs text-ink-muted">{emptyAssignLabel}</p>
-      ) : (
-        <form action={action} className="flex flex-col gap-1.5 border-t border-[color:var(--border-hairline)] pt-2">
-          <label className="text-xs font-medium text-ink-muted">+ Assign {assignLabel.toLowerCase()}</label>
-          <div className="flex gap-1.5">
+      <div className="flex flex-col gap-1.5 border-t border-[color:var(--border-hairline)] pt-2">
+        <Link href={createHref} className="text-xs font-medium text-ink-secondary hover:text-ink-primary">
+          + Create {assignLabel.toLowerCase()}
+        </Link>
+        {options.length > 0 && (
+          <form action={action} className="flex gap-1.5">
             <select
               name={fieldName}
               required
@@ -477,9 +477,9 @@ function AssignedCategory({
             >
               Assign
             </button>
-          </div>
-        </form>
-      )}
+          </form>
+        )}
+      </div>
     </div>
   );
 }
