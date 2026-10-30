@@ -44,9 +44,13 @@ export interface AssignEntryProps {
   workoutOptions: { id: string; name: string }[];
   programOptions: { id: string; name: string }[];
   documentOptions: { id: string; name: string }[];
-  assignWorkout: (formData: FormData) => void | Promise<void>;
-  assignProgram: (formData: FormData) => void | Promise<void>;
-  assignDocument: (formData: FormData) => void | Promise<void>;
+  // *Inline variants (assign-actions.ts) -- return the new assignment's
+  // id and never redirect, unlike the plain client-page picker's actions,
+  // so this modal can close back onto the calendar instead of navigating
+  // away from it.
+  assignWorkout: (formData: FormData) => Promise<string>;
+  assignProgram: (formData: FormData) => Promise<string>;
+  assignDocument: (formData: FormData) => Promise<string>;
 }
 
 export function CalendarCard({
@@ -130,6 +134,14 @@ export function CalendarCard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, range.start, range.end]);
+
+  // Re-fetches the currently visible range -- used after AssignScheduleModal
+  // assigns something new, so the calendar shows it immediately instead of
+  // the coach having to collapse/re-expand (or change view) to trigger the
+  // effect above again.
+  async function reloadItems() {
+    setItems(await fetchCalendarItems(scope, range));
+  }
 
   const upcoming = useMemo(() => {
     const now = new Date();
@@ -507,6 +519,7 @@ export function CalendarCard({
           assignWorkout={assignEntry.assignWorkout}
           assignProgram={assignEntry.assignProgram}
           assignDocument={assignEntry.assignDocument}
+          onAssigned={reloadItems}
           onClose={() => setAssigning(false)}
         />
       )}

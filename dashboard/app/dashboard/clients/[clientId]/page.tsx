@@ -11,7 +11,14 @@ import { DATA_POINTS, labelFor } from "@/app/client/data-points";
 import { PersonalRecordsList } from "@/components/PersonalRecordsList";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DataOverlayChart, type OverlaySeries } from "@/components/DataOverlayChart";
-import { assignWorkoutToClient, assignProgramToClient, assignDocumentToClient } from "./assign-actions";
+import {
+  assignWorkoutToClient,
+  assignProgramToClient,
+  assignDocumentToClient,
+  assignWorkoutToClientInline,
+  assignProgramToClientInline,
+  assignDocumentToClientInline,
+} from "./assign-actions";
 import { CoachNotes } from "@/components/CoachNotes";
 import type { CoachNoteRow } from "./notes-actions";
 import { ClientAssistantSidebar } from "@/components/ClientAssistantSidebar";
@@ -404,9 +411,9 @@ export default async function ClientDetailPage({
                 workoutOptions: libraryWorkouts,
                 programOptions: libraryPrograms,
                 documentOptions: libraryDocuments,
-                assignWorkout: assignWorkoutToClient.bind(null, params.clientId),
-                assignProgram: assignProgramToClient.bind(null, params.clientId),
-                assignDocument: assignDocumentToClient.bind(null, params.clientId),
+                assignWorkout: assignWorkoutToClientInline.bind(null, params.clientId),
+                assignProgram: assignProgramToClientInline.bind(null, params.clientId),
+                assignDocument: assignDocumentToClientInline.bind(null, params.clientId),
               }}
             />
           </>

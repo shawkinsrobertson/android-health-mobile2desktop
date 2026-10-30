@@ -107,16 +107,20 @@ export function DayList({
   );
 }
 
-// Background tint per kind for the small grid pills -- calls keep the
-// pre-existing accent tint; the three new kinds get their own semantic/
-// series color so a day cell with a mix of items reads at a glance,
-// matching the color tokens this app already has (WorkoutExerciseListEditor
-// uses --series-exercise the same way for its superset/circuit framing).
+// Solid background per kind for the grid pills, white text for contrast --
+// a Google-Calendar-style colored chip, not a faint tint (an arbitrary-
+// value opacity modifier like `/20` on a bare hex custom property is also
+// too subtle to read against this app's dark-mode cell background even
+// when it does render). Calls keep the pre-existing accent color; the
+// three new kinds get their own semantic/series color so a day cell with
+// a mix of items reads at a glance, matching the color tokens this app
+// already has (WorkoutExerciseListEditor uses --series-exercise the same
+// way for its superset/circuit framing).
 const KIND_TINT: Record<CalendarItemKind, string> = {
-  call: "bg-[color:var(--accent)]/20",
-  workout: "bg-[color:var(--series-exercise)]/20",
-  document: "bg-[color:var(--info)]/20",
-  check_in: "bg-[color:var(--warning)]/20",
+  call: "bg-[color:var(--accent)]",
+  workout: "bg-[color:var(--series-exercise)]",
+  document: "bg-[color:var(--info)]",
+  check_in: "bg-[color:var(--warning)]",
 };
 
 export function ItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (item: CalendarItem) => void }) {
@@ -124,9 +128,16 @@ export function ItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (it
     <button
       type="button"
       onClick={() => onSelect(item)}
-      className={`truncate rounded px-1 py-0.5 text-left text-xs text-ink-primary ${KIND_TINT[item.kind]}`}
+      // block + w-full + min-w-0 are all required for `truncate` to
+      // actually clip text instead of letting the button's intrinsic
+      // content width push past (and visually bleed into) the next grid
+      // cell -- a plain inline button has no definite width for
+      // text-overflow:ellipsis to clip against, and a grid/flex item's
+      // default min-width:auto lets it overflow its track instead of
+      // shrinking to fit.
+      className={`block w-full min-w-0 truncate rounded px-1.5 py-0.5 text-left text-xs text-white ${KIND_TINT[item.kind]}`}
     >
-      {item.completed && <span className="mr-0.5 text-[color:var(--success)]">✓</span>}
+      {item.completed && <span className="mr-0.5">✓</span>}
       {item.title}
     </button>
   );
@@ -156,7 +167,7 @@ function DraggableItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (
         opacity: isDragging ? 0.5 : 1,
         touchAction: "none",
       }}
-      className="cursor-grab active:cursor-grabbing"
+      className="w-full min-w-0 cursor-grab active:cursor-grabbing"
     >
       <ItemPill item={item} onSelect={onSelect} />
     </div>
@@ -222,7 +233,11 @@ export function WeekGrid({
           .filter((item) => item.date === key)
           .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
         return (
-          <DroppableDayCell key={key} id={key} className="min-h-[7rem] rounded-lg bg-[color:var(--page-plane)] p-1.5">
+          <DroppableDayCell
+            key={key}
+            id={key}
+            className="min-h-[7rem] min-w-0 overflow-hidden rounded-lg bg-[color:var(--page-plane)] p-1.5"
+          >
             <p className="mb-1 text-center text-xs font-medium text-ink-secondary">
               {WEEKDAY_LABELS[day.getDay()]} {day.getDate()}
             </p>
@@ -279,7 +294,7 @@ export function MonthGrid({
             <DroppableDayCell
               key={key}
               id={key}
-              className={`min-h-[4.5rem] rounded-lg p-1 ${inMonth ? "bg-[color:var(--page-plane)]" : "opacity-40"}`}
+              className={`min-h-[4.5rem] min-w-0 overflow-hidden rounded-lg p-1 ${inMonth ? "bg-[color:var(--page-plane)]" : "opacity-40"}`}
             >
               <button
                 type="button"
