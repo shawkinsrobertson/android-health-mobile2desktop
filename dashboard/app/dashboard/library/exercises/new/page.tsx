@@ -9,20 +9,26 @@ export const dynamic = "force-dynamic";
 export default async function NewExercisePage({
   searchParams,
 }: {
-  searchParams: { error?: string };
+  searchParams: { error?: string; returnTo?: string; name?: string };
 }) {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
   if (profile.role !== "coach") redirect("/client");
 
+  // Set when this page was reached from the "Create new exercise" result
+  // in a workout editor's exercise search (ExerciseSearchField) -- on
+  // success, createExercise sends the coach back there with the new
+  // exercise already added instead of to this exercise's own detail page.
+  const returnTo = searchParams.returnTo ?? "";
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
       <div>
         <Link
-          href="/dashboard/library/exercises"
+          href={returnTo || "/dashboard/library/exercises"}
           className="text-sm text-ink-secondary hover:text-ink-primary"
         >
-          ← Exercises
+          ← {returnTo ? "Back to workout" : "Exercises"}
         </Link>
         <h1 className="mt-1 text-lg font-semibold text-ink-primary">New exercise</h1>
       </div>
@@ -32,11 +38,15 @@ export default async function NewExercisePage({
           <p className="text-sm text-danger">{searchParams.error}</p>
         )}
 
+        <input type="hidden" name="returnTo" value={returnTo} />
+
         <label className="flex flex-col gap-1 text-sm text-ink-primary">
           Name
           <input
             name="name"
             required
+            autoFocus
+            defaultValue={searchParams.name ?? ""}
             className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm outline-none"
           />
         </label>

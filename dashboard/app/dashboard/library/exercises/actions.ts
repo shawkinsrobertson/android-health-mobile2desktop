@@ -14,12 +14,24 @@ async function requireCoach() {
   return profile;
 }
 
+// Only ever follows a same-origin relative path (set by this app's own
+// ExerciseSearchField, never arbitrary user input) -- still validated
+// before use so a returnTo can't be turned into an open redirect.
+function safeReturnTo(value: FormDataEntryValue | null): string | null {
+  const s = typeof value === "string" ? value.trim() : "";
+  return s.startsWith("/") && !s.startsWith("//") ? s : null;
+}
+
 export async function createExercise(formData: FormData) {
   const coach = await requireCoach();
 
+  const returnTo = safeReturnTo(formData.get("returnTo"));
   const name = String(formData.get("name") ?? "").trim();
   if (!name) {
-    redirect(`${LIST_PATH}/new?error=${encodeURIComponent("Name is required.")}`);
+    const back = returnTo
+      ? `${LIST_PATH}/new?returnTo=${encodeURIComponent(returnTo)}&name=${encodeURIComponent(name)}`
+      : `${LIST_PATH}/new`;
+    redirect(`${back}${back.includes("?") ? "&" : "?"}error=${encodeURIComponent("Name is required.")}`);
   }
 
   const category = String(formData.get("category") ?? "").trim() || null;
@@ -64,10 +76,17 @@ export async function createExercise(formData: FormData) {
     newId = data.id;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create exercise";
-    redirect(`${LIST_PATH}/new?error=${encodeURIComponent(message)}`);
+    const back = returnTo
+      ? `${LIST_PATH}/new?returnTo=${encodeURIComponent(returnTo)}&name=${encodeURIComponent(name)}`
+      : `${LIST_PATH}/new`;
+    redirect(`${back}${back.includes("?") ? "&" : "?"}error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath(LIST_PATH);
+  if (returnTo) {
+    revalidatePath(returnTo);
+    redirect(`${returnTo}?addExerciseId=${newId}`);
+  }
   redirect(`${LIST_PATH}/${newId}`);
 }
 

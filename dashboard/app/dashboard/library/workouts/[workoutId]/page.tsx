@@ -7,12 +7,38 @@ import { MediaUploadField } from "@/components/library/MediaUploadField";
 import {
   WorkoutExerciseListEditor,
   type WorkoutBlock,
+  type WorkoutExerciseActions,
   type WorkoutExerciseItem,
 } from "@/components/library/WorkoutExerciseListEditor";
 import { AssignToClientCard } from "@/components/library/AssignToClientCard";
 import { PublishDeleteActions } from "@/components/library/PublishDeleteActions";
-import { updateWorkout, deleteWorkout, publishWorkout } from "../actions";
+import {
+  updateWorkout,
+  deleteWorkout,
+  publishWorkout,
+  addWorkoutExercise,
+  updateWorkoutExercise,
+  removeWorkoutExercise,
+  reorderWorkoutExercises,
+  createWorkoutBlock,
+  updateWorkoutBlock,
+  ungroupWorkoutBlock,
+  deleteWorkoutBlock,
+  moveWorkoutUnit,
+} from "../actions";
 import { assignLibraryWorkoutToClient } from "../../assign-actions";
+
+const workoutExerciseActions: WorkoutExerciseActions = {
+  add: addWorkoutExercise,
+  update: updateWorkoutExercise,
+  remove: removeWorkoutExercise,
+  reorder: reorderWorkoutExercises,
+  createBlock: createWorkoutBlock,
+  updateBlock: updateWorkoutBlock,
+  ungroupBlock: ungroupWorkoutBlock,
+  deleteBlock: deleteWorkoutBlock,
+  moveUnit: moveWorkoutUnit,
+};
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +63,23 @@ export default async function WorkoutDetailPage({
   searchParams,
 }: {
   params: { workoutId: string };
-  searchParams: { error?: string };
+  searchParams: { error?: string; addExerciseId?: string };
 }) {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
   if (profile.role !== "coach") redirect("/client");
+
+  // Set by createExercise's returnTo redirect once an exercise created
+  // inline from this workout's "Create new exercise" search result is
+  // saved -- add it here, then redirect to the plain URL so a refresh
+  // doesn't add it twice and the rest of this page's normal fetch below
+  // picks up the new row like any other.
+  if (searchParams.addExerciseId) {
+    const formData = new FormData();
+    formData.set("exercise_id", searchParams.addExerciseId);
+    await addWorkoutExercise(params.workoutId, formData);
+    redirect(`/dashboard/library/workouts/${params.workoutId}`);
+  }
 
   const supabase = await createClient();
 
@@ -156,6 +194,7 @@ export default async function WorkoutDetailPage({
             <input
               name="name"
               required
+              autoFocus
               defaultValue={workout.name}
               className="rounded-lg border border-[color:var(--border-hairline)] bg-transparent px-3 py-2 text-sm outline-none"
             />
@@ -200,7 +239,9 @@ export default async function WorkoutDetailPage({
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
         <WorkoutExerciseListEditor
-          workoutId={workout.id}
+          targetId={workout.id}
+          actions={workoutExerciseActions}
+          returnTo={`/dashboard/library/workouts/${workout.id}`}
           items={items}
           blocks={blocks}
           availableExercises={((exercises ?? []) as { id: string; name: string; coach_id: string | null }[]).map(

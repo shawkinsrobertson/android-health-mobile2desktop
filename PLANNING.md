@@ -2963,3 +2963,96 @@ visually confirm the dropdown no longer clips behind the nav bar in
 practice -- this fix follows directly from disassembling the actual
 library code in use, not guesswork, but isn't confirmed on a real
 screen.
+
+## Phase 26 -- User-testing round 1: workout/exercise authoring redesign (web)
+
+Third (of four) fix from this round of user testing. Creating a workout
+used to be two separate pages -- `workouts/new` collected only title/
+media/description, then redirected to `workouts/[workoutId]`, the only
+place exercises could actually be added. The exercise picker there was
+a native `<select>` holding every exercise the coach can see (own +
+shared base library) as one giant list of `<option>`s -- no hard
+server-side cap, just the practical ceiling of a native dropdown once a
+library gets large. And an assigned workout -- a specific client's own
+copy -- had no editor anywhere; the only page for one was read-only.
+
+**One screen, not two.** `workouts/new/page.tsx` no longer has a form at
+all -- visiting it now just mints a blank `status: 'draft'` workout
+("New workout") and redirects straight to `workouts/[workoutId]`, the
+same screen used for editing, with `autoFocus` on the name field so the
+coach can immediately type over the placeholder. This is the same
+"create as a draft, then edit in place" shape already established for
+AI-drafted workouts (`lib/workout-drafting.ts`) -- confirmed that path
+already lands a coach on this exact screen too, so it picks up the
+merged flow with no changes of its own. The old `createWorkout` server
+action (form-based, only ever called from the now-gone form) was
+deleted rather than left unused.
+
+**Exercise search, not a dropdown.** New `ExerciseSearchField`
+component (`components/library/ExerciseSearchField.tsx`), shaped like
+the existing `calendar/TimeCombobox.tsx` (controlled input, `open`
+state, absolute-positioned results list, click-outside-to-close) but
+committing a picked exercise's *id* into a hidden form field rather
+than free text, so the surrounding `<form action={addWorkoutExercise}>`
+needed no changes beyond swapping the `<select>` out for this. Filters
+by plain substring ("contains") match against the full exercise list,
+loaded once and filtered client-side -- deliberately not debounced
+server search, since a coach's own + shared library is realistically in
+the low hundreds and trivially fast to filter in-browser; the fetch is
+isolated behind one prop so it can become a real debounced search later
+without touching the component, if a library ever actually grows past
+what's comfortable in memory. No match → a "Create new exercise" result
+row instead of an empty list.
+
+**Inline exercise creation, round-trips back to the workout.** No
+`returnTo` pattern existed anywhere in this app before. Added one:
+`ExerciseSearchField`'s "Create new exercise" row links to
+`exercises/new?returnTo=<workout URL>&name=<typed text>` (pre-filling
+the new exercise's name from what was already typed); `createExercise`
+reads `returnTo` (validated as same-origin-relative only, never an open
+redirect) and, on success, redirects to `${returnTo}?addExerciseId=<id>`
+instead of the exercise's own detail page. Each workout page checks for
+that query param on load, calls its own "add exercise" action with it,
+then redirects to its plain URL -- so a refresh never double-adds it,
+and the coach lands back exactly where they were building the workout,
+with the new exercise already in the list.
+
+**Editing an assigned workout's own exercises -- new capability,
+confirmed in scope with the user.** `assignments`/`assignment_
+components` already carry everything needed for this (per `0034_
+assignments.sql`'s own header comment, a client's assignment is a
+frozen *flattened copy*, not a join back to the template) and RLS
+already grants the coach full insert/update/delete on
+`assignment_components`/`assignment_component_groups`
+(`assignment_components_coach_all` etc.) -- confirmed before writing
+any code that no new migration was needed for this part, only
+application code. Added a full mirror of `workouts/actions.ts`'s nine
+exercise/block mutations in a new `assigned/workouts/
+[assignedWorkoutId]/actions.ts`, targeting `assignment_components`/
+`assignment_component_groups` (`assignment_id`, not `parent_id`) instead
+of `template_components`/`template_component_groups`, each taking
+`clientId` as a leading bound argument so the resulting function still
+matches the same `(targetId, ...)` shape the editor component expects.
+Adding a new exercise there copies the picked exercise's current
+display fields onto the new flattened row (name/instructions/media),
+the exact same copy `_assign_workout_snapshot` already does when a
+workout is first assigned, with `source_template_id` set to the picked
+exercise.
+
+**`WorkoutExerciseListEditor` is now one component serving both
+screens**, not two near-copies. Refactored it to take its nine
+mutation functions as an injected `actions` prop (`WorkoutExerciseActions`)
+and a generic `targetId` instead of importing `workouts/actions.ts`'s
+functions by name and hardcoding a `workoutId` -- the component itself
+never knew or cared whether an id was a workout's own or a client's
+assignment of one, so neither call site has to either. The template
+editor (`workouts/[workoutId]/page.tsx`) and the new assigned-workout
+editor each pass their own matching `actions` bundle.
+
+Verified: `tsc --noEmit`, `next lint`, and a full dummy-env `next build`
+(34/34 pages, no errors) all clean. No live Supabase project in this
+environment to exercise the actual search/returnTo/add flow end to end
+against real data, or to confirm the exercise list stays comfortably
+fast to filter at a real coach's library size -- both are implemented
+exactly as designed and verified by direct code review, not by running
+them live.

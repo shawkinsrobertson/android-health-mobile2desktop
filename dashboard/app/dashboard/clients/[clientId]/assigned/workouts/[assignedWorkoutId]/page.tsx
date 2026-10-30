@@ -4,7 +4,23 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaPair } from "@/lib/media";
 import { VideoPreview } from "@/components/library/VideoPreview";
-import { AssignedExerciseList, type AssignedBlock, type AssignedExerciseItem } from "@/components/library/AssignedExerciseList";
+import {
+  WorkoutExerciseListEditor,
+  type WorkoutBlock,
+  type WorkoutExerciseActions,
+  type WorkoutExerciseItem,
+} from "@/components/library/WorkoutExerciseListEditor";
+import {
+  addAssignedExercise,
+  updateAssignedExercise,
+  removeAssignedExercise,
+  reorderAssignedExercises,
+  createAssignedBlock,
+  updateAssignedBlock,
+  ungroupAssignedBlock,
+  deleteAssignedBlock,
+  moveAssignedUnit,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,16 +31,58 @@ interface SessionRow {
   notes: string | null;
 }
 
+interface AssignmentComponentRow {
+  id: string;
+  order_index: number;
+  group_id: string | null;
+  source_template_id: string | null;
+  name: string;
+  instructions: string | null;
+  sets: number | null;
+  reps: string | null;
+  prescription_type: "reps" | "time";
+  duration_seconds: number | null;
+  weight_note: string | null;
+  rest_seconds: number | null;
+  tempo: string | null;
+  notes: string | null;
+}
+
 export default async function AssignedWorkoutPage({
   params,
+  searchParams,
 }: {
   params: { clientId: string; assignedWorkoutId: string };
+  searchParams: { error?: string; addExerciseId?: string };
 }) {
   const coach = await getCurrentProfile();
   if (!coach) redirect("/login");
   if (coach.role !== "coach") redirect("/client");
 
+  const returnTo = `/dashboard/clients/${params.clientId}/assigned/workouts/${params.assignedWorkoutId}`;
+
+  // Mirrors [workoutId]/page.tsx's own handling of this query param --
+  // see ExerciseSearchField/createExercise's returnTo flow.
+  if (searchParams.addExerciseId) {
+    const formData = new FormData();
+    formData.set("exercise_id", searchParams.addExerciseId);
+    await addAssignedExercise(params.clientId, params.assignedWorkoutId, formData);
+    redirect(returnTo);
+  }
+
   const supabase = await createClient();
+
+  const workoutExerciseActions: WorkoutExerciseActions = {
+    add: addAssignedExercise.bind(null, params.clientId),
+    update: updateAssignedExercise.bind(null, params.clientId),
+    remove: removeAssignedExercise.bind(null, params.clientId),
+    reorder: reorderAssignedExercises.bind(null, params.clientId),
+    createBlock: createAssignedBlock.bind(null, params.clientId),
+    updateBlock: updateAssignedBlock.bind(null, params.clientId),
+    ungroupBlock: ungroupAssignedBlock.bind(null, params.clientId),
+    deleteBlock: deleteAssignedBlock.bind(null, params.clientId),
+    moveUnit: moveAssignedUnit.bind(null, params.clientId),
+  };
 
   const { data: workout, error } = await supabase
     .from("assignments")
@@ -39,11 +97,11 @@ export default async function AssignedWorkoutPage({
 
   if (error || !workout) redirect(`/dashboard/clients/${params.clientId}`);
 
-  const [{ data: exerciseRows }, { data: blockRows }] = await Promise.all([
+  const [{ data: componentRows }, { data: blockRows }, { data: exerciseRows }] = await Promise.all([
     supabase
       .from("assignment_components")
       .select(
-        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, group_id, source_template_id, name, instructions, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
       )
       .eq("assignment_id", workout.id)
       .order("order_index"),
@@ -51,14 +109,34 @@ export default async function AssignedWorkoutPage({
       .from("assignment_component_groups")
       .select("id, block_type, rounds, notes")
       .eq("assignment_id", workout.id),
+    // Same "own + shared" exercise list the template editor uses.
+    supabase.from("templates").select("id, name, coach_id").eq("type", "exercise").order("name"),
   ]);
 
-  const exercises = (exerciseRows ?? []) as AssignedExerciseItem[];
-  const blocks = (blockRows ?? []) as AssignedBlock[];
+  const items: WorkoutExerciseItem[] = ((componentRows ?? []) as AssignmentComponentRow[]).map((row) => ({
+    id: row.id,
+    exercise_id: row.source_template_id ?? row.id,
+    exercise_name: row.name,
+    order_index: row.order_index,
+    block_id: row.group_id,
+    sets: row.sets,
+    reps: row.reps,
+    prescription_type: row.prescription_type,
+    duration_seconds: row.duration_seconds,
+    weight_note: row.weight_note,
+    rest_seconds: row.rest_seconds,
+    tempo: row.tempo,
+    notes: row.notes,
+  }));
 
-  const [{ photoUrl, videoUrl }, exerciseMedia, sourceStillExists] = await Promise.all([
+  const blocks = (blockRows ?? []) as WorkoutBlock[];
+
+  const availableExercises = ((exerciseRows ?? []) as { id: string; name: string; coach_id: string | null }[]).map(
+    (e) => ({ id: e.id, name: e.name, shared: e.coach_id === null }),
+  );
+
+  const [{ photoUrl, videoUrl }, sourceStillExists] = await Promise.all([
     resolveMediaPair(supabase, workout),
-    Promise.all(exercises.map((e) => resolveMediaPair(supabase, e))),
     workout.source_template_id
       ? supabase
           .from("templates")
@@ -70,8 +148,6 @@ export default async function AssignedWorkoutPage({
           .then((r) => !!r.data)
       : Promise.resolve(false),
   ]);
-
-  const media = Object.fromEntries(exercises.map((e, i) => [e.id, exerciseMedia[i]]));
 
   const { data: sessionRows } = await supabase
     .from("workout_sessions")
@@ -116,7 +192,12 @@ export default async function AssignedWorkoutPage({
             </>
           )}
         </p>
+        <p className="mt-1 text-xs text-ink-muted">
+          Editing this client&apos;s own copy -- changes here apply only to this assignment, not your library workout.
+        </p>
       </div>
+
+      {searchParams.error && <p className="text-sm text-danger">{searchParams.error}</p>}
 
       {workout.description && <p className="text-sm text-ink-secondary">{workout.description}</p>}
 
@@ -128,7 +209,14 @@ export default async function AssignedWorkoutPage({
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-primary">Exercises</h2>
-        <AssignedExerciseList exercises={exercises} blocks={blocks} media={media} />
+        <WorkoutExerciseListEditor
+          targetId={workout.id}
+          actions={workoutExerciseActions}
+          returnTo={returnTo}
+          items={items}
+          blocks={blocks}
+          availableExercises={availableExercises}
+        />
       </section>
 
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
