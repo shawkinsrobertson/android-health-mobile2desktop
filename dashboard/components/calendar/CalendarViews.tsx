@@ -4,9 +4,27 @@
 // need the exact same month grid / agenda list rendering, just arranged
 // differently around them.
 
-import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import type { CalendarItem, CalendarItemKind } from "@/lib/calendar-items";
 import { isSameMonth, localDateKeyOf, monthGridDays, weekDays } from "@/lib/calendar-grid";
+
+// Without an activation constraint, PointerSensor starts a "drag" on any
+// pointer movement at all -- including the few px of jitter a normal
+// click/tap has -- which swallows the click event on ItemPill's own
+// button before it ever fires (a well-known dnd-kit gotcha). Requiring
+// 8px of movement before a drag activates lets a real click through
+// untouched while still recognizing a deliberate drag.
+function useCalendarDragSensors() {
+  return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+}
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -224,6 +242,7 @@ export function WeekGrid({
   onReschedule?: (item: CalendarItem, newDate: string) => void;
 }) {
   const days = weekDays(anchorDate);
+  const sensors = useCalendarDragSensors();
   const handleDragEnd = makeDragEndHandler(onReschedule ?? (() => {}));
   const grid = (
     <div className="grid grid-cols-7 gap-1.5">
@@ -255,7 +274,13 @@ export function WeekGrid({
       })}
     </div>
   );
-  return onReschedule ? <DndContext onDragEnd={handleDragEnd}>{grid}</DndContext> : grid;
+  return onReschedule ? (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      {grid}
+    </DndContext>
+  ) : (
+    grid
+  );
 }
 
 export function MonthGrid({
@@ -273,6 +298,7 @@ export function MonthGrid({
 }) {
   const days = monthGridDays(anchorDate);
   const today = new Date();
+  const sensors = useCalendarDragSensors();
   const handleDragEnd = makeDragEndHandler(onReschedule ?? (() => {}));
   const grid = (
     <div>
@@ -329,5 +355,11 @@ export function MonthGrid({
       </div>
     </div>
   );
-  return onReschedule ? <DndContext onDragEnd={handleDragEnd}>{grid}</DndContext> : grid;
+  return onReschedule ? (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      {grid}
+    </DndContext>
+  ) : (
+    grid
+  );
 }
