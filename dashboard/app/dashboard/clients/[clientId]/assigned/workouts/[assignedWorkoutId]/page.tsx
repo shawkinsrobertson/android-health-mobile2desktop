@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { resolveMediaPair } from "@/lib/media";
 import { VideoPreview } from "@/components/library/VideoPreview";
+import { SaveAndReturnButton } from "@/components/SaveAndReturnButton";
 import {
   WorkoutExerciseListEditor,
   type WorkoutBlock,
@@ -171,12 +172,15 @@ export default async function AssignedWorkoutPage({
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6">
       <div>
-        <Link
-          href={`/dashboard/clients/${params.clientId}`}
-          className="text-sm text-ink-secondary hover:text-ink-primary"
-        >
-          ← Back
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link
+            href={`/dashboard/clients/${params.clientId}`}
+            className="text-sm text-ink-secondary hover:text-ink-primary"
+          >
+            ← Back
+          </Link>
+          <SaveAndReturnButton />
+        </div>
         <h1 className="mt-1 text-lg font-semibold text-ink-primary">{workout.name}</h1>
         <p className="text-xs text-ink-muted">
           Assigned {new Date(workout.assigned_at).toLocaleDateString()}
