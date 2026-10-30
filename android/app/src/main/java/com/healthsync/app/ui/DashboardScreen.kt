@@ -41,6 +41,7 @@ import com.healthsync.app.data.DashboardData
 import com.healthsync.app.ui.theme.ExtendedColors
 import com.healthsync.app.data.HealthDataRepository
 import com.healthsync.app.data.SleepNight
+import com.healthsync.app.data.formatHoursMinutes
 import com.healthsync.app.supabase.SupabaseRestClient
 
 /**
@@ -109,7 +110,7 @@ fun DashboardScreen(
                 else -> {
                     StatRow("Steps today", currentData.stepsToday.toString())
                     StatRow("Avg heart rate (7d)", currentData.avgHeartRate7d?.let { "$it bpm" } ?: "—")
-                    StatRow("Last sleep", currentData.lastSleepHours?.let { "${it}h" } ?: "—")
+                    StatRow("Last sleep", currentData.lastSleepHours?.let { formatHoursMinutes(it) } ?: "—")
                     StatRow("Recent workouts", currentData.recentWorkouts.size.toString())
 
                     Spacer(Modifier.height(20.dp))
@@ -208,7 +209,7 @@ private fun SleepBarChart(data: List<SleepNight>) {
                     )
                 }
                 Text(
-                    "${night.hours}h",
+                    formatHoursMinutes(night.hours),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(start = 8.dp),
                 )

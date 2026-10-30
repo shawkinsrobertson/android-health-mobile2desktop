@@ -25,6 +25,18 @@ data class DashboardData(
 
 private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
+// "7h 30m" (or "45m" under an hour) for a duration given in decimal hours.
+// Shared by DashboardScreen's "Last sleep" stat and its per-night chart
+// labels -- see HealthDataRepository's own sleep-bucketing comment for why
+// the underlying value is minute-precision now, not rounded to a tenth of
+// an hour.
+fun formatHoursMinutes(hours: Double): String {
+    val totalMinutes = Math.round(hours * 60).coerceAtLeast(0)
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
 // See TtlCache's doc comment -- DashboardScreen re-fetches from scratch on
 // every return visit since it doesn't survive Compose Navigation's
 // teardown, so a 60s cache is what makes a quick "back, then forward
@@ -324,7 +336,11 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
             val end = Instant.parse(row.getString("end_time"))
             val hours = (end.epochSecond - start.epochSecond) / 3600.0
             val date = localDateOf(row.getString("start_time"))
-            nights.add(SleepNight(date = date, hours = Math.round(hours * 10) / 10.0))
+            // Rounded to the nearest minute (not the nearest tenth of an
+            // hour) -- the coarser rounding was hiding real discrepancies
+            // against a wearable's own minute-level reading once displayed
+            // as "7.5h". See formatHoursMinutes() for the display side.
+            nights.add(SleepNight(date = date, hours = Math.round(hours * 60) / 60.0))
         }
         return nights
     }

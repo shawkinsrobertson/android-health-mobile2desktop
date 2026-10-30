@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatHoursMinutes } from "@/lib/time-format";
 
 // Every query here takes the caller's own per-request `supabase` client
 // (never a static anon-key singleton) plus an optional `clientId` --
@@ -418,7 +419,10 @@ export async function getSleepNights(
     const hours =
       (new Date(row.end_time).getTime() - new Date(row.start_time).getTime()) /
       (1000 * 60 * 60);
-    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 10) / 10 };
+    // Rounded to the nearest minute (not the nearest tenth of an hour) --
+    // the coarser rounding was hiding real discrepancies against a
+    // wearable's own minute-level reading once displayed as "7.5h".
+    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 60) / 60 };
   });
 }
 
@@ -510,12 +514,15 @@ export async function getOverviewStats(
   let lastSleepHours: number | null = null;
   const lastSleep = sleepRes.data?.[0];
   if (lastSleep) {
+    // Minute-level precision (not tenths-of-an-hour) -- this feeds the AI
+    // assistant's own context as a plain number, same reasoning as
+    // getSleepNights below for why the coarser rounding was dropped.
     lastSleepHours =
       Math.round(
         ((new Date(lastSleep.end_time).getTime() - new Date(lastSleep.start_time).getTime()) /
           (1000 * 60 * 60)) *
-          10,
-      ) / 10;
+          60,
+      ) / 60;
   }
 
   return {
@@ -567,7 +574,7 @@ export async function getDataPointSummary(
       const nights = await getSleepNights(supabase, 7, clientId);
       if (!nights.length) return "No sleep data synced yet";
       const last = nights[nights.length - 1];
-      return `${last.hours}h last night`;
+      return `${formatHoursMinutes(last.hours)} last night`;
     }
     case "exercise_sessions": {
       const { count } = await supabase

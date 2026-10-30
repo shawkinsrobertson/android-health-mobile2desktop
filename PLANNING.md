@@ -2911,3 +2911,55 @@ Navigation Compose's own `destination.route` is the template string
 `clientId` filled in, so no argument-decoding is needed to compare.
 
 Verified: `compileDebugKotlin`/`lintDebug` clean.
+
+## Phase 25 -- User-testing round 1: sleep precision + Android bottom-of-screen coverage
+
+First two (of four) fixes from the first real round of user testing. The
+other two -- a workout/exercise authoring redesign and a full scheduling
+calendar -- are substantially larger and tracked in Phase 26+ below.
+
+**Sleep shown as "7h 30m" instead of "7.5h".** Users reported sleep not
+matching their wearable, and the rounded-to-one-decimal display was
+hiding exactly how far off. Root cause was display-only -- both
+platforms already recompute `hours` from a raw `start_time`/`end_time`
+diff on every load; nothing decimal is persisted. Changed the rounding
+itself from nearest-tenth-of-an-hour to nearest-minute, and added a
+small `formatHoursMinutes()` helper on each platform (`dashboard/lib/
+time-format.ts`, next to the existing `formatClock`; a new top-level fn
+in `HealthDataRepository.kt`), applied everywhere sleep duration is
+shown as text: `getDataPointSummary`'s "X last night" card and
+`DataOverlayChart`'s tooltip on web (special-cased on the `sleep_
+sessions` series key, since that chart is shared across every metric
+type and the others still show their normal decimal + unit), and
+`DashboardScreen.kt`'s "Last sleep" stat row + per-night chart labels
+on Android. `getOverviewStats`'s `lastSleepHours` (AI-assistant context
+only, never rendered as text to a user) got the same minute-precision
+fix for consistency but intentionally stayed a plain number, not an
+h:mm string.
+
+**Android: system nav bar covering bottom-of-screen content.** Investigated
+by disassembling the actual compiled Material3 1.2.1 AAR this project
+depends on, not just reading docs -- confirmed `Scaffold`'s default
+`contentWindowInsets` already resolves to `WindowInsets.systemBars`, so
+every screen using `Scaffold` + `.padding(padding)` on its root content
+was already nav-bar-safe; adding `.navigationBarsPadding()` there would
+have been redundant, not a fix. Two real, confirmed gaps instead: (1)
+`InboxScreen.kt`'s composer row had no `.imePadding()`, so the keyboard
+(not the nav bar) could cover it -- fixed. (2) `ProfileScreen.kt`'s
+"Data types" section's `SourcePicker` `DropdownMenu` -- disassembled
+Material3's `DropdownMenuPositionProvider` directly and confirmed it
+positions purely against raw window size with zero inset awareness at
+all, so with its anchor sitting flush at the bottom of the scrollable
+content, the popup could open downward into the area behind the system
+nav bar. Fixed exactly as the user asked -- added real bottom margin
+(`Spacer(Modifier.height(72.dp))`, the same clearance convention
+`HomeScreen.kt` already uses) after the last `ListItem` in that section,
+so the dropdown's anchor is no longer flush against the edge the
+position provider measures against.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean (Android); `tsc
+--noEmit`/`next lint` clean (web). No device/live environment to
+visually confirm the dropdown no longer clips behind the nav bar in
+practice -- this fix follows directly from disassembling the actual
+library code in use, not guesswork, but isn't confirmed on a real
+screen.
