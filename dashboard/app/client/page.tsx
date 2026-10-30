@@ -6,7 +6,7 @@ import { getDataPointSummary } from "@/lib/queries";
 import { resolveMediaPair } from "@/lib/media";
 import { formatClock, sessionDurationSeconds } from "@/lib/time-format";
 import { getPersonalRecords } from "@/lib/personal-records";
-import { listEvents } from "@/lib/calendar";
+import { listCalendarItems } from "@/lib/calendar-items";
 import { rangeForView } from "@/lib/calendar-grid";
 import { DataPointPicker } from "@/components/DataPointPicker";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
@@ -83,11 +83,11 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
-  const [personalRecords, { data: consentRows }, initialEvents, googleConnectionRes, currentCheckIn] =
+  const [personalRecords, { data: consentRows }, initialItems, googleConnectionRes, currentCheckIn] =
     await Promise.all([
       getPersonalRecords(supabase, profile.id),
       supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
-      listEvents(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
+      listCalendarItems(supabase, { clientId: profile.id }, rangeForView("month", new Date())),
       supabase
         .from("calendar_connections")
         .select("external_account_email, last_synced_at")
@@ -209,7 +209,7 @@ export default async function ClientDashboardPage() {
 
       <CalendarCard
         scope={{ clientId: profile.id }}
-        initialEvents={initialEvents}
+        initialItems={initialItems}
         googleSync={{
           targetProfileId: profile.id,
           ownAccountEmail: googleConnectionRes.data?.external_account_email ?? null,

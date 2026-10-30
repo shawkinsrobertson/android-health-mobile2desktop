@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { EmptyChartState } from "./EmptyChartState";
 import type { DataSeriesPoint } from "@/lib/queries";
+import { formatHoursMinutes } from "@/lib/time-format";
 
 export interface OverlaySeries {
   key: string;
@@ -172,9 +173,11 @@ function OverlayTooltip({
       {series.map((s) => {
         const raw = rawLookup.get(`${s.key}|${label}`);
         if (raw === undefined) return null;
+        // Sleep reads as "7h 30m" here too, not a decimal hour -- same
+        // reasoning as the data-point summary card (lib/queries.ts).
         return (
           <div key={s.key}>
-            {s.label}: {raw} {s.unit}
+            {s.label}: {s.key === "sleep_sessions" ? formatHoursMinutes(raw) : `${raw} ${s.unit}`}
           </div>
         );
       })}

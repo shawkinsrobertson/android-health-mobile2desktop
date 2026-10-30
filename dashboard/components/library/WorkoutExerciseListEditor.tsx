@@ -1,19 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import {
-  addWorkoutExercise,
-  createWorkoutBlock,
-  deleteWorkoutBlock,
-  moveWorkoutUnit,
-  removeWorkoutExercise,
-  reorderWorkoutExercises,
-  ungroupWorkoutBlock,
-  updateWorkoutBlock,
-  updateWorkoutExercise,
-} from "@/app/dashboard/library/workouts/actions";
 import { groupIntoUnits, type Unit as WorkoutUnit } from "@/lib/workout-blocks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ExerciseSearchField, type ExerciseOption } from "@/components/library/ExerciseSearchField";
 
 export interface WorkoutExerciseItem {
   id: string;
@@ -36,6 +26,30 @@ export interface WorkoutBlock {
   block_type: "superset" | "circuit";
   rounds: number;
   notes: string | null;
+}
+
+// The nine exercise/block mutations this editor drives, injected rather
+// than imported by name -- lets the exact same editor UI run against
+// either a template workout's own template_components/
+// template_component_groups (workouts/actions.ts) or a specific client's
+// assigned copy of one (assigned/workouts/[assignedWorkoutId]/actions.ts),
+// with the id passed through unchanged either way (a workout's own id, or
+// that client's assignment id).
+export interface WorkoutExerciseActions {
+  add: (targetId: string, formData: FormData) => Promise<void>;
+  update: (targetId: string, itemId: string, formData: FormData) => Promise<void>;
+  remove: (targetId: string, itemId: string) => Promise<void>;
+  reorder: (targetId: string, orderedIds: string[]) => Promise<void>;
+  createBlock: (
+    targetId: string,
+    blockType: "superset" | "circuit",
+    rounds: number,
+    exerciseIds: string[],
+  ) => Promise<void>;
+  updateBlock: (targetId: string, blockId: string, formData: FormData) => Promise<void>;
+  ungroupBlock: (targetId: string, blockId: string) => Promise<void>;
+  deleteBlock: (targetId: string, blockId: string) => Promise<void>;
+  moveUnit: (targetId: string, unitKey: string, direction: -1 | 1) => Promise<void>;
 }
 
 // See lib/workout-blocks.ts for the grouping algorithm (shared with the
@@ -125,7 +139,8 @@ function summarize(item: WorkoutExerciseItem): string {
 }
 
 function ExerciseRow({
-  workoutId,
+  targetId,
+  actions,
   item,
   editing,
   onEdit,
@@ -137,7 +152,8 @@ function ExerciseRow({
   onToggleSelected,
   isPending,
 }: {
-  workoutId: string;
+  targetId: string;
+  actions: WorkoutExerciseActions;
   item: WorkoutExerciseItem;
   editing: boolean;
   onEdit: () => void;
@@ -157,7 +173,7 @@ function ExerciseRow({
       <form
         action={async (formData: FormData) => {
           setSaving(true);
-          await updateWorkoutExercise(workoutId, item.id, formData);
+          await actions.update(targetId, item.id, formData);
           setSaving(false);
           setSaved(true);
           setTimeout(() => {
@@ -225,15 +241,19 @@ function ExerciseRow({
 }
 
 export function WorkoutExerciseListEditor({
-  workoutId,
+  targetId,
+  actions,
+  returnTo,
   items,
   blocks,
   availableExercises,
 }: {
-  workoutId: string;
+  targetId: string;
+  actions: WorkoutExerciseActions;
+  returnTo: string;
   items: WorkoutExerciseItem[];
   blocks: WorkoutBlock[];
-  availableExercises: { id: string; name: string; shared?: boolean }[];
+  availableExercises: ExerciseOption[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -257,15 +277,15 @@ export function WorkoutExerciseListEditor({
     setConfirmAction(null);
     setPendingAction({ kind, id });
     startTransition(() => {
-      if (kind === "remove-exercise") removeWorkoutExercise(workoutId, id);
-      else if (kind === "ungroup-block") ungroupWorkoutBlock(workoutId, id);
-      else deleteWorkoutBlock(workoutId, id);
+      if (kind === "remove-exercise") actions.remove(targetId, id);
+      else if (kind === "ungroup-block") actions.ungroupBlock(targetId, id);
+      else actions.deleteBlock(targetId, id);
     });
   }
 
   function moveUnit(key: string, direction: -1 | 1) {
     startTransition(() => {
-      moveWorkoutUnit(workoutId, key, direction);
+      actions.moveUnit(targetId, key, direction);
     });
   }
 
@@ -276,14 +296,14 @@ export function WorkoutExerciseListEditor({
     const reordered = [...members];
     [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
     startTransition(() => {
-      reorderWorkoutExercises(workoutId, reordered.map((m) => m.id));
+      actions.reorder(targetId, reordered.map((m) => m.id));
     });
   }
 
   function group() {
     if (selectedIds.length < 2) return;
     startTransition(() => {
-      createWorkoutBlock(workoutId, groupType, groupRounds, selectedIds);
+      actions.createBlock(targetId, groupType, groupRounds, selectedIds);
     });
     setSelectedIds([]);
   }
@@ -307,7 +327,8 @@ export function WorkoutExerciseListEditor({
                     />
                   </div>
                   <ExerciseRow
-                    workoutId={workoutId}
+                    targetId={targetId}
+                    actions={actions}
                     item={unit.item}
                     editing={editingId === unit.item.id}
                     onEdit={() => setEditingId(unit.item.id)}
@@ -369,7 +390,7 @@ export function WorkoutExerciseListEditor({
                   {editingBlockId === unit.block.id && (
                     <form
                       action={async (formData: FormData) => {
-                        await updateWorkoutBlock(workoutId, unit.block.id, formData);
+                        await actions.updateBlock(targetId, unit.block.id, formData);
                         setEditingBlockId(null);
                       }}
                       className="mb-3 flex flex-wrap items-end gap-2 rounded-md bg-[color:var(--page-plane)] p-2"
@@ -424,7 +445,8 @@ export function WorkoutExerciseListEditor({
                           />
                         </div>
                         <ExerciseRow
-                          workoutId={workoutId}
+                          targetId={targetId}
+                          actions={actions}
                           item={member}
                           editing={editingId === member.id}
                           onEdit={() => setEditingId(member.id)}
@@ -485,35 +507,24 @@ export function WorkoutExerciseListEditor({
         </div>
       )}
 
-      {availableExercises.length === 0 ? (
-        <p className="text-xs text-ink-muted">Create an exercise first to add it here.</p>
-      ) : (
-        <form
-          action={addWorkoutExercise.bind(null, workoutId)}
-          className="flex flex-col gap-2 rounded-lg border border-dashed border-[color:var(--border-hairline)] p-3"
+      <form
+        action={actions.add.bind(null, targetId)}
+        className="flex flex-col gap-2 rounded-lg border border-dashed border-[color:var(--border-hairline)] p-3"
+      >
+        <div className="text-xs font-medium text-ink-secondary">Add exercise</div>
+        <ExerciseSearchField
+          exercises={availableExercises}
+          returnTo={returnTo}
+          className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+        />
+        <PrescriptionFields />
+        <button
+          type="submit"
+          className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
         >
-          <div className="text-xs font-medium text-ink-secondary">Add exercise</div>
-          <select
-            name="exercise_id"
-            required
-            className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary"
-          >
-            {availableExercises.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-                {e.shared ? " (shared)" : ""}
-              </option>
-            ))}
-          </select>
-          <PrescriptionFields />
-          <button
-            type="submit"
-            className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-          >
-            Add
-          </button>
-        </form>
-      )}
+          Add
+        </button>
+      </form>
 
       {items.some((i) => !i.block_id) && (
         <p className="text-xs text-ink-muted">

@@ -2911,3 +2911,422 @@ Navigation Compose's own `destination.route` is the template string
 `clientId` filled in, so no argument-decoding is needed to compare.
 
 Verified: `compileDebugKotlin`/`lintDebug` clean.
+
+## Phase 25 -- User-testing round 1: sleep precision + Android bottom-of-screen coverage
+
+First two (of four) fixes from the first real round of user testing. The
+other two -- a workout/exercise authoring redesign and a full scheduling
+calendar -- are substantially larger and tracked in Phase 26+ below.
+
+**Sleep shown as "7h 30m" instead of "7.5h".** Users reported sleep not
+matching their wearable, and the rounded-to-one-decimal display was
+hiding exactly how far off. Root cause was display-only -- both
+platforms already recompute `hours` from a raw `start_time`/`end_time`
+diff on every load; nothing decimal is persisted. Changed the rounding
+itself from nearest-tenth-of-an-hour to nearest-minute, and added a
+small `formatHoursMinutes()` helper on each platform (`dashboard/lib/
+time-format.ts`, next to the existing `formatClock`; a new top-level fn
+in `HealthDataRepository.kt`), applied everywhere sleep duration is
+shown as text: `getDataPointSummary`'s "X last night" card and
+`DataOverlayChart`'s tooltip on web (special-cased on the `sleep_
+sessions` series key, since that chart is shared across every metric
+type and the others still show their normal decimal + unit), and
+`DashboardScreen.kt`'s "Last sleep" stat row + per-night chart labels
+on Android. `getOverviewStats`'s `lastSleepHours` (AI-assistant context
+only, never rendered as text to a user) got the same minute-precision
+fix for consistency but intentionally stayed a plain number, not an
+h:mm string.
+
+**Android: system nav bar covering bottom-of-screen content.** Investigated
+by disassembling the actual compiled Material3 1.2.1 AAR this project
+depends on, not just reading docs -- confirmed `Scaffold`'s default
+`contentWindowInsets` already resolves to `WindowInsets.systemBars`, so
+every screen using `Scaffold` + `.padding(padding)` on its root content
+was already nav-bar-safe; adding `.navigationBarsPadding()` there would
+have been redundant, not a fix. Two real, confirmed gaps instead: (1)
+`InboxScreen.kt`'s composer row had no `.imePadding()`, so the keyboard
+(not the nav bar) could cover it -- fixed. (2) `ProfileScreen.kt`'s
+"Data types" section's `SourcePicker` `DropdownMenu` -- disassembled
+Material3's `DropdownMenuPositionProvider` directly and confirmed it
+positions purely against raw window size with zero inset awareness at
+all, so with its anchor sitting flush at the bottom of the scrollable
+content, the popup could open downward into the area behind the system
+nav bar. Fixed exactly as the user asked -- added real bottom margin
+(`Spacer(Modifier.height(72.dp))`, the same clearance convention
+`HomeScreen.kt` already uses) after the last `ListItem` in that section,
+so the dropdown's anchor is no longer flush against the edge the
+position provider measures against.
+
+Verified: `compileDebugKotlin`/`lintDebug` clean (Android); `tsc
+--noEmit`/`next lint` clean (web). No device/live environment to
+visually confirm the dropdown no longer clips behind the nav bar in
+practice -- this fix follows directly from disassembling the actual
+library code in use, not guesswork, but isn't confirmed on a real
+screen.
+
+## Phase 26 -- User-testing round 1: workout/exercise authoring redesign (web)
+
+Third (of four) fix from this round of user testing. Creating a workout
+used to be two separate pages -- `workouts/new` collected only title/
+media/description, then redirected to `workouts/[workoutId]`, the only
+place exercises could actually be added. The exercise picker there was
+a native `<select>` holding every exercise the coach can see (own +
+shared base library) as one giant list of `<option>`s -- no hard
+server-side cap, just the practical ceiling of a native dropdown once a
+library gets large. And an assigned workout -- a specific client's own
+copy -- had no editor anywhere; the only page for one was read-only.
+
+**One screen, not two.** `workouts/new/page.tsx` no longer has a form at
+all -- visiting it now just mints a blank `status: 'draft'` workout
+("New workout") and redirects straight to `workouts/[workoutId]`, the
+same screen used for editing, with `autoFocus` on the name field so the
+coach can immediately type over the placeholder. This is the same
+"create as a draft, then edit in place" shape already established for
+AI-drafted workouts (`lib/workout-drafting.ts`) -- confirmed that path
+already lands a coach on this exact screen too, so it picks up the
+merged flow with no changes of its own. The old `createWorkout` server
+action (form-based, only ever called from the now-gone form) was
+deleted rather than left unused.
+
+**Exercise search, not a dropdown.** New `ExerciseSearchField`
+component (`components/library/ExerciseSearchField.tsx`), shaped like
+the existing `calendar/TimeCombobox.tsx` (controlled input, `open`
+state, absolute-positioned results list, click-outside-to-close) but
+committing a picked exercise's *id* into a hidden form field rather
+than free text, so the surrounding `<form action={addWorkoutExercise}>`
+needed no changes beyond swapping the `<select>` out for this. Filters
+by plain substring ("contains") match against the full exercise list,
+loaded once and filtered client-side -- deliberately not debounced
+server search, since a coach's own + shared library is realistically in
+the low hundreds and trivially fast to filter in-browser; the fetch is
+isolated behind one prop so it can become a real debounced search later
+without touching the component, if a library ever actually grows past
+what's comfortable in memory. No match → a "Create new exercise" result
+row instead of an empty list.
+
+**Inline exercise creation, round-trips back to the workout.** No
+`returnTo` pattern existed anywhere in this app before. Added one:
+`ExerciseSearchField`'s "Create new exercise" row links to
+`exercises/new?returnTo=<workout URL>&name=<typed text>` (pre-filling
+the new exercise's name from what was already typed); `createExercise`
+reads `returnTo` (validated as same-origin-relative only, never an open
+redirect) and, on success, redirects to `${returnTo}?addExerciseId=<id>`
+instead of the exercise's own detail page. Each workout page checks for
+that query param on load, calls its own "add exercise" action with it,
+then redirects to its plain URL -- so a refresh never double-adds it,
+and the coach lands back exactly where they were building the workout,
+with the new exercise already in the list.
+
+**Editing an assigned workout's own exercises -- new capability,
+confirmed in scope with the user.** `assignments`/`assignment_
+components` already carry everything needed for this (per `0034_
+assignments.sql`'s own header comment, a client's assignment is a
+frozen *flattened copy*, not a join back to the template) and RLS
+already grants the coach full insert/update/delete on
+`assignment_components`/`assignment_component_groups`
+(`assignment_components_coach_all` etc.) -- confirmed before writing
+any code that no new migration was needed for this part, only
+application code. Added a full mirror of `workouts/actions.ts`'s nine
+exercise/block mutations in a new `assigned/workouts/
+[assignedWorkoutId]/actions.ts`, targeting `assignment_components`/
+`assignment_component_groups` (`assignment_id`, not `parent_id`) instead
+of `template_components`/`template_component_groups`, each taking
+`clientId` as a leading bound argument so the resulting function still
+matches the same `(targetId, ...)` shape the editor component expects.
+Adding a new exercise there copies the picked exercise's current
+display fields onto the new flattened row (name/instructions/media),
+the exact same copy `_assign_workout_snapshot` already does when a
+workout is first assigned, with `source_template_id` set to the picked
+exercise.
+
+**`WorkoutExerciseListEditor` is now one component serving both
+screens**, not two near-copies. Refactored it to take its nine
+mutation functions as an injected `actions` prop (`WorkoutExerciseActions`)
+and a generic `targetId` instead of importing `workouts/actions.ts`'s
+functions by name and hardcoding a `workoutId` -- the component itself
+never knew or cared whether an id was a workout's own or a client's
+assignment of one, so neither call site has to either. The template
+editor (`workouts/[workoutId]/page.tsx`) and the new assigned-workout
+editor each pass their own matching `actions` bundle.
+
+Verified: `tsc --noEmit`, `next lint`, and a full dummy-env `next build`
+(34/34 pages, no errors) all clean. No live Supabase project in this
+environment to exercise the actual search/returnTo/add flow end to end
+against real data, or to confirm the exercise list stays comfortably
+fast to filter at a real coach's library size -- both are implemented
+exactly as designed and verified by direct code review, not by running
+them live.
+
+## Phase 27 -- Scheduling calendar: schema, web read side, drag-and-drop
+
+The fourth and largest fix from this round of user testing. The
+calendar previously showed only coaching calls (`calendar_events`) --
+nothing tied a workout, program, document, or check-in to a specific
+day anywhere in the schema. This phase lays the foundation
+(`supabase/migrations/0039_assignment_scheduling.sql`) and builds the
+web side on top of it; Android and the remaining web interactions
+(click-to-edit/complete, assign-from-calendar) are tracked in the
+stages below this one, still in progress as of this entry.
+
+**Schema.** `assignments` gains `scheduled_date` (the day an item shows
+on the calendar), `start_date` (program rows -- when a client's run of
+it begins), `week_number`/`day_of_week` (workout rows, carried straight
+from `template_components` at assignment time -- that data existed at
+the template level already, via `ProgramWorkoutListEditor.tsx`'s
+`ScheduleFields`, but was never carried through to the client's actual
+assignment before this), `recurrence_days_of_week`/`recurrence_end_date`
+(standalone recurring workouts), and `recurrence_source_id` (set on a
+*generated* occurrence row, deliberately separate from
+`parent_assignment_id`, which already means "nested under this program
+assignment"). A program's nested workouts get a concrete `scheduled_date`
+computed once at assignment time (`start_date + (week_number-1)*7 +
+(day_of_week-1)` days -- day_of_week here is relative to start_date's
+own weekday, not a fixed Monday-start week; documented inline in the
+migration). Two new RPCs: `reschedule_assignment` (security definer --
+the only write a client has onto their own assignment row at all,
+deliberately narrower than a blanket client UPDATE policy would be) and
+`generate_recurring_occurrences` (security definer, idempotent,
+materializes real independent assignment rows -- each with its own
+copied exercises -- for a recurring workout's missing occurrences in a
+bounded window, rather than computing virtual occurrences at read time;
+moving one occurrence only ever touches that row). check_in_templates/
+check_in_responses needed no schema change -- day_of_week there already
+supports projecting virtual occurrences cheaply at read time.
+
+Unusually for this project, the migration was verified by actually
+running it: this environment turned out to have PostgreSQL 16 installed
+locally (unused until now). Ran the *entire* 39-migration history
+against a fresh local database (stubbing only the Supabase-specific
+pieces an app migration wouldn't otherwise need -- `auth.users`/`auth.uid()`,
+`storage.buckets`/`storage.objects`, the `anon`/`authenticated` roles, a
+`supabase_realtime` publication), then exercised every new function with
+real inserts: a two-workout program assigned with a Monday start date
+produced exactly the expected `scheduled_date`s (including a workout
+left intentionally unscheduled on the template, which correctly stayed
+unscheduled rather than defaulting to week 1 day 1); `reschedule_
+assignment` worked for the owning coach and client and correctly
+rejected an unrelated user; a Monday/Wednesday recurring workout
+generated exactly the right occurrence dates over a 21-day window, each
+with its exercises copied, running the generator twice produced no
+duplicates, and both of `generate_recurring_occurrences`'s own guards
+(non-recurring assignment, unauthorized caller) rejected correctly. This
+is real functional verification, not just "the SQL parses."
+
+**Web read side (`lib/calendar-items.ts`).** A new `listCalendarItems`
+merges `calendar_events` with scheduled workouts/documents and projected
+check-in occurrences into one `CalendarItem[]`, each tagged with a
+`kind`. Deliberately client-scoped only -- the coach's own aggregate
+`/dashboard/calendar` workspace (showing every client's calls at once)
+stays calls-only, matching the user's own framing of this as "the shared
+calendar *between coach and client*," not a coach-wide view of every
+client's workouts at once. Reuses `getClientTimezone`/`localDateKey`
+(exported from `lib/queries.ts`, built for the earlier steps/sleep
+timezone-accuracy phase) rather than naively slicing the UTC ISO range
+strings `rangeForView` produces -- slicing would be off by a day for any
+client east of UTC, the same class of bug that phase fixed for health
+data, now avoided here from the start.
+
+**Web rendering (`components/calendar/CalendarViews.tsx`).** Generalized
+from `CalendarEventRow` to the new `CalendarItem` -- `AgendaList`/
+`DayList`/`WeekGrid`/`MonthGrid` all take the merged type now, with a
+kind-tinted pill (reusing this app's existing semantic/series color
+tokens) and a ✓ for a completed item. `CalendarCard`/`CalendarWorkspace`
+(and all four pages that render them) updated to fetch and pass the
+merged items; existing Google sync/booking-link behavior on those
+components is untouched.
+
+**Drag-and-drop (`@dnd-kit/core`).** No drag-and-drop library existed in
+this app; added `@dnd-kit/core`+`@dnd-kit/utilities` (confirmed via
+`npm audit` that neither introduces any new vulnerability -- the
+9 flagged are pre-existing, in Next.js/ESLint/PostCSS/Zod, unrelated to
+this change). `WeekGrid`/`MonthGrid` take an optional `onReschedule`
+prop -- day cells become drop targets, items become drag sources (a
+check-in occurrence never does, since it has no row of its own to move).
+Dropping a workout/document calls `reschedule_assignment`; dropping a
+call shifts its existing start/end instants by the day delta (preserving
+time-of-day and duration) through the existing `updateEvent`, so a
+drag-and-drop of a call doesn't lose anything a manual edit wouldn't.
+An optimistic local update applies immediately and rolls back with an
+inline error if the mutation fails.
+
+Verified: `tsc --noEmit`, `next lint`, dummy-env `next build` (34/34
+pages) all clean. The RPCs underneath are the part with real functional
+verification (above); the drag interaction itself, and the UI/UX feel
+of dropping an item on a day, haven't been exercised in a browser in
+this environment.
+
+### Stage 7-8 -- click-to-edit/complete + assign-from-calendar
+
+**Click-to-edit/complete (`CalendarCard.tsx`'s `handleSelectItem`).**
+Deliberately navigates to the one dedicated page this app already has
+for each kind, instead of building a second, calendar-only editor
+surface for workouts/documents that would drift from the real one over
+time: a coach clicking a scheduled workout lands on
+`/dashboard/clients/[clientId]/assigned/workouts/[id]` -- the full
+editor Stage 3 already built, which lets them edit that client's own
+exercise list in place (the capability confirmed with the user before
+this phase started), see photos/video, and session history, not just
+reschedule it. A coach clicking a document lands on that same tier's
+assigned-document page. A client clicking their own workout/document
+lands on their existing start-session / submit-form page. A client
+clicking a check-in occurrence goes to `/client/check-in`, which always
+shows the current week's check-in regardless of which occurrence pill
+was clicked -- there's no per-occurrence check-in view anywhere in this
+app today (not even a history one), so this matches how the client's
+own "due" tasks list already links to the same page. A coach clicking a
+check-in occurrence is a no-op -- it's a virtual, template-driven
+occurrence with no per-occurrence row to edit. Role (coach-viewing vs.
+client-viewing-own) is read off `CalendarCard`'s own pre-existing
+`fixedClientId` prop (only ever set by the coach's per-client page) --
+no new prop needed just to tell the two apart.
+
+**Assign & schedule entry point (`AssignScheduleModal.tsx`).** A new
+"+ Assign" button on the coach's per-client `CalendarCard` opens a
+small modal (workout/program/document tabs, a template picker, a date
+field) that posts straight to the *same* `assign_workout_to_client`/
+`assign_program_to_client`/`assign_document_to_client` server actions
+(`assign-actions.ts`) the client-detail page's existing "Assigned
+content" picker already calls -- each action now also reads an
+optional `scheduled_date` (workout/document) or `start_date` (program)
+from the form and passes it to the already-scheduling-aware RPCs from
+Stage 4, instead of a second assignment pathway being built for the
+calendar. Each action already redirects to the newly-assigned item (or
+back with `?error=`) on success, so the modal needed no local state or
+`onSaved` wiring of its own. Only passed on the coach's per-client page
+-- the coach's own aggregate calendar has no single client to assign
+onto, and a client can't assign content to themselves.
+
+Verified: `tsc --noEmit`, `next lint`, dummy-env `next build` (34/34
+pages) all clean. Not exercised in a browser in this environment.
+
+### Stage 9 -- Android: combined calendar read/render, tap-to-reschedule, tap-to-complete
+
+**Combined read/render.** `CalendarRepository.getCalendarItems` merges
+`calendar_events` with scheduled `assignments` (workout/document) and
+projected `check_in_templates` occurrences -- the same three sources
+`lib/calendar-items.ts` merges on the web, read directly against
+PostgREST. A new `SupabaseRestClient.rpc()` was needed first (this
+client had `select`/`insert`/`patch`/`delete` but no way to call a
+Postgres function at all). Unlike the web side, this never needed a
+separate client-timezone lookup to avoid off-by-one-day UTC slicing --
+the device's own `LocalDate.now(ZoneId.systemDefault())` already *is*
+the client's local calendar date, the same convention
+`WorkoutRepository.findTodaysSession` already relies on for "today."
+`CalendarScreen` renders the merged list as a date-grouped agenda
+(replacing the old calls-only `EventCard` list) rather than a month/week
+grid -- there's no touch drag-and-drop on this screen (see below), so a
+grid buys nothing a list doesn't already give for free, and a list is
+far simpler to get right at phone width.
+
+**Tap-to-reschedule.** Per the clarified scope decided before this
+phase started ("tap it, pick a new day," not a drag gesture), a small
+pencil icon on a workout/document row -- not the row's own tap target,
+which already means "open/complete it" -- opens the platform
+`DatePickerDialog` and calls the same `reschedule_assignment` RPC the
+web dashboard's drag-and-drop uses.
+
+**Tap-to-complete.** A workout row opens this app's own `WorkoutScreen`,
+which gained an optional `assignedWorkoutId` param (plus
+`WorkoutRepository.getWorkoutById` and a matching optional route arg on
+`ROUTE_WORKOUT`) so it can load one specific assignment instead of
+always "what's next" -- the one new capability this needed, since
+everything else about completing a workout already existed.
+
+A document or check-in row, deliberately, hands off to the web
+dashboard in the device's browser -- the same established pattern this
+screen's own Google Calendar connect already uses, not a new one
+invented for this. This app has no native dynamic-form renderer or
+file-upload pipeline, and the web's document/check-in forms support six
+field types including file uploads (`lib/forms.ts`); building and
+maintaining a second implementation of that renderer on Android is a
+substantial feature in its own right, not a small addition alongside
+this round's other three items. **Flagged explicitly as deferred, not
+silently dropped**: a native Android dynamic-form renderer + file
+upload (so check-in/document completion works without leaving the app)
+is tracked as a follow-up, not attempted as a half-native version of it
+here.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean (the latter's pre-existing warnings -- Gradle dependency/SDK-level
+notices, a couple of `UseKtx` style suggestions on `Uri.parse`/
+`Color.parseColor` matching ones already present elsewhere in this
+codebase -- are unrelated to this change and don't fail the build). Not
+exercised on a device or emulator in this environment.
+
+### User-testing fixes, round 2
+
+Follow-up fixes from live testing against a real Supabase project (the
+first time anything in this round of work ran against production data
+rather than a local throwaway database):
+
+- **Calendar "+ Assign" modal navigated away instead of closing.**
+  `AssignScheduleModal` was posting to the same server actions the plain
+  client-page picker uses, which always `redirect()` to the newly
+  assigned item -- fine for that picker, wrong for a modal meant to stay
+  on the calendar. Added non-redirecting `*Inline` variants
+  (`assign-actions.ts`) that return the new id instead, so the modal
+  closes and refetches the calendar in place.
+- **Calendar event pills overflowed into the next day's cell and had no
+  visible background.** `truncate` had nothing giving it a bounded width
+  (no `min-w-0`/`w-full` on the pill button or its dnd-kit drag wrapper),
+  and the `bg-[...]/20` opacity modifier on a bare hex custom property
+  was too faint to read in dark mode. Pills are now solid-colored,
+  white-text chips, closer to a Google Calendar event, with
+  `overflow-hidden` on the day cells as a backstop.
+- **Clicking a calendar event did nothing, though dragging it worked.**
+  `DndContext` had no activation constraint on its `PointerSensor`, so
+  every pointerdown immediately "activated" drag state -- dnd-kit's own
+  documented behavior is to register a capture-phase click-suppressor
+  the moment activation happens, which is why a plain click (zero
+  movement) never reached the item. Added an 8px distance
+  `activationConstraint` so a real click passes through untouched while
+  a deliberate drag still works.
+- **No confirmation or return-to-task after editing an assigned
+  workout/program.** Every edit in that editor already saves itself
+  immediately (`WorkoutExerciseListEditor`'s injected actions) -- there
+  was no "I'm done" affordance at all. New `SaveAndReturnButton`
+  component: flips to a disabled "Saved" label, then `router.back()`
+  after a beat, so the coach lands back on the calendar (or wherever
+  they came from) with that page's own state intact instead of a fresh
+  mount from a fixed link.
+- **A missing migration, found live.** `supabase/migrations/0039`'s
+  `scheduled_date` column surfaced a pre-existing gap unrelated to this
+  round's own work: `0023_check_ins.sql` (weekly check-ins, written long
+  before this phase) had apparently never actually been run against the
+  live project -- `check_in_templates` didn't exist, which PostgREST
+  reports as "table not found in schema cache" rather than a clearer
+  missing-table error (a `NOTIFY pgrst, 'reload schema'` understandably
+  didn't fix it, since there was no stale cache to refresh). Diagnosed
+  via `select to_regclass('public.check_in_templates')` returning null,
+  then fixed by actually running `0023_check_ins.sql`.
+- **Assigning a workout/document didn't show it on the calendar.**
+  `assign_workout_to_client`/`assign_document_to_client` (0039)
+  deliberately defaulted `scheduled_date` to null ("unscheduled" was
+  meant to be a real, opt-in state) -- but the plain "Assigned content"
+  picker on the client page has no date field at all, so every
+  assignment made through it landed unscheduled, invisible on the
+  calendar, with nothing telling the coach why. New migration
+  `0040_assignment_scheduled_date_defaults.sql` defaults both to
+  `current_date` instead, matching `assign_program_to_client`'s existing
+  default -- "unscheduled" is now something a coach opts into (by
+  clearing the date on the "+ Assign" modal's form) rather than the
+  silent default every assignment lands in. The server actions
+  (`assign-actions.ts`) were also fixed to omit `scheduled_date`
+  entirely when unset rather than passing an explicit `null`, since
+  Postgres only falls back to a function's own default for an *omitted*
+  argument, not one passed as `null` -- the same explicit-null-vs-
+  omitted distinction the fix for `assign_program_to_client`'s
+  `start_date` already relied on, just not applied consistently to the
+  other two until now.
+
+Verified `0040` for real: started this environment's local PostgreSQL
+16, stubbed just enough of the schema to exercise
+`assign_document_to_client` directly (not the full 39-migration
+history this time, given the change's small surface), confirmed the
+pre-0040 function actually reproduces the reported bug (omitted date ->
+null), applied `0040`, then confirmed all three cases -- omitted
+(-> today), explicit `null` (-> still null, the opt-out path), explicit
+date (-> that date) -- behave exactly as intended. Database and service
+cleaned up afterward. Web-side changes verified with `tsc --noEmit`,
+`next lint`, and a dummy-env `next build`; none of this has been
+exercised in a real browser in this environment.

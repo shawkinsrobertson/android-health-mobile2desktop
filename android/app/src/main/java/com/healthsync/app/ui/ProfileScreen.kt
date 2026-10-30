@@ -270,6 +270,15 @@ fun ProfileScreen(
                     },
                 )
             }
+
+            // Material3's DropdownMenu (SourcePicker's popup) positions
+            // itself against the raw window size, with no awareness of the
+            // system nav bar inset at all -- when the last row's anchor
+            // sits flush against the bottom of the scrollable content (as
+            // it did with no spacer here), the popup can open downward
+            // into the area behind the nav bar. Real margin below the last
+            // row keeps every anchor comfortably clear of that edge.
+            Spacer(Modifier.height(72.dp))
         }
     }
 

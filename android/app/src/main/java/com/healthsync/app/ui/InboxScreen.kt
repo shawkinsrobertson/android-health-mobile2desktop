@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -175,7 +176,11 @@ fun InboxScreen(clientId: String, authRepository: AuthRepository, onBack: () -> 
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        // imePadding() -- without it, the keyboard covers
+                        // this row outright instead of pushing it up; the
+                        // Scaffold's own default inset only reserves space
+                        // for the system nav bar, not the IME.
+                        modifier = Modifier.fillMaxWidth().imePadding().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         OutlinedTextField(

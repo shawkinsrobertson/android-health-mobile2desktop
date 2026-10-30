@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatHoursMinutes } from "@/lib/time-format";
 
 // Every query here takes the caller's own per-request `supabase` client
 // (never a static anon-key singleton) plus an optional `clientId` --
@@ -82,7 +83,7 @@ interface MetricValueOnlyRow {
 // when no clientId is given at all -- never a hard failure, since getting
 // the day-bucketing slightly wrong for a handful of rows beats breaking
 // the page.
-async function getClientTimezone(supabase: SupabaseClient, clientId?: string): Promise<string> {
+export async function getClientTimezone(supabase: SupabaseClient, clientId?: string): Promise<string> {
   if (!clientId) return "UTC";
   const { data } = await supabase
     .from("client_profiles")
@@ -150,7 +151,7 @@ function tzOffsetMillis(instant: Date, timeZone: string): number {
 // yyyy-mm-dd calendar date `instant` falls on in `timeZone` -- en-CA is a
 // locale whose default date format happens to already be yyyy-mm-dd, used
 // here as a formatting shortcut, not for anything Canada-specific.
-function localDateKey(instant: Date, timeZone: string): string {
+export function localDateKey(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
     instant,
   );
@@ -418,7 +419,10 @@ export async function getSleepNights(
     const hours =
       (new Date(row.end_time).getTime() - new Date(row.start_time).getTime()) /
       (1000 * 60 * 60);
-    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 10) / 10 };
+    // Rounded to the nearest minute (not the nearest tenth of an hour) --
+    // the coarser rounding was hiding real discrepancies against a
+    // wearable's own minute-level reading once displayed as "7.5h".
+    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 60) / 60 };
   });
 }
 
@@ -510,12 +514,15 @@ export async function getOverviewStats(
   let lastSleepHours: number | null = null;
   const lastSleep = sleepRes.data?.[0];
   if (lastSleep) {
+    // Minute-level precision (not tenths-of-an-hour) -- this feeds the AI
+    // assistant's own context as a plain number, same reasoning as
+    // getSleepNights below for why the coarser rounding was dropped.
     lastSleepHours =
       Math.round(
         ((new Date(lastSleep.end_time).getTime() - new Date(lastSleep.start_time).getTime()) /
           (1000 * 60 * 60)) *
-          10,
-      ) / 10;
+          60,
+      ) / 60;
   }
 
   return {
@@ -567,7 +574,7 @@ export async function getDataPointSummary(
       const nights = await getSleepNights(supabase, 7, clientId);
       if (!nights.length) return "No sleep data synced yet";
       const last = nights[nights.length - 1];
-      return `${last.hours}h last night`;
+      return `${formatHoursMinutes(last.hours)} last night`;
     }
     case "exercise_sessions": {
       const { count } = await supabase

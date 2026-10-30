@@ -46,6 +46,32 @@ export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// "YYYY-MM-DD" for one of this file's own grid-day Date objects (built
+// from local y/m/d components, e.g. monthGridDays/weekDays) -- matches
+// CalendarItem.date's own key shape (lib/calendar-items.ts) so grid cells
+// can compare by plain string equality instead of re-parsing a Date.
+export function localDateKeyOf(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Whole days between two "YYYY-MM-DD" keys -- used when a call is
+// dragged to a new day, to shift its start/end instants by the same
+// number of days rather than resetting their time-of-day.
+export function daysBetweenKeys(fromKey: string, toKey: string): number {
+  const from = new Date(`${fromKey}T00:00:00Z`);
+  const to = new Date(`${toKey}T00:00:00Z`);
+  return Math.round((to.getTime() - from.getTime()) / (24 * 3_600_000));
+}
+
+export function shiftIsoByDays(iso: string, days: number): string {
+  const d = new Date(iso);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString();
+}
+
 export function isSameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }

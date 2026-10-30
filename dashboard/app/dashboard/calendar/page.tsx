@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
-import { listEvents } from "@/lib/calendar";
+import { listCalendarItems } from "@/lib/calendar-items";
 import { rangeForView } from "@/lib/calendar-grid";
 import { getCoachAvailability } from "@/lib/booking";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
@@ -22,7 +22,7 @@ export default async function CoachCalendarPage() {
 
   const supabase = await createClient();
 
-  const [clientsRes, bookingProfileRes, googleConnectionRes, availability, initialEvents] = await Promise.all([
+  const [clientsRes, bookingProfileRes, googleConnectionRes, availability, initialItems] = await Promise.all([
     supabase
       .from("client_profiles")
       .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
@@ -35,7 +35,7 @@ export default async function CoachCalendarPage() {
       .eq("provider", "google")
       .maybeSingle(),
     getCoachAvailability(supabase, profile.id),
-    listEvents(supabase, { coachId: profile.id }, rangeForView("month", new Date())),
+    listCalendarItems(supabase, { coachId: profile.id }, rangeForView("month", new Date())),
   ]);
 
   const clients = (clientsRes.data ?? []) as unknown as ClientRow[];
@@ -55,7 +55,7 @@ export default async function CoachCalendarPage() {
       </div>
       <CalendarWorkspace
         coachId={profile.id}
-        initialEvents={initialEvents}
+        initialItems={initialItems}
         assignableClients={assignableClients}
         creatorHasGoogleConnection={!!googleConnectionRes.data}
         bookingUrl={bookingToken ? `${siteUrl}/book/${bookingToken}` : null}

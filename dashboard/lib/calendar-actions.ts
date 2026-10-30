@@ -7,6 +7,7 @@ import { getValidGoogleAccessToken } from "@/lib/calendar-connections";
 import { insertGoogleEvent, listCalendars } from "@/lib/google-calendar";
 import { createDailyRoom } from "@/lib/daily";
 import { listEvents, type CalendarEventRow, type DateRange } from "./calendar";
+import { listCalendarItems, type CalendarItem } from "./calendar-items";
 
 // Called directly from CalendarCard.tsx (a client component) whenever
 // the visible view/date range changes -- not a <form> submission, same
@@ -26,6 +27,41 @@ export async function fetchEvents(
 
   const supabase = await createClient();
   return listEvents(supabase, scope, range);
+}
+
+// Same calling convention as fetchEvents above, but merged with scheduled
+// workouts/documents and check-in occurrences for a client-scoped
+// calendar -- see lib/calendar-items.ts's own doc comment for why the
+// coach's aggregate {coachId} scope stays calls-only.
+export async function fetchCalendarItems(
+  scope: { coachId: string } | { clientId: string },
+  range: DateRange,
+): Promise<CalendarItem[]> {
+  const profile = await getCurrentProfile();
+  if (!profile) throw new Error("Not signed in.");
+
+  const supabase = await createClient();
+  return listCalendarItems(supabase, scope, range);
+}
+
+// Drag-and-drop (web) and tap-to-pick-a-day (Android) both end up here --
+// the one mutation a client has on their own assignment at all (see
+// supabase/migrations/0039_assignment_scheduling.sql's reschedule_
+// assignment: security definer, narrower than a client-side UPDATE
+// policy on `assignments` would be).
+export async function rescheduleAssignment(assignmentId: string, newDate: string): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (!profile) throw new Error("Not signed in.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reschedule_assignment", {
+    p_assignment_id: assignmentId,
+    p_new_date: newDate,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/dashboard");
+  revalidatePath("/client");
 }
 
 const EVENT_COLUMNS =

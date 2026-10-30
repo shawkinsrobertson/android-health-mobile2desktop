@@ -28,11 +28,16 @@ private fun verifyCodeRoute(email: String) = "verify_code/${Uri.encode(email)}"
 // icon from the nav, rather than showing a "go to the screen you're
 // already on" icon.
 const val ROUTE_DASHBOARD = "dashboard/{clientId}"
-const val ROUTE_WORKOUT = "workout/{clientId}"
+// assignedWorkoutId is an optional query-style arg -- present only when
+// opened from a specific calendar item (CalendarScreen's tap-to-complete)
+// rather than the Workouts nav destination, which always wants "what's
+// next" and so always navigates here with it absent.
+const val ROUTE_WORKOUT = "workout/{clientId}?assignedWorkoutId={assignedWorkoutId}"
 const val ROUTE_CALENDAR = "calendar/{clientId}"
 const val ROUTE_INBOX = "inbox/{clientId}"
 fun dashboardRoute(clientId: String) = "dashboard/${Uri.encode(clientId)}"
-fun workoutRoute(clientId: String) = "workout/${Uri.encode(clientId)}"
+fun workoutRoute(clientId: String, assignedWorkoutId: String? = null) =
+    "workout/${Uri.encode(clientId)}" + if (assignedWorkoutId != null) "?assignedWorkoutId=${Uri.encode(assignedWorkoutId)}" else ""
 fun calendarRoute(clientId: String) = "calendar/${Uri.encode(clientId)}"
 fun inboxRoute(clientId: String) = "inbox/${Uri.encode(clientId)}"
 fun comingSoonRoute(title: String) = "coming_soon/${Uri.encode(title)}"
@@ -68,8 +73,8 @@ fun AuthNavHost(
     onVerifyCode: suspend (email: String, code: String) -> Unit,
     dashboardContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
     profileContent: @Composable (onBack: () -> Unit) -> Unit,
-    workoutContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
-    calendarContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
+    workoutContent: @Composable (clientId: String, assignedWorkoutId: String?, onBack: () -> Unit) -> Unit,
+    calendarContent: @Composable (clientId: String, onBack: () -> Unit, onOpenWorkout: (String) -> Unit) -> Unit,
     inboxContent: @Composable (clientId: String, onBack: () -> Unit) -> Unit,
     homeContent: @Composable (nav: HomeNavCallbacks) -> Unit,
 ) {
@@ -120,17 +125,29 @@ fun AuthNavHost(
         }
         composable(
             ROUTE_WORKOUT,
-            arguments = listOf(navArgument("clientId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("clientId") { type = NavType.StringType },
+                navArgument("assignedWorkoutId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
         ) { backStackEntry ->
             val clientId = Uri.decode(backStackEntry.arguments?.getString("clientId") ?: "")
-            workoutContent(clientId) { navController.popBackStack() }
+            val assignedWorkoutId = backStackEntry.arguments?.getString("assignedWorkoutId")?.let { Uri.decode(it) }
+            workoutContent(clientId, assignedWorkoutId) { navController.popBackStack() }
         }
         composable(
             ROUTE_CALENDAR,
             arguments = listOf(navArgument("clientId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val clientId = Uri.decode(backStackEntry.arguments?.getString("clientId") ?: "")
-            calendarContent(clientId) { navController.popBackStack() }
+            calendarContent(
+                clientId,
+                { navController.popBackStack() },
+                { assignedWorkoutId -> navController.navigate(workoutRoute(clientId, assignedWorkoutId)) },
+            )
         }
         composable(
             ROUTE_INBOX,

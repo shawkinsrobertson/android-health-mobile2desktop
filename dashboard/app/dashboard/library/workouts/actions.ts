@@ -30,60 +30,6 @@ function intOrNull(value: FormDataEntryValue | null): number | null {
 // Workout CRUD
 // ---------------------------------------------------------------------------
 
-export async function createWorkout(formData: FormData) {
-  const coach = await requireCoach();
-
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) {
-    redirect(`${LIST_PATH}/new?error=${encodeURIComponent("Name is required.")}`);
-  }
-  const description = strOrNull(formData.get("description"));
-
-  const supabase = await createClient();
-
-  let newId: string;
-  try {
-    const photo = await applyMediaField(
-      supabase,
-      coach.id,
-      "workouts",
-      readMediaField(formData, "photo"),
-      null,
-    );
-    const video = await applyMediaField(
-      supabase,
-      coach.id,
-      "workouts",
-      readMediaField(formData, "video"),
-      null,
-    );
-
-    const { data, error } = await supabase
-      .from("templates")
-      .insert({
-        coach_id: coach.id,
-        type: "workout",
-        name,
-        description,
-        photo_path: photo.path,
-        photo_url: photo.url,
-        video_path: video.path,
-        video_url: video.url,
-      })
-      .select("id")
-      .single();
-
-    if (error || !data) throw new Error(error?.message ?? "Failed to create workout");
-    newId = data.id;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create workout";
-    redirect(`${LIST_PATH}/new?error=${encodeURIComponent(message)}`);
-  }
-
-  revalidatePath(LIST_PATH);
-  redirect(`${LIST_PATH}/${newId}`);
-}
-
 export async function updateWorkout(workoutId: string, formData: FormData) {
   const coach = await requireCoach();
 
