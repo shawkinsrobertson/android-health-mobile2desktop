@@ -23,10 +23,16 @@ export async function assignWorkoutToClient(clientId: string, formData: FormData
   const path = `/dashboard/clients/${clientId}`;
   if (!workoutId) redirect(`${path}?error=${encodeURIComponent("Pick a workout to assign.")}`);
 
+  // Optional -- present when assigned from the calendar's own "+ Assign"
+  // entry point (AssignScheduleModal), absent from the plain client-page
+  // picker, which still assigns unscheduled exactly as before.
+  const scheduledDate = (formData.get("scheduled_date") as string) || null;
+
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("assign_workout_to_client", {
     p_workout_id: workoutId,
     p_client_id: clientId,
+    p_scheduled_date: scheduledDate,
   });
 
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);
@@ -43,10 +49,13 @@ export async function assignProgramToClient(clientId: string, formData: FormData
   const path = `/dashboard/clients/${clientId}`;
   if (!programId) redirect(`${path}?error=${encodeURIComponent("Pick a program to assign.")}`);
 
+  const startDate = (formData.get("start_date") as string) || undefined;
+
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("assign_program_to_client", {
     p_program_id: programId,
     p_client_id: clientId,
+    ...(startDate ? { p_start_date: startDate } : {}),
   });
 
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);
@@ -61,10 +70,13 @@ export async function assignDocumentToClient(clientId: string, formData: FormDat
   const path = `/dashboard/clients/${clientId}`;
   if (!documentId) redirect(`${path}?error=${encodeURIComponent("Pick a document to assign.")}`);
 
+  const scheduledDate = (formData.get("scheduled_date") as string) || null;
+
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("assign_document_to_client", {
     p_document_id: documentId,
     p_client_id: clientId,
+    p_scheduled_date: scheduledDate,
   });
 
   if (error) redirect(`${path}?error=${encodeURIComponent(error.message)}`);

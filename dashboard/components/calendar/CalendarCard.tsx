@@ -2,15 +2,17 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { fetchCalendarItems, rescheduleAssignment, updateEvent } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
 import { disconnectGoogleCalendar, syncGoogleCalendar } from "@/lib/calendar-sync-actions";
 import { BookingLinkControl } from "@/components/booking/BookingLinkControl";
 import type { CalendarEventRow } from "@/lib/calendar";
 import { eventToItem, type CalendarItem } from "@/lib/calendar-items";
-import { addDays, daysBetweenKeys, rangeForView, shiftIsoByDays, startOfWeek } from "@/lib/calendar-grid";
+import { addDays, daysBetweenKeys, localDateKeyOf, rangeForView, shiftIsoByDays, startOfWeek } from "@/lib/calendar-grid";
 import { AgendaList, DayList, MonthGrid, WeekGrid } from "./CalendarViews";
 import { EventModal } from "./EventModal";
+import { AssignScheduleModal } from "./AssignScheduleModal";
 
 type View = "agenda" | "day" | "week" | "month";
 
@@ -32,6 +34,21 @@ export interface BookingProps {
   availabilityHref: string;
 }
 
+// The calendar's own "schedule everything" entry point (see
+// AssignScheduleModal) -- only ever passed by a coach's per-client page
+// (the one place both a library to assign from and a single target
+// client both exist at once; the coach's own aggregate calendar has no
+// single client to assign onto, and a client can't assign content to
+// themselves).
+export interface AssignEntryProps {
+  workoutOptions: { id: string; name: string }[];
+  programOptions: { id: string; name: string }[];
+  documentOptions: { id: string; name: string }[];
+  assignWorkout: (formData: FormData) => void | Promise<void>;
+  assignProgram: (formData: FormData) => void | Promise<void>;
+  assignDocument: (formData: FormData) => void | Promise<void>;
+}
+
 export function CalendarCard({
   scope,
   initialItems,
@@ -41,6 +58,7 @@ export function CalendarCard({
   googleSync,
   creatorHasGoogleConnection,
   booking,
+  assignEntry,
   initialView = "month",
   initialExpanded = false,
 }: {
@@ -55,13 +73,16 @@ export function CalendarCard({
   // Calendar connected, for the "also add to Google Calendar" checkbox.
   creatorHasGoogleConnection?: boolean;
   booking?: BookingProps;
+  assignEntry?: AssignEntryProps;
   // Lets the new coach Dashboard page default straight to a week view,
   // already expanded, instead of every other call site's compact
   // "tap to expand, starting on month" teaser.
   initialView?: View;
   initialExpanded?: boolean;
 }) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(initialExpanded);
+  const [assigning, setAssigning] = useState(false);
   const [view, setView] = useState<View>(initialView);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [items, setItems] = useState(initialItems);
@@ -140,11 +161,44 @@ export function CalendarCard({
     setEditingEvent(null);
   }
 
+  // Click-to-edit/complete: a workout/document item navigates to the
+  // same dedicated page this app already has for it -- a coach's own
+  // (fixedClientId set, see below) full assignment editor already lets
+  // them edit that client's exercise list in place (the capability the
+  // user actually asked for), and a client's own already has its
+  // start/submit flow -- rather than re-building either as a second,
+  // calendar-only editor surface that would drift from the real one.
+  // `fixedClientId` is this component's own existing signal for "a coach
+  // is viewing one specific client's calendar" (set only by
+  // app/dashboard/clients/[clientId]/page.tsx) vs. absent for a client
+  // viewing their own -- scope.clientId alone can't tell these apart, but
+  // this prop already does, so no new prop is needed just for this.
   function handleSelectItem(item: CalendarItem) {
-    if (item.kind === "call" && item.event) setEditingEvent(item.event);
-    // Workout/document/check-in click-to-edit/complete lands in a later
-    // pass (PLANNING.md Phase 27's Stage 7) -- selecting one of those is a
-    // no-op for now rather than silently doing nothing forever.
+    if (item.kind === "call" && item.event) {
+      setEditingEvent(item.event);
+      return;
+    }
+    if ((item.kind === "workout" || item.kind === "document") && item.assignmentId) {
+      const base = fixedClientId ? `/dashboard/clients/${fixedClientId}/assigned` : "/client/assigned";
+      const path = item.kind === "workout" ? `${base}/workouts/${item.assignmentId}` : `${base}/documents/${item.assignmentId}`;
+      // The client's own document view lives one level up from "assigned"
+      // (see app/client/documents/[assignedDocumentId]/page.tsx), unlike
+      // every other case here -- the one exception to the base+kind shape.
+      router.push(!fixedClientId && item.kind === "document" ? `/client/documents/${item.assignmentId}` : path);
+      return;
+    }
+    if (item.kind === "check_in" && !fixedClientId) {
+      // Always the current week's check-in (see lib/check-ins.ts's
+      // getCurrentCheckIn) regardless of which occurrence pill was
+      // clicked -- there's no per-occurrence check-in view anywhere in
+      // this app today, matching how the client's own "due" tasks already
+      // link to this same page.
+      router.push("/client/check-in");
+    }
+    // A coach viewing a check-in occurrence has nothing to edit -- it's
+    // virtual/template-driven with no per-occurrence row (see
+    // lib/calendar-items.ts's listCheckInOccurrences) -- so this is a
+    // deliberate no-op for that one case.
   }
 
   // Drag-and-drop's only mutation -- a workout/document moves via
@@ -285,13 +339,24 @@ export function CalendarCard({
         >
           {title} ▴
         </button>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-        >
-          New event
-        </button>
+        <div className="flex gap-1.5">
+          {assignEntry && (
+            <button
+              type="button"
+              onClick={() => setAssigning(true)}
+              className="rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-primary hover:bg-[color:var(--page-plane)]"
+            >
+              + Assign
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+          >
+            New event
+          </button>
+        </div>
       </div>
 
       {googleSync && (
@@ -430,6 +495,19 @@ export function CalendarCard({
           }}
           onSaved={upsertLocal}
           onDeleted={removeLocal}
+        />
+      )}
+
+      {assigning && assignEntry && (
+        <AssignScheduleModal
+          initialDate={localDateKeyOf(anchorDate)}
+          workoutOptions={assignEntry.workoutOptions}
+          programOptions={assignEntry.programOptions}
+          documentOptions={assignEntry.documentOptions}
+          assignWorkout={assignEntry.assignWorkout}
+          assignProgram={assignEntry.assignProgram}
+          assignDocument={assignEntry.assignDocument}
+          onClose={() => setAssigning(false)}
         />
       )}
     </div>

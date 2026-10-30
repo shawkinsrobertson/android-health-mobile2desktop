@@ -3154,3 +3154,47 @@ pages) all clean. The RPCs underneath are the part with real functional
 verification (above); the drag interaction itself, and the UI/UX feel
 of dropping an item on a day, haven't been exercised in a browser in
 this environment.
+
+### Stage 7-8 -- click-to-edit/complete + assign-from-calendar
+
+**Click-to-edit/complete (`CalendarCard.tsx`'s `handleSelectItem`).**
+Deliberately navigates to the one dedicated page this app already has
+for each kind, instead of building a second, calendar-only editor
+surface for workouts/documents that would drift from the real one over
+time: a coach clicking a scheduled workout lands on
+`/dashboard/clients/[clientId]/assigned/workouts/[id]` -- the full
+editor Stage 3 already built, which lets them edit that client's own
+exercise list in place (the capability confirmed with the user before
+this phase started), see photos/video, and session history, not just
+reschedule it. A coach clicking a document lands on that same tier's
+assigned-document page. A client clicking their own workout/document
+lands on their existing start-session / submit-form page. A client
+clicking a check-in occurrence goes to `/client/check-in`, which always
+shows the current week's check-in regardless of which occurrence pill
+was clicked -- there's no per-occurrence check-in view anywhere in this
+app today (not even a history one), so this matches how the client's
+own "due" tasks list already links to the same page. A coach clicking a
+check-in occurrence is a no-op -- it's a virtual, template-driven
+occurrence with no per-occurrence row to edit. Role (coach-viewing vs.
+client-viewing-own) is read off `CalendarCard`'s own pre-existing
+`fixedClientId` prop (only ever set by the coach's per-client page) --
+no new prop needed just to tell the two apart.
+
+**Assign & schedule entry point (`AssignScheduleModal.tsx`).** A new
+"+ Assign" button on the coach's per-client `CalendarCard` opens a
+small modal (workout/program/document tabs, a template picker, a date
+field) that posts straight to the *same* `assign_workout_to_client`/
+`assign_program_to_client`/`assign_document_to_client` server actions
+(`assign-actions.ts`) the client-detail page's existing "Assigned
+content" picker already calls -- each action now also reads an
+optional `scheduled_date` (workout/document) or `start_date` (program)
+from the form and passes it to the already-scheduling-aware RPCs from
+Stage 4, instead of a second assignment pathway being built for the
+calendar. Each action already redirects to the newly-assigned item (or
+back with `?error=`) on success, so the modal needed no local state or
+`onSaved` wiring of its own. Only passed on the coach's per-client page
+-- the coach's own aggregate calendar has no single client to assign
+onto, and a client can't assign content to themselves.
+
+Verified: `tsc --noEmit`, `next lint`, dummy-env `next build` (34/34
+pages) all clean. Not exercised in a browser in this environment.

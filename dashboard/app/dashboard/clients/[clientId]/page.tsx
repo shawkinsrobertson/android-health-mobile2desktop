@@ -400,6 +400,14 @@ export default async function ClientDetailPage({
               title="Shared calendar"
               googleSync={{ targetProfileId: params.clientId }}
               creatorHasGoogleConnection={!!coachGoogleConnectionRes.data}
+              assignEntry={{
+                workoutOptions: libraryWorkouts,
+                programOptions: libraryPrograms,
+                documentOptions: libraryDocuments,
+                assignWorkout: assignWorkoutToClient.bind(null, params.clientId),
+                assignProgram: assignProgramToClient.bind(null, params.clientId),
+                assignDocument: assignDocumentToClient.bind(null, params.clientId),
+              }}
             />
           </>
         )}
