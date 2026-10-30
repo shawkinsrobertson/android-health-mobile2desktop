@@ -3252,3 +3252,81 @@ notices, a couple of `UseKtx` style suggestions on `Uri.parse`/
 `Color.parseColor` matching ones already present elsewhere in this
 codebase -- are unrelated to this change and don't fail the build). Not
 exercised on a device or emulator in this environment.
+
+### User-testing fixes, round 2
+
+Follow-up fixes from live testing against a real Supabase project (the
+first time anything in this round of work ran against production data
+rather than a local throwaway database):
+
+- **Calendar "+ Assign" modal navigated away instead of closing.**
+  `AssignScheduleModal` was posting to the same server actions the plain
+  client-page picker uses, which always `redirect()` to the newly
+  assigned item -- fine for that picker, wrong for a modal meant to stay
+  on the calendar. Added non-redirecting `*Inline` variants
+  (`assign-actions.ts`) that return the new id instead, so the modal
+  closes and refetches the calendar in place.
+- **Calendar event pills overflowed into the next day's cell and had no
+  visible background.** `truncate` had nothing giving it a bounded width
+  (no `min-w-0`/`w-full` on the pill button or its dnd-kit drag wrapper),
+  and the `bg-[...]/20` opacity modifier on a bare hex custom property
+  was too faint to read in dark mode. Pills are now solid-colored,
+  white-text chips, closer to a Google Calendar event, with
+  `overflow-hidden` on the day cells as a backstop.
+- **Clicking a calendar event did nothing, though dragging it worked.**
+  `DndContext` had no activation constraint on its `PointerSensor`, so
+  every pointerdown immediately "activated" drag state -- dnd-kit's own
+  documented behavior is to register a capture-phase click-suppressor
+  the moment activation happens, which is why a plain click (zero
+  movement) never reached the item. Added an 8px distance
+  `activationConstraint` so a real click passes through untouched while
+  a deliberate drag still works.
+- **No confirmation or return-to-task after editing an assigned
+  workout/program.** Every edit in that editor already saves itself
+  immediately (`WorkoutExerciseListEditor`'s injected actions) -- there
+  was no "I'm done" affordance at all. New `SaveAndReturnButton`
+  component: flips to a disabled "Saved" label, then `router.back()`
+  after a beat, so the coach lands back on the calendar (or wherever
+  they came from) with that page's own state intact instead of a fresh
+  mount from a fixed link.
+- **A missing migration, found live.** `supabase/migrations/0039`'s
+  `scheduled_date` column surfaced a pre-existing gap unrelated to this
+  round's own work: `0023_check_ins.sql` (weekly check-ins, written long
+  before this phase) had apparently never actually been run against the
+  live project -- `check_in_templates` didn't exist, which PostgREST
+  reports as "table not found in schema cache" rather than a clearer
+  missing-table error (a `NOTIFY pgrst, 'reload schema'` understandably
+  didn't fix it, since there was no stale cache to refresh). Diagnosed
+  via `select to_regclass('public.check_in_templates')` returning null,
+  then fixed by actually running `0023_check_ins.sql`.
+- **Assigning a workout/document didn't show it on the calendar.**
+  `assign_workout_to_client`/`assign_document_to_client` (0039)
+  deliberately defaulted `scheduled_date` to null ("unscheduled" was
+  meant to be a real, opt-in state) -- but the plain "Assigned content"
+  picker on the client page has no date field at all, so every
+  assignment made through it landed unscheduled, invisible on the
+  calendar, with nothing telling the coach why. New migration
+  `0040_assignment_scheduled_date_defaults.sql` defaults both to
+  `current_date` instead, matching `assign_program_to_client`'s existing
+  default -- "unscheduled" is now something a coach opts into (by
+  clearing the date on the "+ Assign" modal's form) rather than the
+  silent default every assignment lands in. The server actions
+  (`assign-actions.ts`) were also fixed to omit `scheduled_date`
+  entirely when unset rather than passing an explicit `null`, since
+  Postgres only falls back to a function's own default for an *omitted*
+  argument, not one passed as `null` -- the same explicit-null-vs-
+  omitted distinction the fix for `assign_program_to_client`'s
+  `start_date` already relied on, just not applied consistently to the
+  other two until now.
+
+Verified `0040` for real: started this environment's local PostgreSQL
+16, stubbed just enough of the schema to exercise
+`assign_document_to_client` directly (not the full 39-migration
+history this time, given the change's small surface), confirmed the
+pre-0040 function actually reproduces the reported bug (omitted date ->
+null), applied `0040`, then confirmed all three cases -- omitted
+(-> today), explicit `null` (-> still null, the opt-out path), explicit
+date (-> that date) -- behave exactly as intended. Database and service
+cleaned up afterward. Web-side changes verified with `tsc --noEmit`,
+`next lint`, and a dummy-env `next build`; none of this has been
+exercised in a real browser in this environment.

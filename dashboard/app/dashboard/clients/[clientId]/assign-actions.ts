@@ -30,16 +30,20 @@ async function doAssignWorkout(clientId: string, formData: FormData): Promise<st
   const workoutId = String(formData.get("workout_id") ?? "");
   if (!workoutId) throw new Error("Pick a workout to assign.");
 
-  // Optional -- present when assigned from the calendar's own "+ Assign"
-  // entry point, absent from the plain client-page picker, which still
-  // assigns unscheduled exactly as before.
-  const scheduledDate = (formData.get("scheduled_date") as string) || null;
+  // Present when assigned from the calendar's own "+ Assign" entry point;
+  // absent from the plain client-page picker. Omitted (not sent as an
+  // explicit null) when there isn't one, so the RPC's own default --
+  // current_date as of 0040_assignment_scheduled_date_defaults.sql --
+  // actually applies instead of being overridden by a null argument
+  // (PostgREST/Postgres don't fall back to a function's default for an
+  // explicitly-passed null, only for an omitted argument).
+  const scheduledDate = (formData.get("scheduled_date") as string) || undefined;
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("assign_workout_to_client", {
     p_workout_id: workoutId,
     p_client_id: clientId,
-    p_scheduled_date: scheduledDate,
+    ...(scheduledDate ? { p_scheduled_date: scheduledDate } : {}),
   });
   if (error) throw new Error(error.message);
   revalidatePath(`/dashboard/clients/${clientId}`);
@@ -69,13 +73,14 @@ async function doAssignDocument(clientId: string, formData: FormData): Promise<s
   const documentId = String(formData.get("document_id") ?? "");
   if (!documentId) throw new Error("Pick a document to assign.");
 
-  const scheduledDate = (formData.get("scheduled_date") as string) || null;
+  // See doAssignWorkout's comment on scheduledDate above.
+  const scheduledDate = (formData.get("scheduled_date") as string) || undefined;
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("assign_document_to_client", {
     p_document_id: documentId,
     p_client_id: clientId,
-    p_scheduled_date: scheduledDate,
+    ...(scheduledDate ? { p_scheduled_date: scheduledDate } : {}),
   });
   if (error) throw new Error(error.message);
   revalidatePath(`/dashboard/clients/${clientId}`);
