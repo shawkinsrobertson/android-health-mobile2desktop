@@ -2,12 +2,13 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fetchEvents } from "@/lib/calendar-actions";
+import { fetchCalendarItems, rescheduleAssignment, updateEvent } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
 import { disconnectGoogleCalendar, syncGoogleCalendar } from "@/lib/calendar-sync-actions";
 import { BookingLinkControl } from "@/components/booking/BookingLinkControl";
 import type { CalendarEventRow } from "@/lib/calendar";
-import { addDays, rangeForView, startOfWeek } from "@/lib/calendar-grid";
+import { eventToItem, type CalendarItem } from "@/lib/calendar-items";
+import { addDays, daysBetweenKeys, rangeForView, shiftIsoByDays, startOfWeek } from "@/lib/calendar-grid";
 import { AgendaList, DayList, MonthGrid, WeekGrid } from "./CalendarViews";
 import { EventModal } from "./EventModal";
 
@@ -33,7 +34,7 @@ export interface BookingProps {
 
 export function CalendarCard({
   scope,
-  initialEvents,
+  initialItems,
   assignableClients,
   fixedClientId,
   title = "Calendar",
@@ -44,7 +45,7 @@ export function CalendarCard({
   initialExpanded = false,
 }: {
   scope: { coachId: string } | { clientId: string };
-  initialEvents: CalendarEventRow[];
+  initialItems: CalendarItem[];
   assignableClients?: { id: string; name: string }[];
   fixedClientId?: string;
   title?: string;
@@ -63,11 +64,12 @@ export function CalendarCard({
   const [expanded, setExpanded] = useState(initialExpanded);
   const [view, setView] = useState<View>(initialView);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
-  const [events, setEvents] = useState(initialEvents);
+  const [items, setItems] = useState(initialItems);
   const [loading, setLoading] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEventRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
@@ -95,9 +97,9 @@ export function CalendarCard({
     if (!expanded) return;
     let cancelled = false;
     setLoading(true);
-    fetchEvents(scope, range)
+    fetchCalendarItems(scope, range)
       .then((rows) => {
-        if (!cancelled) setEvents(rows);
+        if (!cancelled) setItems(rows);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -109,22 +111,72 @@ export function CalendarCard({
   }, [expanded, range.start, range.end]);
 
   const upcoming = useMemo(() => {
-    const now = new Date().toISOString();
-    return [...initialEvents].filter((e) => e.end_time >= now).slice(0, 3);
-  }, [initialEvents]);
+    const now = new Date();
+    const nowKey = now.toISOString().slice(0, 10);
+    return [...initialItems]
+      .filter((item) => {
+        // A call's own end_time decides whether it's still upcoming;
+        // every other kind has no time of day, just a day -- still
+        // "upcoming" through the end of that day.
+        if (item.kind === "call") return (item.endTime ?? "") >= now.toISOString();
+        return item.date >= nowKey;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime ?? "").localeCompare(b.startTime ?? ""))
+      .slice(0, 3);
+  }, [initialItems]);
 
   function upsertLocal(saved: CalendarEventRow) {
-    setEvents((prev) => {
-      const exists = prev.some((e) => e.id === saved.id);
-      return exists ? prev.map((e) => (e.id === saved.id ? saved : e)) : [...prev, saved];
+    const item = eventToItem(saved);
+    setItems((prev) => {
+      const exists = prev.some((i) => i.kind === "call" && i.id === item.id);
+      return exists ? prev.map((i) => (i.kind === "call" && i.id === item.id ? item : i)) : [...prev, item];
     });
     setEditingEvent(null);
     setCreating(false);
   }
 
   function removeLocal(eventId: string) {
-    setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    setItems((prev) => prev.filter((i) => !(i.kind === "call" && i.id === eventId)));
     setEditingEvent(null);
+  }
+
+  function handleSelectItem(item: CalendarItem) {
+    if (item.kind === "call" && item.event) setEditingEvent(item.event);
+    // Workout/document/check-in click-to-edit/complete lands in a later
+    // pass (PLANNING.md Phase 27's Stage 7) -- selecting one of those is a
+    // no-op for now rather than silently doing nothing forever.
+  }
+
+  // Drag-and-drop's only mutation -- a workout/document moves via
+  // reschedule_assignment (see lib/calendar-actions.ts); a call keeps its
+  // own time-of-day and duration, just shifted onto the new day, via the
+  // existing updateEvent. A check-in item is never draggable (see
+  // CalendarViews.tsx's isDraggableKind), so it never reaches here.
+  async function handleReschedule(item: CalendarItem, newDate: string) {
+    setRescheduleError(null);
+    const previousItems = items;
+    setItems((prev) => prev.map((i) => (i.kind === item.kind && i.id === item.id ? { ...i, date: newDate } : i)));
+    try {
+      if (item.kind === "call" && item.event) {
+        const deltaDays = daysBetweenKeys(item.date, newDate);
+        const updated = await updateEvent(item.event.id, {
+          title: item.event.title,
+          description: item.event.description ?? undefined,
+          location: item.event.location ?? undefined,
+          startTime: shiftIsoByDays(item.event.start_time, deltaDays),
+          endTime: shiftIsoByDays(item.event.end_time, deltaDays),
+          allDay: item.event.all_day,
+          reminderMinutesBefore: item.event.reminder_minutes_before,
+          hasVideoCall: item.event.has_video_call,
+        });
+        upsertLocal(updated);
+      } else if (item.assignmentId) {
+        await rescheduleAssignment(item.assignmentId, newDate);
+      }
+    } catch (err) {
+      setItems(previousItems);
+      setRescheduleError(err instanceof Error ? err.message : "Couldn't move it to that day.");
+    }
   }
 
   async function handleJoin(eventId: string, e: React.MouseEvent) {
@@ -144,8 +196,8 @@ export function CalendarCard({
     setSyncMessage(null);
     try {
       const { syncedCount } = await syncGoogleCalendar(googleSync.targetProfileId);
-      const rows = await fetchEvents(scope, range);
-      setEvents(rows);
+      const rows = await fetchCalendarItems(scope, range);
+      setItems(rows);
       setSyncMessage(`Synced ${syncedCount} event${syncedCount === 1 ? "" : "s"}.`);
     } catch (err) {
       setSyncMessage(err instanceof Error ? err.message : "Sync failed.");
@@ -202,11 +254,14 @@ export function CalendarCard({
           <p className="text-sm text-ink-muted">Nothing coming up.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
-            {upcoming.map((ev) => (
-              <li key={ev.id} className="flex items-center justify-between text-sm">
-                <span className="truncate text-ink-primary">{ev.title}</span>
+            {upcoming.map((item) => (
+              <li key={`${item.kind}:${item.id}`} className="flex items-center justify-between text-sm">
+                <span className="truncate text-ink-primary">
+                  {item.completed && <span className="mr-1 text-[color:var(--success)]">✓</span>}
+                  {item.title}
+                </span>
                 <span className="shrink-0 pl-2 text-xs text-ink-muted">
-                  {new Date(ev.start_time).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  {new Date(`${item.date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </span>
               </li>
             ))}
@@ -340,25 +395,27 @@ export function CalendarCard({
       </div>
 
       {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
+      {rescheduleError && <p className="mb-2 text-xs text-danger">{rescheduleError}</p>}
 
       {loading ? (
         <p className="text-sm text-ink-muted">Loading…</p>
       ) : view === "agenda" ? (
-        <AgendaList events={events} onSelect={setEditingEvent} onJoin={handleJoin} />
+        <AgendaList items={items} onSelect={handleSelectItem} onJoin={handleJoin} />
       ) : view === "month" ? (
         <MonthGrid
           anchorDate={anchorDate}
-          events={events}
+          items={items}
           onSelectDay={(d) => {
             setAnchorDate(d);
             setView("day");
           }}
-          onSelectEvent={setEditingEvent}
+          onSelectItem={handleSelectItem}
+          onReschedule={handleReschedule}
         />
       ) : view === "week" ? (
-        <WeekGrid anchorDate={anchorDate} events={events} onSelectEvent={setEditingEvent} />
+        <WeekGrid anchorDate={anchorDate} items={items} onSelectItem={handleSelectItem} onReschedule={handleReschedule} />
       ) : (
-        <DayList anchorDate={anchorDate} events={events} onSelect={setEditingEvent} onJoin={handleJoin} />
+        <DayList anchorDate={anchorDate} items={items} onSelect={handleSelectItem} onJoin={handleJoin} />
       )}
 
       {(creating || editingEvent) && (

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchEvents } from "@/lib/calendar-actions";
+import { fetchCalendarItems, rescheduleAssignment, updateEvent } from "@/lib/calendar-actions";
 import { joinCalendarEvent } from "@/lib/calendar-call-actions";
 import type { CalendarEventRow } from "@/lib/calendar";
-import { rangeForView } from "@/lib/calendar-grid";
+import { eventToItem, type CalendarItem } from "@/lib/calendar-items";
+import { daysBetweenKeys, rangeForView, shiftIsoByDays } from "@/lib/calendar-grid";
 import type { CoachAvailability } from "@/lib/booking";
 import { BookingLinkControl } from "@/components/booking/BookingLinkControl";
 import { AvailabilityEditor } from "@/components/booking/AvailabilityEditor";
@@ -19,14 +20,14 @@ import { EventModal } from "./EventModal";
 // other two things this page's job is to expose together.
 export function CalendarWorkspace({
   coachId,
-  initialEvents,
+  initialItems,
   assignableClients,
   creatorHasGoogleConnection,
   bookingUrl,
   initialAvailability,
 }: {
   coachId: string;
-  initialEvents: CalendarEventRow[];
+  initialItems: CalendarItem[];
   assignableClients: { id: string; name: string }[];
   creatorHasGoogleConnection: boolean;
   bookingUrl: string | null;
@@ -34,12 +35,13 @@ export function CalendarWorkspace({
 }) {
   const scope = useMemo(() => ({ coachId }), [coachId]);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
-  const [events, setEvents] = useState(initialEvents);
+  const [items, setItems] = useState(initialItems);
   const [loading, setLoading] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEventRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [createDate, setCreateDate] = useState<Date | undefined>(undefined);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [editingAvailability, setEditingAvailability] = useState(false);
   const [availabilitySaved, setAvailabilitySaved] = useState(false);
 
@@ -48,9 +50,9 @@ export function CalendarWorkspace({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchEvents(scope, range)
+    fetchCalendarItems(scope, range)
       .then((rows) => {
-        if (!cancelled) setEvents(rows);
+        if (!cancelled) setItems(rows);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -62,9 +64,10 @@ export function CalendarWorkspace({
   }, [range.start, range.end]);
 
   function upsertLocal(saved: CalendarEventRow) {
-    setEvents((prev) => {
-      const exists = prev.some((e) => e.id === saved.id);
-      return exists ? prev.map((e) => (e.id === saved.id ? saved : e)) : [...prev, saved];
+    const item = eventToItem(saved);
+    setItems((prev) => {
+      const exists = prev.some((i) => i.kind === "call" && i.id === item.id);
+      return exists ? prev.map((i) => (i.kind === "call" && i.id === item.id ? item : i)) : [...prev, item];
     });
     setEditingEvent(null);
     setCreating(false);
@@ -72,8 +75,40 @@ export function CalendarWorkspace({
   }
 
   function removeLocal(eventId: string) {
-    setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    setItems((prev) => prev.filter((i) => !(i.kind === "call" && i.id === eventId)));
     setEditingEvent(null);
+  }
+
+  function handleSelectItem(item: CalendarItem) {
+    if (item.kind === "call" && item.event) setEditingEvent(item.event);
+  }
+
+  // Same shape as CalendarCard's own handleReschedule -- see its comment.
+  async function handleReschedule(item: CalendarItem, newDate: string) {
+    setRescheduleError(null);
+    const previousItems = items;
+    setItems((prev) => prev.map((i) => (i.kind === item.kind && i.id === item.id ? { ...i, date: newDate } : i)));
+    try {
+      if (item.kind === "call" && item.event) {
+        const deltaDays = daysBetweenKeys(item.date, newDate);
+        const updated = await updateEvent(item.event.id, {
+          title: item.event.title,
+          description: item.event.description ?? undefined,
+          location: item.event.location ?? undefined,
+          startTime: shiftIsoByDays(item.event.start_time, deltaDays),
+          endTime: shiftIsoByDays(item.event.end_time, deltaDays),
+          allDay: item.event.all_day,
+          reminderMinutesBefore: item.event.reminder_minutes_before,
+          hasVideoCall: item.event.has_video_call,
+        });
+        upsertLocal(updated);
+      } else if (item.assignmentId) {
+        await rescheduleAssignment(item.assignmentId, newDate);
+      }
+    } catch (err) {
+      setItems(previousItems);
+      setRescheduleError(err instanceof Error ? err.message : "Couldn't move it to that day.");
+    }
   }
 
   async function handleJoin(eventId: string, e: React.MouseEvent) {
@@ -128,7 +163,8 @@ export function CalendarWorkspace({
         <div className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
           <h2 className="mb-2 text-sm font-semibold text-ink-primary">This month</h2>
           {joinError && <p className="mb-2 text-xs text-danger">{joinError}</p>}
-          <AgendaList events={events} onSelect={setEditingEvent} onJoin={handleJoin} />
+          {rescheduleError && <p className="mb-2 text-xs text-danger">{rescheduleError}</p>}
+          <AgendaList items={items} onSelect={handleSelectItem} onJoin={handleJoin} />
         </div>
       </div>
 
@@ -172,9 +208,10 @@ export function CalendarWorkspace({
         ) : (
           <MonthGrid
             anchorDate={anchorDate}
-            events={events}
+            items={items}
             onSelectDay={openCreateForDay}
-            onSelectEvent={setEditingEvent}
+            onSelectItem={handleSelectItem}
+            onReschedule={handleReschedule}
           />
         )}
       </div>

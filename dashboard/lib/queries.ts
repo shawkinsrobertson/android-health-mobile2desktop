@@ -83,7 +83,7 @@ interface MetricValueOnlyRow {
 // when no clientId is given at all -- never a hard failure, since getting
 // the day-bucketing slightly wrong for a handful of rows beats breaking
 // the page.
-async function getClientTimezone(supabase: SupabaseClient, clientId?: string): Promise<string> {
+export async function getClientTimezone(supabase: SupabaseClient, clientId?: string): Promise<string> {
   if (!clientId) return "UTC";
   const { data } = await supabase
     .from("client_profiles")
@@ -151,7 +151,7 @@ function tzOffsetMillis(instant: Date, timeZone: string): number {
 // yyyy-mm-dd calendar date `instant` falls on in `timeZone` -- en-CA is a
 // locale whose default date format happens to already be yyyy-mm-dd, used
 // here as a formatting shortcut, not for anything Canada-specific.
-function localDateKey(instant: Date, timeZone: string): string {
+export function localDateKey(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
     instant,
   );

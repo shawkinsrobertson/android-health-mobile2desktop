@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { listEvents } from "@/lib/calendar";
+import { listCalendarItems } from "@/lib/calendar-items";
 import { rangeForView } from "@/lib/calendar-grid";
 import { listCoachThreads } from "@/lib/chat";
 import { listTasks } from "@/lib/tasks";
@@ -78,7 +79,7 @@ export default async function DashboardPage() {
   const todayEvents = todayEventsRaw.map((e) => ({ id: e.id, title: e.title, startTime: e.start_time }));
 
   const weekRange = rangeForView("week", new Date());
-  const initialEvents = await listEvents(supabase, { coachId: profile.id }, weekRange);
+  const initialItems = await listCalendarItems(supabase, { coachId: profile.id }, weekRange);
   const assignableClients = clients.map((c) => ({
     id: c.profile_id,
     name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
@@ -95,7 +96,7 @@ export default async function DashboardPage() {
 
       <CalendarCard
         scope={{ coachId: profile.id }}
-        initialEvents={initialEvents}
+        initialItems={initialItems}
         assignableClients={assignableClients}
         initialView="week"
         initialExpanded

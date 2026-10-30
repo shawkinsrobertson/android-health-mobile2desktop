@@ -5,7 +5,7 @@ import { getCurrentProfile, getClientProfile } from "@/lib/profile";
 import { getDailySeries, getDataPointSummary, unitFor } from "@/lib/queries";
 import { getThreadReadOnly, isThreadUnread } from "@/lib/chat";
 import { getPersonalRecords } from "@/lib/personal-records";
-import { listEvents } from "@/lib/calendar";
+import { listCalendarItems } from "@/lib/calendar-items";
 import { rangeForView } from "@/lib/calendar-grid";
 import { DATA_POINTS, labelFor } from "@/app/client/data-points";
 import { PersonalRecordsList } from "@/components/PersonalRecordsList";
@@ -170,14 +170,14 @@ export default async function ClientDetailPage({
   const assignedPrograms = (assignedProgramsRes.data ?? []) as AssignedRow[];
   const assignedDocuments = (assignedDocumentsRes.data ?? []) as AssignedRow[];
 
-  const [personalRecords, { data: consentRows }, calendarEvents, assistantMessages] = clientProfile.onboardedAt
+  const [personalRecords, { data: consentRows }, calendarItems, assistantMessages] = clientProfile.onboardedAt
     ? await Promise.all([
         getPersonalRecords(supabase, params.clientId),
         supabase
           .from("client_data_consent")
           .select("data_type, consented")
           .eq("client_id", params.clientId),
-        listEvents(supabase, { clientId: params.clientId }, rangeForView("month", new Date())),
+        listCalendarItems(supabase, { clientId: params.clientId }, rangeForView("month", new Date())),
         getAssistantMessages(supabase, coach.id, params.clientId),
       ])
     : [[], { data: [] as { data_type: string; consented: boolean }[] }, [], []];
@@ -395,7 +395,7 @@ export default async function ClientDetailPage({
 
             <CalendarCard
               scope={{ clientId: params.clientId }}
-              initialEvents={calendarEvents}
+              initialItems={calendarItems}
               fixedClientId={params.clientId}
               title="Shared calendar"
               googleSync={{ targetProfileId: params.clientId }}

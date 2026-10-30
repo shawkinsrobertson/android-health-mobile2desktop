@@ -4,40 +4,55 @@
 // need the exact same month grid / agenda list rendering, just arranged
 // differently around them.
 
-import type { CalendarEventRow } from "@/lib/calendar";
-import { isSameDay, isSameMonth, monthGridDays, weekDays } from "@/lib/calendar-grid";
+import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import type { CalendarItem, CalendarItemKind } from "@/lib/calendar-items";
+import { isSameMonth, localDateKeyOf, monthGridDays, weekDays } from "@/lib/calendar-grid";
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function eventTimeLabel(ev: CalendarEventRow): string {
-  if (ev.all_day) return "All day";
-  const start = new Date(ev.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  const end = new Date(ev.end_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+// A short label distinguishing kinds at a glance, since workout/document/
+// check_in items all render as plain pills with no time -- "Workout",
+// "Document", "Check-in" aren't shown on a call (its own time label
+// already says enough, matching this row's pre-existing look).
+const KIND_LABELS: Record<Exclude<CalendarItemKind, "call">, string> = {
+  workout: "Workout",
+  document: "Document",
+  check_in: "Check-in",
+};
+
+export function itemTimeLabel(item: CalendarItem): string {
+  if (item.kind !== "call") return KIND_LABELS[item.kind];
+  if (item.allDay || !item.startTime || !item.endTime) return "All day";
+  const start = new Date(item.startTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const end = new Date(item.endTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return `${start} – ${end}`;
 }
 
-export function EventRow({
-  event,
+export function ItemRow({
+  item,
   onSelect,
   onJoin,
 }: {
-  event: CalendarEventRow;
-  onSelect: (e: CalendarEventRow) => void;
+  item: CalendarItem;
+  onSelect: (item: CalendarItem) => void;
   onJoin: (id: string, e: React.MouseEvent) => void;
 }) {
   return (
     <li
-      onClick={() => onSelect(event)}
+      onClick={() => onSelect(item)}
       className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-[color:var(--page-plane)] p-3 text-sm hover:bg-[color:var(--border-hairline)]"
     >
       <div className="min-w-0">
-        <p className="truncate font-medium text-ink-primary">{event.title}</p>
-        <p className="text-xs text-ink-muted">{eventTimeLabel(event)}</p>
+        <p className="truncate font-medium text-ink-primary">
+          {item.completed && <span className="mr-1 text-[color:var(--success)]">✓</span>}
+          {item.title}
+        </p>
+        <p className="text-xs text-ink-muted">{itemTimeLabel(item)}</p>
       </div>
-      {event.has_video_call && (
+      {item.kind === "call" && item.hasVideoCall && (
         <button
           type="button"
-          onClick={(e) => onJoin(event.id, e)}
+          onClick={(e) => onJoin(item.id, e)}
           className="shrink-0 rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs font-medium text-white"
         >
           Join
@@ -48,20 +63,20 @@ export function EventRow({
 }
 
 export function AgendaList({
-  events,
+  items,
   onSelect,
   onJoin,
 }: {
-  events: CalendarEventRow[];
-  onSelect: (e: CalendarEventRow) => void;
+  items: CalendarItem[];
+  onSelect: (item: CalendarItem) => void;
   onJoin: (id: string, e: React.MouseEvent) => void;
 }) {
-  const sorted = [...events].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date) || (a.startTime ?? "").localeCompare(b.startTime ?? ""));
   if (sorted.length === 0) return <p className="text-sm text-ink-muted">Nothing on the calendar.</p>;
   return (
     <ul className="flex flex-col gap-1.5">
-      {sorted.map((ev) => (
-        <EventRow key={ev.id} event={ev} onSelect={onSelect} onJoin={onJoin} />
+      {sorted.map((item) => (
+        <ItemRow key={`${item.kind}:${item.id}`} item={item} onSelect={onSelect} onJoin={onJoin} />
       ))}
     </ul>
   );
@@ -69,82 +84,182 @@ export function AgendaList({
 
 export function DayList({
   anchorDate,
-  events,
+  items,
   onSelect,
   onJoin,
 }: {
   anchorDate: Date;
-  events: CalendarEventRow[];
-  onSelect: (e: CalendarEventRow) => void;
+  items: CalendarItem[];
+  onSelect: (item: CalendarItem) => void;
   onJoin: (id: string, e: React.MouseEvent) => void;
 }) {
-  const dayEvents = events
-    .filter((ev) => isSameDay(new Date(ev.start_time), anchorDate))
-    .sort((a, b) => a.start_time.localeCompare(b.start_time));
-  if (dayEvents.length === 0) return <p className="text-sm text-ink-muted">Nothing this day.</p>;
+  const key = localDateKeyOf(anchorDate);
+  const dayItems = items
+    .filter((item) => item.date === key)
+    .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
+  if (dayItems.length === 0) return <p className="text-sm text-ink-muted">Nothing this day.</p>;
   return (
     <ul className="flex flex-col gap-1.5">
-      {dayEvents.map((ev) => (
-        <EventRow key={ev.id} event={ev} onSelect={onSelect} onJoin={onJoin} />
+      {dayItems.map((item) => (
+        <ItemRow key={`${item.kind}:${item.id}`} item={item} onSelect={onSelect} onJoin={onJoin} />
       ))}
     </ul>
   );
 }
 
-export function WeekGrid({
-  anchorDate,
-  events,
-  onSelectEvent,
-}: {
-  anchorDate: Date;
-  events: CalendarEventRow[];
-  onSelectEvent: (e: CalendarEventRow) => void;
-}) {
-  const days = weekDays(anchorDate);
+// Background tint per kind for the small grid pills -- calls keep the
+// pre-existing accent tint; the three new kinds get their own semantic/
+// series color so a day cell with a mix of items reads at a glance,
+// matching the color tokens this app already has (WorkoutExerciseListEditor
+// uses --series-exercise the same way for its superset/circuit framing).
+const KIND_TINT: Record<CalendarItemKind, string> = {
+  call: "bg-[color:var(--accent)]/20",
+  workout: "bg-[color:var(--series-exercise)]/20",
+  document: "bg-[color:var(--info)]/20",
+  check_in: "bg-[color:var(--warning)]/20",
+};
+
+export function ItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (item: CalendarItem) => void }) {
   return (
-    <div className="grid grid-cols-7 gap-1.5">
-      {days.map((day) => {
-        const dayEvents = events
-          .filter((ev) => isSameDay(new Date(ev.start_time), day))
-          .sort((a, b) => a.start_time.localeCompare(b.start_time));
-        return (
-          <div key={day.toISOString()} className="min-h-[7rem] rounded-lg bg-[color:var(--page-plane)] p-1.5">
-            <p className="mb-1 text-center text-xs font-medium text-ink-secondary">
-              {WEEKDAY_LABELS[day.getDay()]} {day.getDate()}
-            </p>
-            <div className="flex flex-col gap-1">
-              {dayEvents.map((ev) => (
-                <button
-                  key={ev.id}
-                  type="button"
-                  onClick={() => onSelectEvent(ev)}
-                  className="truncate rounded bg-[color:var(--accent)]/20 px-1 py-0.5 text-left text-xs text-ink-primary"
-                >
-                  {ev.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className={`truncate rounded px-1 py-0.5 text-left text-xs text-ink-primary ${KIND_TINT[item.kind]}`}
+    >
+      {item.completed && <span className="mr-0.5 text-[color:var(--success)]">✓</span>}
+      {item.title}
+    </button>
+  );
+}
+
+// A check-in occurrence has no row of its own to move -- its day comes
+// straight from check_in_templates.day_of_week, not a per-occurrence
+// date -- so it's the one kind that never drags.
+function isDraggableKind(kind: CalendarItemKind): boolean {
+  return kind !== "check_in";
+}
+
+// Wraps ItemPill as a dnd-kit drag source when its kind supports being
+// rescheduled this way; a plain ItemPill otherwise. `id` doubles as the
+// DragEndEvent payload's own id, reparsed by the caller's onReschedule.
+function DraggableItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (item: CalendarItem) => void }) {
+  const id = `${item.kind}:${item.id}`;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, data: { item } });
+  if (!isDraggableKind(item.kind)) return <ItemPill item={item} onSelect={onSelect} />;
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        opacity: isDragging ? 0.5 : 1,
+        touchAction: "none",
+      }}
+      className="cursor-grab active:cursor-grabbing"
+    >
+      <ItemPill item={item} onSelect={onSelect} />
     </div>
   );
 }
 
-export function MonthGrid({
+// A grid day cell as a dnd-kit drop target, `id` the same "YYYY-MM-DD"
+// key DragEndEvent.over.id resolves to, so a drop handler never needs to
+// re-derive it from a Date.
+function DroppableDayCell({
+  id,
+  className,
+  children,
+}: {
+  id: string;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`${className} ${isOver ? "ring-2 ring-[color:var(--accent)]" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+// Both grids' own onDragEnd -- resolves the dragged item and the day it
+// was dropped on, then hands both to the caller's onReschedule (which
+// decides what to actually do: reschedule_assignment for a workout/
+// document, updateEvent for a call -- see CalendarCard/CalendarWorkspace).
+// A drop outside any cell, or back onto its own day, is a no-op.
+function makeDragEndHandler(onReschedule: (item: CalendarItem, newDate: string) => void) {
+  return (event: DragEndEvent) => {
+    const overId = event.over?.id;
+    const item = event.active.data.current?.item as CalendarItem | undefined;
+    if (!overId || !item || item.date === overId) return;
+    onReschedule(item, String(overId));
+  };
+}
+
+export function WeekGrid({
   anchorDate,
-  events,
-  onSelectDay,
-  onSelectEvent,
+  items,
+  onSelectItem,
+  onReschedule,
 }: {
   anchorDate: Date;
-  events: CalendarEventRow[];
+  items: CalendarItem[];
+  onSelectItem: (item: CalendarItem) => void;
+  // Omit to render a read-only grid (no drag-and-drop) -- the client's
+  // own dashboard still wants to see its schedule even though only a
+  // coach's per-client view and the client themself can reschedule, and
+  // both of those already pass this.
+  onReschedule?: (item: CalendarItem, newDate: string) => void;
+}) {
+  const days = weekDays(anchorDate);
+  const handleDragEnd = makeDragEndHandler(onReschedule ?? (() => {}));
+  const grid = (
+    <div className="grid grid-cols-7 gap-1.5">
+      {days.map((day) => {
+        const key = localDateKeyOf(day);
+        const dayItems = items
+          .filter((item) => item.date === key)
+          .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
+        return (
+          <DroppableDayCell key={key} id={key} className="min-h-[7rem] rounded-lg bg-[color:var(--page-plane)] p-1.5">
+            <p className="mb-1 text-center text-xs font-medium text-ink-secondary">
+              {WEEKDAY_LABELS[day.getDay()]} {day.getDate()}
+            </p>
+            <div className="flex flex-col gap-1">
+              {dayItems.map((item) =>
+                onReschedule ? (
+                  <DraggableItemPill key={`${item.kind}:${item.id}`} item={item} onSelect={onSelectItem} />
+                ) : (
+                  <ItemPill key={`${item.kind}:${item.id}`} item={item} onSelect={onSelectItem} />
+                ),
+              )}
+            </div>
+          </DroppableDayCell>
+        );
+      })}
+    </div>
+  );
+  return onReschedule ? <DndContext onDragEnd={handleDragEnd}>{grid}</DndContext> : grid;
+}
+
+export function MonthGrid({
+  anchorDate,
+  items,
+  onSelectDay,
+  onSelectItem,
+  onReschedule,
+}: {
+  anchorDate: Date;
+  items: CalendarItem[];
   onSelectDay: (d: Date) => void;
-  onSelectEvent: (e: CalendarEventRow) => void;
+  onSelectItem: (item: CalendarItem) => void;
+  onReschedule?: (item: CalendarItem, newDate: string) => void;
 }) {
   const days = monthGridDays(anchorDate);
   const today = new Date();
-  return (
+  const handleDragEnd = makeDragEndHandler(onReschedule ?? (() => {}));
+  const grid = (
     <div>
       <div className="mb-1 grid grid-cols-7 gap-1.5">
         {WEEKDAY_LABELS.map((label) => (
@@ -155,49 +270,49 @@ export function MonthGrid({
       </div>
       <div className="grid grid-cols-7 gap-1.5">
         {days.map((day) => {
-          const dayEvents = events
-            .filter((ev) => isSameDay(new Date(ev.start_time), day))
-            .sort((a, b) => a.start_time.localeCompare(b.start_time));
+          const key = localDateKeyOf(day);
+          const dayItems = items
+            .filter((item) => item.date === key)
+            .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
           const inMonth = isSameMonth(day, anchorDate);
           return (
-            <div
-              key={day.toISOString()}
+            <DroppableDayCell
+              key={key}
+              id={key}
               className={`min-h-[4.5rem] rounded-lg p-1 ${inMonth ? "bg-[color:var(--page-plane)]" : "opacity-40"}`}
             >
               <button
                 type="button"
                 onClick={() => onSelectDay(day)}
                 className={`mb-1 text-xs ${
-                  isSameDay(day, today) ? "font-bold text-[color:var(--accent)]" : "text-ink-secondary"
+                  key === localDateKeyOf(today) ? "font-bold text-[color:var(--accent)]" : "text-ink-secondary"
                 }`}
               >
                 {day.getDate()}
               </button>
               <div className="flex flex-col gap-0.5">
-                {dayEvents.slice(0, 2).map((ev) => (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    onClick={() => onSelectEvent(ev)}
-                    className="truncate rounded bg-[color:var(--accent)]/20 px-1 text-left text-xs text-ink-primary"
-                  >
-                    {ev.title}
-                  </button>
-                ))}
-                {dayEvents.length > 2 && (
+                {dayItems.slice(0, 2).map((item) =>
+                  onReschedule ? (
+                    <DraggableItemPill key={`${item.kind}:${item.id}`} item={item} onSelect={onSelectItem} />
+                  ) : (
+                    <ItemPill key={`${item.kind}:${item.id}`} item={item} onSelect={onSelectItem} />
+                  ),
+                )}
+                {dayItems.length > 2 && (
                   <button
                     type="button"
                     onClick={() => onSelectDay(day)}
                     className="text-left text-xs text-ink-muted"
                   >
-                    +{dayEvents.length - 2} more
+                    +{dayItems.length - 2} more
                   </button>
                 )}
               </div>
-            </div>
+            </DroppableDayCell>
           );
         })}
       </div>
     </div>
   );
+  return onReschedule ? <DndContext onDragEnd={handleDragEnd}>{grid}</DndContext> : grid;
 }

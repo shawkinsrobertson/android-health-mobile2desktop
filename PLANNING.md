@@ -3056,3 +3056,101 @@ against real data, or to confirm the exercise list stays comfortably
 fast to filter at a real coach's library size -- both are implemented
 exactly as designed and verified by direct code review, not by running
 them live.
+
+## Phase 27 -- Scheduling calendar: schema, web read side, drag-and-drop
+
+The fourth and largest fix from this round of user testing. The
+calendar previously showed only coaching calls (`calendar_events`) --
+nothing tied a workout, program, document, or check-in to a specific
+day anywhere in the schema. This phase lays the foundation
+(`supabase/migrations/0039_assignment_scheduling.sql`) and builds the
+web side on top of it; Android and the remaining web interactions
+(click-to-edit/complete, assign-from-calendar) are tracked in the
+stages below this one, still in progress as of this entry.
+
+**Schema.** `assignments` gains `scheduled_date` (the day an item shows
+on the calendar), `start_date` (program rows -- when a client's run of
+it begins), `week_number`/`day_of_week` (workout rows, carried straight
+from `template_components` at assignment time -- that data existed at
+the template level already, via `ProgramWorkoutListEditor.tsx`'s
+`ScheduleFields`, but was never carried through to the client's actual
+assignment before this), `recurrence_days_of_week`/`recurrence_end_date`
+(standalone recurring workouts), and `recurrence_source_id` (set on a
+*generated* occurrence row, deliberately separate from
+`parent_assignment_id`, which already means "nested under this program
+assignment"). A program's nested workouts get a concrete `scheduled_date`
+computed once at assignment time (`start_date + (week_number-1)*7 +
+(day_of_week-1)` days -- day_of_week here is relative to start_date's
+own weekday, not a fixed Monday-start week; documented inline in the
+migration). Two new RPCs: `reschedule_assignment` (security definer --
+the only write a client has onto their own assignment row at all,
+deliberately narrower than a blanket client UPDATE policy would be) and
+`generate_recurring_occurrences` (security definer, idempotent,
+materializes real independent assignment rows -- each with its own
+copied exercises -- for a recurring workout's missing occurrences in a
+bounded window, rather than computing virtual occurrences at read time;
+moving one occurrence only ever touches that row). check_in_templates/
+check_in_responses needed no schema change -- day_of_week there already
+supports projecting virtual occurrences cheaply at read time.
+
+Unusually for this project, the migration was verified by actually
+running it: this environment turned out to have PostgreSQL 16 installed
+locally (unused until now). Ran the *entire* 39-migration history
+against a fresh local database (stubbing only the Supabase-specific
+pieces an app migration wouldn't otherwise need -- `auth.users`/`auth.uid()`,
+`storage.buckets`/`storage.objects`, the `anon`/`authenticated` roles, a
+`supabase_realtime` publication), then exercised every new function with
+real inserts: a two-workout program assigned with a Monday start date
+produced exactly the expected `scheduled_date`s (including a workout
+left intentionally unscheduled on the template, which correctly stayed
+unscheduled rather than defaulting to week 1 day 1); `reschedule_
+assignment` worked for the owning coach and client and correctly
+rejected an unrelated user; a Monday/Wednesday recurring workout
+generated exactly the right occurrence dates over a 21-day window, each
+with its exercises copied, running the generator twice produced no
+duplicates, and both of `generate_recurring_occurrences`'s own guards
+(non-recurring assignment, unauthorized caller) rejected correctly. This
+is real functional verification, not just "the SQL parses."
+
+**Web read side (`lib/calendar-items.ts`).** A new `listCalendarItems`
+merges `calendar_events` with scheduled workouts/documents and projected
+check-in occurrences into one `CalendarItem[]`, each tagged with a
+`kind`. Deliberately client-scoped only -- the coach's own aggregate
+`/dashboard/calendar` workspace (showing every client's calls at once)
+stays calls-only, matching the user's own framing of this as "the shared
+calendar *between coach and client*," not a coach-wide view of every
+client's workouts at once. Reuses `getClientTimezone`/`localDateKey`
+(exported from `lib/queries.ts`, built for the earlier steps/sleep
+timezone-accuracy phase) rather than naively slicing the UTC ISO range
+strings `rangeForView` produces -- slicing would be off by a day for any
+client east of UTC, the same class of bug that phase fixed for health
+data, now avoided here from the start.
+
+**Web rendering (`components/calendar/CalendarViews.tsx`).** Generalized
+from `CalendarEventRow` to the new `CalendarItem` -- `AgendaList`/
+`DayList`/`WeekGrid`/`MonthGrid` all take the merged type now, with a
+kind-tinted pill (reusing this app's existing semantic/series color
+tokens) and a ✓ for a completed item. `CalendarCard`/`CalendarWorkspace`
+(and all four pages that render them) updated to fetch and pass the
+merged items; existing Google sync/booking-link behavior on those
+components is untouched.
+
+**Drag-and-drop (`@dnd-kit/core`).** No drag-and-drop library existed in
+this app; added `@dnd-kit/core`+`@dnd-kit/utilities` (confirmed via
+`npm audit` that neither introduces any new vulnerability -- the
+9 flagged are pre-existing, in Next.js/ESLint/PostCSS/Zod, unrelated to
+this change). `WeekGrid`/`MonthGrid` take an optional `onReschedule`
+prop -- day cells become drop targets, items become drag sources (a
+check-in occurrence never does, since it has no row of its own to move).
+Dropping a workout/document calls `reschedule_assignment`; dropping a
+call shifts its existing start/end instants by the day delta (preserving
+time-of-day and duration) through the existing `updateEvent`, so a
+drag-and-drop of a call doesn't lose anything a manual edit wouldn't.
+An optimistic local update applies immediately and rolls back with an
+inline error if the mutation fails.
+
+Verified: `tsc --noEmit`, `next lint`, dummy-env `next build` (34/34
+pages) all clean. The RPCs underneath are the part with real functional
+verification (above); the drag interaction itself, and the UI/UX feel
+of dropping an item on a day, haven't been exercised in a browser in
+this environment.
