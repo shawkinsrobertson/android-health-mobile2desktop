@@ -94,14 +94,26 @@ private data class WorkoutUiState(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -> Unit) {
+fun WorkoutScreen(
+    clientId: String,
+    authRepository: AuthRepository,
+    onBack: () -> Unit,
+    // Set when opened from a specific calendar item (see CalendarScreen's
+    // tap-to-complete) rather than the Workouts nav destination -- loads
+    // that exact assignment instead of the usual "what's next" pick.
+    // Session lookup still keys off "today" either way (findTodaysSession),
+    // the same pre-existing simplification getNextTrainingItem's own
+    // callers already live with -- there's no per-scheduled-day session
+    // concept yet, only "today's attempt at this workout."
+    assignedWorkoutId: String? = null,
+) {
     var state by remember { mutableStateOf<WorkoutUiState?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var repository by remember { mutableStateOf<WorkoutRepository?>(null) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(clientId) {
+    LaunchedEffect(clientId, assignedWorkoutId) {
         loading = true
         val token = authRepository.getValidAccessToken()
         if (token == null) {
@@ -114,8 +126,13 @@ fun WorkoutScreen(clientId: String, authRepository: AuthRepository, onBack: () -
         try {
             // Same program-aware pick HomeScreen's "Your Training" card
             // shows, so tapping that card and opening Workouts from the
-            // nav both land on the same workout.
-            val workout = repo.getNextTrainingItem(clientId)?.workout
+            // nav both land on the same workout -- unless a specific one
+            // was requested.
+            val workout = if (assignedWorkoutId != null) {
+                repo.getWorkoutById(clientId, assignedWorkoutId)
+            } else {
+                repo.getNextTrainingItem(clientId)?.workout
+            }
             if (workout == null) {
                 error = "No workout assigned yet."
             } else {

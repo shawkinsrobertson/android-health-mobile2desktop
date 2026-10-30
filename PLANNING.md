@@ -3198,3 +3198,57 @@ onto, and a client can't assign content to themselves.
 
 Verified: `tsc --noEmit`, `next lint`, dummy-env `next build` (34/34
 pages) all clean. Not exercised in a browser in this environment.
+
+### Stage 9 -- Android: combined calendar read/render, tap-to-reschedule, tap-to-complete
+
+**Combined read/render.** `CalendarRepository.getCalendarItems` merges
+`calendar_events` with scheduled `assignments` (workout/document) and
+projected `check_in_templates` occurrences -- the same three sources
+`lib/calendar-items.ts` merges on the web, read directly against
+PostgREST. A new `SupabaseRestClient.rpc()` was needed first (this
+client had `select`/`insert`/`patch`/`delete` but no way to call a
+Postgres function at all). Unlike the web side, this never needed a
+separate client-timezone lookup to avoid off-by-one-day UTC slicing --
+the device's own `LocalDate.now(ZoneId.systemDefault())` already *is*
+the client's local calendar date, the same convention
+`WorkoutRepository.findTodaysSession` already relies on for "today."
+`CalendarScreen` renders the merged list as a date-grouped agenda
+(replacing the old calls-only `EventCard` list) rather than a month/week
+grid -- there's no touch drag-and-drop on this screen (see below), so a
+grid buys nothing a list doesn't already give for free, and a list is
+far simpler to get right at phone width.
+
+**Tap-to-reschedule.** Per the clarified scope decided before this
+phase started ("tap it, pick a new day," not a drag gesture), a small
+pencil icon on a workout/document row -- not the row's own tap target,
+which already means "open/complete it" -- opens the platform
+`DatePickerDialog` and calls the same `reschedule_assignment` RPC the
+web dashboard's drag-and-drop uses.
+
+**Tap-to-complete.** A workout row opens this app's own `WorkoutScreen`,
+which gained an optional `assignedWorkoutId` param (plus
+`WorkoutRepository.getWorkoutById` and a matching optional route arg on
+`ROUTE_WORKOUT`) so it can load one specific assignment instead of
+always "what's next" -- the one new capability this needed, since
+everything else about completing a workout already existed.
+
+A document or check-in row, deliberately, hands off to the web
+dashboard in the device's browser -- the same established pattern this
+screen's own Google Calendar connect already uses, not a new one
+invented for this. This app has no native dynamic-form renderer or
+file-upload pipeline, and the web's document/check-in forms support six
+field types including file uploads (`lib/forms.ts`); building and
+maintaining a second implementation of that renderer on Android is a
+substantial feature in its own right, not a small addition alongside
+this round's other three items. **Flagged explicitly as deferred, not
+silently dropped**: a native Android dynamic-form renderer + file
+upload (so check-in/document completion works without leaving the app)
+is tracked as a follow-up, not attempted as a half-native version of it
+here.
+
+Verified: `./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both
+clean (the latter's pre-existing warnings -- Gradle dependency/SDK-level
+notices, a couple of `UseKtx` style suggestions on `Uri.parse`/
+`Color.parseColor` matching ones already present elsewhere in this
+codebase -- are unrelated to this change and don't fail the build). Not
+exercised on a device or emulator in this environment.

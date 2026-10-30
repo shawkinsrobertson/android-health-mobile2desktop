@@ -233,11 +233,21 @@ class MainActivity : ComponentActivity() {
                     dashboardContent = { clientId, onBack ->
                         DashboardScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
                     },
-                    workoutContent = { clientId, onBack ->
-                        WorkoutScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    workoutContent = { clientId, assignedWorkoutId, onBack ->
+                        WorkoutScreen(
+                            clientId = clientId,
+                            authRepository = authRepository,
+                            onBack = onBack,
+                            assignedWorkoutId = assignedWorkoutId,
+                        )
                     },
-                    calendarContent = { clientId, onBack ->
-                        CalendarScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)
+                    calendarContent = { clientId, onBack, onOpenWorkout ->
+                        CalendarScreen(
+                            clientId = clientId,
+                            authRepository = authRepository,
+                            onBack = onBack,
+                            onOpenWorkout = onOpenWorkout,
+                        )
                     },
                     inboxContent = { clientId, onBack ->
                         InboxScreen(clientId = clientId, authRepository = authRepository, onBack = onBack)

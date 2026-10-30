@@ -83,6 +83,31 @@ data class SessionSet(
  */
 class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
+    /**
+     * A specific assignment by id, rather than "whatever's next" --
+     * used when WorkoutScreen is opened from a calendar item instead of
+     * the Workouts nav destination (see CalendarScreen's tap-to-complete).
+     */
+    suspend fun getWorkoutById(clientId: String, assignedWorkoutId: String): AssignedWorkout? {
+        val rows = supabase.select(
+            "assignments",
+            mapOf(
+                "select" to "id,coach_id,name",
+                "id" to "eq.$assignedWorkoutId",
+                "client_id" to "eq.$clientId",
+                "type" to "eq.workout",
+                "limit" to "1",
+            ),
+        )
+        if (rows.length() == 0) return null
+        val row = rows.getJSONObject(0)
+        return AssignedWorkout(
+            id = row.getString("id"),
+            coachId = row.getString("coach_id"),
+            name = row.getString("name"),
+        )
+    }
+
     suspend fun getTodaysWorkout(clientId: String): AssignedWorkout? {
         val rows = supabase.select(
             "assignments",

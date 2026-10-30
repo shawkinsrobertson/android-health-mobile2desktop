@@ -82,6 +82,13 @@ class SupabaseRestClient(
             .addPathSegment("v1")
             .addPathSegment(table)
 
+    private fun rpcUrl(fn: String) =
+        baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("rest")
+            .addPathSegment("v1")
+            .addPathSegment("rpc")
+            .addPathSegment(fn)
+
     /**
      * Upsert [rows] into [table], resolving conflicts on the [onConflict]
      * unique column (we always use "health_connect_id"). Safe to call
@@ -187,6 +194,27 @@ class SupabaseRestClient(
             .delete()
             .build()
         execute(request)
+    }
+
+    /**
+     * Calls Postgres function [fn] via PostgREST's `/rpc/<fn>` endpoint with
+     * [params] as its JSON body (null-valued entries are sent as JSON
+     * `null`, matching a named arg explicitly passed as `null` rather than
+     * omitted -- the distinction matters for a function whose parameter
+     * has its own SQL `default`, e.g. `reschedule_assignment`). Returns the
+     * raw response body -- a scalar RPC's return value comes back as a
+     * bare JSON value (e.g. `"2026-01-01"`), not an object, so callers
+     * parse it themselves rather than this always assuming JSONObject.
+     */
+    suspend fun rpc(fn: String, params: Map<String, Any?>): String {
+        val request = Request.Builder()
+            .url(rpcUrl(fn).build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .post(JSONObject(params).toString().toRequestBody(jsonMediaType))
+            .build()
+        return executeReturningBody(request)
     }
 
     /**
