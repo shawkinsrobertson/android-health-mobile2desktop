@@ -111,6 +111,7 @@ fun WorkoutScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var repository by remember { mutableStateOf<WorkoutRepository?>(null) }
+    var weightUnit by remember { mutableStateOf("lbs") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(clientId, assignedWorkoutId) {
@@ -124,6 +125,7 @@ fun WorkoutScreen(
         val repo = WorkoutRepository(SupabaseRestClient(token))
         repository = repo
         try {
+            weightUnit = repo.getPreferredWeightUnit(clientId)
             // Same program-aware pick HomeScreen's "Your Training" card
             // shows, so tapping that card and opening Workouts from the
             // nav both land on the same workout -- unless a specific one
@@ -185,12 +187,14 @@ fun WorkoutScreen(
                     state = currentState,
                     onStateChange = { state = it },
                     onSaved = onBack,
+                    weightUnit = weightUnit,
                 )
                 currentState.session != null -> InProgressWorkout(
                     repository = repository!!,
                     scope = scope,
                     state = currentState,
                     onStateChange = { state = it },
+                    weightUnit = weightUnit,
                 )
                 else -> NotStartedWorkout(
                     state = currentState,
@@ -257,6 +261,7 @@ private fun InProgressWorkout(
     scope: CoroutineScope,
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
+    weightUnit: String,
 ) {
     val session = state.session!!
     var confirmingFinish by remember { mutableStateOf(false) }
@@ -361,6 +366,7 @@ private fun InProgressWorkout(
                 },
                 repository = repository,
                 scope = scope,
+                weightUnit = weightUnit,
             )
         }
         // Clearance for the system 3-button nav bar -- same pattern as
@@ -408,6 +414,7 @@ private fun SummaryWorkout(
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
     onSaved: () -> Unit,
+    weightUnit: String,
 ) {
     val session = state.session!!
     var notes by remember(session.id) { mutableStateOf(session.notes ?: "") }
@@ -464,6 +471,7 @@ private fun SummaryWorkout(
                 },
                 repository = repository,
                 scope = scope,
+                weightUnit = weightUnit,
             )
         }
 
@@ -516,6 +524,7 @@ private fun ExerciseLogCard(
     onSetChanged: (SessionSet) -> Unit,
     repository: WorkoutRepository,
     scope: CoroutineScope,
+    weightUnit: String,
     collapsible: Boolean = true,
     isPr: Boolean = false,
     onTogglePr: (() -> Unit)? = null,
@@ -561,7 +570,11 @@ private fun ExerciseLogCard(
                     Row(Modifier.fillMaxWidth()) {
                         Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
                         Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                        Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text(
+                            "WEIGHT (${weightUnit.uppercase()})",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.weight(1f),
+                        )
                         Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
                         Spacer(Modifier.width(36.dp))
                     }

@@ -84,6 +84,26 @@ data class SessionSet(
 class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
     /**
+     * client_profiles.preferred_weight_unit ("lbs" | "kg") -- the web
+     * dashboard's own WeightUnitForm.tsx already lets a client set this;
+     * this app had no concept of it at all until now (every weight input
+     * was unitless). Defaults to "lbs", matching the web side's own
+     * `?? "lbs"` fallback (lib/profile.ts).
+     */
+    suspend fun getPreferredWeightUnit(clientId: String): String {
+        val rows = supabase.select(
+            "client_profiles",
+            mapOf(
+                "select" to "preferred_weight_unit",
+                "profile_id" to "eq.$clientId",
+                "limit" to "1",
+            ),
+        )
+        if (rows.length() == 0) return "lbs"
+        return rows.getJSONObject(0).optString("preferred_weight_unit").ifBlank { "lbs" }
+    }
+
+    /**
      * A specific assignment by id, rather than "whatever's next" --
      * used when WorkoutScreen is opened from a calendar item instead of
      * the Workouts nav destination (see CalendarScreen's tap-to-complete).
