@@ -8,7 +8,7 @@ interface Insight {
   createdAt: string;
 }
 
-const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // 1 day
 
 // Proactive counterpart to AssistantChat -- auto-generates a fresh
 // observation if the last one is missing or stale (so a coach opening a
