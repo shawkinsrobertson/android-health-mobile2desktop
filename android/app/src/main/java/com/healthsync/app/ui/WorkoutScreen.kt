@@ -244,6 +244,10 @@ private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
                 }
             }
         }
+        // Clearance for the system 3-button nav bar at the very bottom of
+        // a long exercise list -- same pattern as ProfileScreen's "Data
+        // types" section.
+        Spacer(Modifier.height(72.dp))
     }
 }
 
@@ -359,6 +363,9 @@ private fun InProgressWorkout(
                 scope = scope,
             )
         }
+        // Clearance for the system 3-button nav bar -- same pattern as
+        // ProfileScreen's "Data types" section.
+        Spacer(Modifier.height(72.dp))
     }
 
     if (confirmingFinish) {
@@ -474,6 +481,9 @@ private fun SummaryWorkout(
                 },
             )
         }
+        // Clearance for the system 3-button nav bar -- same pattern as
+        // ProfileScreen's "Data types" section.
+        Spacer(Modifier.height(72.dp))
     }
 
     if (confirmingSave) {
