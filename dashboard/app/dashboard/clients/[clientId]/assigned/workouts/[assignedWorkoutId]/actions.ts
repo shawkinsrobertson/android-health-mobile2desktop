@@ -99,6 +99,7 @@ export async function addAssignedExercise(clientId: string, assignedWorkoutId: s
     rest_seconds: intOrNull(formData.get("rest_seconds")),
     tempo: strOrNull(formData.get("tempo")),
     notes: strOrNull(formData.get("notes")),
+    equipment: strOrNull(formData.get("equipment")),
   });
 
   if (error) {
@@ -157,6 +158,7 @@ export async function updateAssignedExercise(
       rest_seconds: intOrNull(formData.get("rest_seconds")),
       tempo: strOrNull(formData.get("tempo")),
       notes: strOrNull(formData.get("notes")),
+      equipment: strOrNull(formData.get("equipment")),
     })
     .eq("id", itemId)
     .eq("assignment_id", assignedWorkoutId)

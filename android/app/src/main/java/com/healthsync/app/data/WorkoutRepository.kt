@@ -32,6 +32,10 @@ data class AssignedWorkoutExercise(
     val durationSeconds: Int?,
     val weightNote: String?,
     val restSeconds: Int?,
+    // Set per-assignment when a coach prescribes the exercise (see
+    // 0044_assignment_equipment.sql). "barbell" | "dumbbell" |
+    // "kettlebell" | "bodyweight" | "other" | null.
+    val equipment: String?,
 )
 
 data class WorkoutSession(
@@ -225,7 +229,7 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
         val rows = supabase.select(
             "assignment_components",
             mapOf(
-                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds",
+                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds,equipment",
                 "assignment_id" to "eq.$assignedWorkoutId",
                 "order" to "order_index.asc",
             ),
@@ -242,6 +246,7 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                 durationSeconds = row.optIntOrNull("duration_seconds"),
                 weightNote = row.optString("weight_note").ifBlank { null },
                 restSeconds = row.optIntOrNull("rest_seconds"),
+                equipment = row.optString("equipment").ifBlank { null },
             )
         }
     }
@@ -410,7 +415,10 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                         "set_number" to setNumber,
                         "reps" to if (exercise.prescriptionType == "reps") exercise.reps else null,
                         "duration_seconds" to if (exercise.prescriptionType == "time") exercise.durationSeconds else null,
-                        "weight" to exercise.weightNote,
+                        // A null weightNote means "bodyweight" only when
+                        // equipment says so -- otherwise it just means
+                        // "not filled in yet" and seeds an empty field.
+                        "weight" to (exercise.weightNote ?: if (exercise.equipment == "bodyweight") "Body weight" else null),
                         "rest_seconds" to exercise.restSeconds,
                     ),
                 )

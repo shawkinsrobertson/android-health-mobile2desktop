@@ -43,7 +43,7 @@ export default async function CoachWorkoutSessionPage({
     supabase
       .from("assignment_components")
       .select(
-        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, block_id:group_id, name, instructions, photo_path, photo_url, video_path, video_url, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes, equipment",
       )
       .eq("assignment_id", workout.id)
       .order("order_index"),

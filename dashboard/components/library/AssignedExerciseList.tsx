@@ -19,6 +19,11 @@ export interface AssignedExerciseItem {
   rest_seconds: number | null;
   tempo: string | null;
   notes: string | null;
+  // Set per-assignment when a coach prescribes the exercise (see
+  // 0044_assignment_equipment.sql) -- a null weight_note only means
+  // "bodyweight" when this says so; otherwise it just means "not filled
+  // in yet" and summarize() below shows nothing for weight at all.
+  equipment?: "barbell" | "dumbbell" | "kettlebell" | "bodyweight" | "other" | null;
 }
 
 export interface AssignedBlock {
@@ -27,6 +32,14 @@ export interface AssignedBlock {
   rounds: number;
   notes: string | null;
 }
+
+const EQUIPMENT_LABELS: Record<string, string> = {
+  barbell: "Barbell",
+  dumbbell: "Dumbbell",
+  kettlebell: "Kettlebell",
+  bodyweight: "Body weight",
+  other: "Other equipment",
+};
 
 function summarize(item: AssignedExerciseItem): string {
   return (
@@ -39,9 +52,10 @@ function summarize(item: AssignedExerciseItem): string {
         : item.reps
           ? `${item.reps} reps`
           : null,
-      item.weight_note,
+      item.weight_note ?? (item.equipment === "bodyweight" ? "Body weight" : null),
       item.rest_seconds ? `${item.rest_seconds}s rest` : null,
       item.tempo,
+      item.equipment && item.equipment !== "bodyweight" ? EQUIPMENT_LABELS[item.equipment] : null,
     ]
       .filter(Boolean)
       .join(" · ") || "No prescription details"

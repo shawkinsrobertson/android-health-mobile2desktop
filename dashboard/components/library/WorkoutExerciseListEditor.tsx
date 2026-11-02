@@ -48,7 +48,20 @@ export interface WorkoutExerciseItem {
   rest_seconds: number | null;
   tempo: string | null;
   notes: string | null;
+  // Only meaningful on an assignment's own exercise rows (per the plan,
+  // equipment is set per-assignment when prescribing, not on the shared
+  // library exercise) -- absent/null on a template's rows, where the
+  // editor is told not to render the field at all via showEquipment.
+  equipment?: "barbell" | "dumbbell" | "kettlebell" | "bodyweight" | "other" | null;
 }
+
+export const EQUIPMENT_OPTIONS = [
+  { value: "barbell", label: "Barbell" },
+  { value: "dumbbell", label: "Dumbbell" },
+  { value: "kettlebell", label: "Kettlebell" },
+  { value: "bodyweight", label: "Body weight" },
+  { value: "other", label: "Other" },
+] as const;
 
 export interface WorkoutBlock {
   id: string;
@@ -90,13 +103,23 @@ const inputClass =
 
 function PrescriptionFields({
   defaults,
+  showEquipment,
 }: {
   defaults?: Partial<
     Pick<
       WorkoutExerciseItem,
-      "sets" | "reps" | "prescription_type" | "duration_seconds" | "weight_note" | "rest_seconds" | "tempo" | "notes"
+      | "sets"
+      | "reps"
+      | "prescription_type"
+      | "duration_seconds"
+      | "weight_note"
+      | "rest_seconds"
+      | "tempo"
+      | "notes"
+      | "equipment"
     >
   >;
+  showEquipment: boolean;
 }) {
   const [timed, setTimed] = useState(defaults?.prescription_type === "time");
 
@@ -142,12 +165,23 @@ function PrescriptionFields({
         <input name="rest_seconds" type="number" min={0} placeholder="Rest (sec)" defaultValue={defaults?.rest_seconds ?? ""} className={inputClass} />
         <input name="tempo" placeholder="Tempo" defaultValue={defaults?.tempo ?? ""} className={inputClass} />
         <input name="notes" placeholder="Notes" defaultValue={defaults?.notes ?? ""} className={inputClass} />
+        {showEquipment && (
+          <select name="equipment" defaultValue={defaults?.equipment ?? ""} className={inputClass}>
+            <option value="">Equipment…</option>
+            {EQUIPMENT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
     </div>
   );
 }
 
 function summarize(item: WorkoutExerciseItem): string {
+  const equipmentLabel = EQUIPMENT_OPTIONS.find((opt) => opt.value === item.equipment)?.label;
   return (
     [
       item.sets ? `${item.sets} sets` : null,
@@ -158,9 +192,13 @@ function summarize(item: WorkoutExerciseItem): string {
         : item.reps
           ? `${item.reps} reps`
           : null,
-      item.weight_note,
+      // A null weight_note means "bodyweight exercise" only when
+      // equipment says so -- otherwise it just means "not filled in yet"
+      // and gets no label at all (see Day 1/3 plan item on this).
+      item.weight_note ?? (item.equipment === "bodyweight" ? "Body weight" : null),
       item.rest_seconds ? `${item.rest_seconds}s rest` : null,
       item.tempo,
+      equipmentLabel && item.equipment !== "bodyweight" ? equipmentLabel : null,
     ]
       .filter(Boolean)
       .join(" · ") || "No prescription details"
@@ -182,6 +220,7 @@ function ExerciseRow({
   isPending,
   availableExercises,
   returnTo,
+  showEquipment,
 }: {
   targetId: string;
   actions: WorkoutExerciseActions;
@@ -197,6 +236,7 @@ function ExerciseRow({
   isPending: boolean;
   availableExercises: ExerciseOption[];
   returnTo: string;
+  showEquipment: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -223,7 +263,7 @@ function ExerciseRow({
           initialName={item.exercise_name}
           className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
         />
-        <PrescriptionFields defaults={item} />
+        <PrescriptionFields defaults={item} showEquipment={showEquipment} />
         <div className="flex gap-3">
           <button
             type="submit"
@@ -286,6 +326,7 @@ export function WorkoutExerciseListEditor({
   items,
   blocks,
   availableExercises,
+  showEquipment = false,
 }: {
   targetId: string;
   actions: WorkoutExerciseActions;
@@ -293,6 +334,10 @@ export function WorkoutExerciseListEditor({
   items: WorkoutExerciseItem[];
   blocks: WorkoutBlock[];
   availableExercises: ExerciseOption[];
+  // Equipment is per-assignment (set when prescribing to a client), not
+  // part of a shared library exercise -- true only on the assigned-
+  // workout page, false (the default) on the template editor.
+  showEquipment?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -387,6 +432,7 @@ export function WorkoutExerciseListEditor({
                             isPending={isPending}
                             availableExercises={availableExercises}
                             returnTo={returnTo}
+                            showEquipment={showEquipment}
                           />
                         </div>
                       ) : (
@@ -505,6 +551,7 @@ export function WorkoutExerciseListEditor({
                                           isPending={isPending}
                                           availableExercises={availableExercises}
                                           returnTo={returnTo}
+                                          showEquipment={showEquipment}
                                         />
                                       </li>
                                     )}
@@ -573,7 +620,7 @@ export function WorkoutExerciseListEditor({
           returnTo={returnTo}
           className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
         />
-        <PrescriptionFields />
+        <PrescriptionFields showEquipment={showEquipment} />
         <button
           type="submit"
           className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"

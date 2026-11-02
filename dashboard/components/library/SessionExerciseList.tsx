@@ -15,7 +15,7 @@ function prescribedSummary(item: AssignedExerciseItem): string {
         : item.reps
           ? `${item.reps} reps`
           : null,
-      item.weight_note,
+      item.weight_note ?? (item.equipment === "bodyweight" ? "Body weight" : null),
     ]
       .filter(Boolean)
       .join(" · ") || "No prescription details"
