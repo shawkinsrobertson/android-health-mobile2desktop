@@ -29,6 +29,8 @@ import { PendingProposals } from "@/components/PendingProposals";
 import { listPendingProposals } from "@/lib/proposals";
 import { CheckInEditor } from "@/components/CheckInEditor";
 import { getCheckInTemplate } from "@/lib/check-ins";
+import { ArchiveClientButton } from "@/components/ArchiveClientButton";
+import { archiveClient } from "./client-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -223,6 +225,12 @@ export default async function ClientDetailPage({
             </Link>
           </div>
           <p className="text-sm text-ink-secondary">{client?.email}</p>
+          <div className="mt-1">
+            <ArchiveClientButton
+              clientName={client?.full_name || client?.email || "this client"}
+              archiveClient={archiveClient.bind(null, params.clientId)}
+            />
+          </div>
         </div>
 
         {!clientProfile.onboardedAt ? (

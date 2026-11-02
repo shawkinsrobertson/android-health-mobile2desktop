@@ -21,6 +21,10 @@ export interface ClientProfile {
   // Carried into every logged set's weight display -- see
   // supabase/migrations/0010_session_sets_and_timers.sql.
   preferredWeightUnit: "lbs" | "kg";
+  // Null = active (the default). Set via archiveClient -- see
+  // supabase/migrations/0043_client_archive.sql for why this is a
+  // soft-delete, not a real one.
+  archivedAt: string | null;
 }
 
 // Fetches the signed-in user's profile row, or null if not signed in. Used
@@ -61,7 +65,9 @@ export async function getClientProfile(
   const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("client_profiles")
-    .select("coach_id, phone, goals, limitations, top_data_points, onboarded_at, sync_code, preferred_weight_unit")
+    .select(
+      "coach_id, phone, goals, limitations, top_data_points, onboarded_at, sync_code, preferred_weight_unit, archived_at",
+    )
     .eq("profile_id", profileId)
     .single();
 
@@ -76,5 +82,6 @@ export async function getClientProfile(
     onboardedAt: data.onboarded_at,
     syncCode: data.sync_code,
     preferredWeightUnit: data.preferred_weight_unit ?? "lbs",
+    archivedAt: data.archived_at,
   };
 }
