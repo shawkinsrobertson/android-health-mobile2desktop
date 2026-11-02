@@ -2,15 +2,18 @@ package com.healthsync.app.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -329,10 +333,28 @@ private fun SourcePicker(
             modifier = Modifier.widthIn(min = 96.dp),
             onClick = {
                 expanded = true
-                if (sources == null) scope.launch { sources = onLoadSources() }
+                if (sources == null) {
+                    scope.launch {
+                        val loaded = onLoadSources()
+                        sources = loaded
+                        // Only one source has ever reported for this type --
+                        // nothing to actually choose between, so pre-populate
+                        // the preference instead of making the client open
+                        // the menu and pick the one entry themselves. Only
+                        // when no preference is set yet, so this never
+                        // overrides a deliberate "All sources" choice.
+                        if (loaded.size == 1 && currentSource == null) {
+                            expanded = false
+                            onSelect(loaded.single())
+                        }
+                    }
+                }
             },
         ) {
-            Text(currentSource?.let { labelForSource(it) } ?: "All sources")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(currentSource?.let { labelForSource(it) } ?: "All sources")
+                Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.width(20.dp))
+            }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
