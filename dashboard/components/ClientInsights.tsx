@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { saveInsightAsNote } from "@/app/dashboard/clients/[clientId]/notes-actions";
 
 interface Insight {
   id: string;
@@ -18,6 +19,22 @@ export function ClientInsights({ clientId, initialInsight }: { clientId: string;
   const [insight, setInsight] = useState<Insight | null>(initialInsight);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function saveToNotes() {
+    if (!insight) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await saveInsightAsNote(clientId, insight.body);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save this insight");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function refresh() {
     setLoading(true);
@@ -27,6 +44,7 @@ export function ClientInsights({ clientId, initialInsight }: { clientId: string;
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
       setInsight(body.insight);
+      setSaved(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't generate an insight");
     } finally {
@@ -61,7 +79,17 @@ export function ClientInsights({ clientId, initialInsight }: { clientId: string;
       ) : insight ? (
         <>
           <p className="text-sm text-ink-primary">{insight.body}</p>
-          <p className="mt-2 text-xs text-ink-muted">{new Date(insight.createdAt).toLocaleString()}</p>
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-xs text-ink-muted">{new Date(insight.createdAt).toLocaleString()}</p>
+            <button
+              type="button"
+              onClick={saveToNotes}
+              disabled={saving || saved}
+              className="text-xs text-[color:var(--accent)] hover:underline disabled:opacity-50"
+            >
+              {saved ? "Saved to notes" : saving ? "Saving…" : "Save to notes"}
+            </button>
+          </div>
         </>
       ) : (
         <p className="text-sm text-ink-muted">No observation yet.</p>

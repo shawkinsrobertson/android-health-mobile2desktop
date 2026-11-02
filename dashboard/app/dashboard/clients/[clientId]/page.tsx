@@ -160,10 +160,10 @@ export default async function ClientDetailPage({
       .order("assigned_at", { ascending: false }),
     supabase
       .from("timeline_entries")
-      .select("id, body, is_private, created_at")
+      .select("id, body, is_private, created_at, entry_type")
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId)
-      .eq("entry_type", "note")
+      .in("entry_type", ["note", "insight"])
       .order("created_at", { ascending: false })
       .limit(3),
     supabase
@@ -171,7 +171,7 @@ export default async function ClientDetailPage({
       .select("id", { count: "exact", head: true })
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId)
-      .eq("entry_type", "note"),
+      .in("entry_type", ["note", "insight"]),
     supabase
       .from("calendar_connections")
       .select("id")

@@ -10,6 +10,11 @@ export interface CoachNoteRow {
   body: string;
   is_private: boolean;
   created_at: string;
+  // "insight" = saved from ClientInsights via saveInsightAsNote below,
+  // "note" = everything added here by hand. entry_type itself is a free
+  // text column (0036_timeline_entries.sql), so no migration was needed
+  // to add this second kind.
+  entry_type: "note" | "insight";
 }
 
 async function requireCoach() {
@@ -38,7 +43,7 @@ export async function addCoachNote(clientId: string, formData: FormData): Promis
       body,
       is_private: formData.get("is_private") === "on",
     })
-    .select("id, body, is_private, created_at")
+    .select("id, body, is_private, created_at, entry_type")
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "Failed to add note.");
@@ -68,10 +73,40 @@ export async function updateCoachNote(
     })
     .eq("id", noteId)
     .eq("coach_id", coach.id)
-    .select("id, body, is_private, created_at")
+    .select("id, body, is_private, created_at, entry_type")
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "Failed to update note.");
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  revalidatePath(`/dashboard/clients/${clientId}/notes`);
+  return data as CoachNoteRow;
+}
+
+// Called from ClientInsights.tsx's own "Save to notes" button -- lets a
+// coach keep a generated observation around without retyping it, tagged
+// distinctly from a hand-written note (see CoachNotes.tsx's "Insight"
+// badge) so it's clear where it came from.
+export async function saveInsightAsNote(clientId: string, body: string): Promise<CoachNoteRow> {
+  const coach = await requireCoach();
+
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("Nothing to save.");
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("timeline_entries")
+    .insert({
+      coach_id: coach.id,
+      client_id: clientId,
+      entry_type: "insight",
+      body: trimmed,
+      is_private: false,
+    })
+    .select("id, body, is_private, created_at, entry_type")
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to save insight.");
 
   revalidatePath(`/dashboard/clients/${clientId}`);
   revalidatePath(`/dashboard/clients/${clientId}/notes`);

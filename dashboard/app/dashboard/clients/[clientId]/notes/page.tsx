@@ -19,10 +19,10 @@ export default async function ClientNotesPage({ params }: { params: { clientId: 
     supabase.from("profiles").select("full_name, email").eq("id", params.clientId).single(),
     supabase
       .from("timeline_entries")
-      .select("id, body, is_private, created_at")
+      .select("id, body, is_private, created_at, entry_type")
       .eq("coach_id", coach.id)
       .eq("client_id", params.clientId)
-      .eq("entry_type", "note")
+      .in("entry_type", ["note", "insight"])
       .order("created_at", { ascending: false }),
   ]);
 
