@@ -205,6 +205,29 @@ function summarize(item: WorkoutExerciseItem): string {
   );
 }
 
+// Round-trips every field actions.update expects, overriding just one --
+// used by the quick +1 set / ±15s rest buttons below so they don't need
+// their own narrower server action, and don't accidentally blank out a
+// field (notably equipment) that the full edit form would have resubmitted
+// anyway but a minimal FormData wouldn't.
+function snapshotFormData(item: WorkoutExerciseItem, overrides: Record<string, string>): FormData {
+  const fd = new FormData();
+  fd.set("prescription_type", item.prescription_type);
+  if (item.prescription_type === "time") {
+    fd.set("duration_seconds", item.duration_seconds != null ? String(item.duration_seconds) : "");
+  } else {
+    fd.set("reps", item.reps ?? "");
+  }
+  fd.set("sets", item.sets != null ? String(item.sets) : "");
+  fd.set("weight_note", item.weight_note ?? "");
+  fd.set("rest_seconds", item.rest_seconds != null ? String(item.rest_seconds) : "");
+  fd.set("tempo", item.tempo ?? "");
+  fd.set("notes", item.notes ?? "");
+  if (item.equipment) fd.set("equipment", item.equipment);
+  for (const [key, value] of Object.entries(overrides)) fd.set(key, value);
+  return fd;
+}
+
 function ExerciseRow({
   targetId,
   actions,
@@ -240,6 +263,20 @@ function ExerciseRow({
 }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [quickPending, setQuickPending] = useState(false);
+
+  async function addSet() {
+    setQuickPending(true);
+    await actions.update(targetId, item.id, snapshotFormData(item, { sets: String((item.sets ?? 0) + 1) }));
+    setQuickPending(false);
+  }
+
+  async function adjustRest(deltaSeconds: number) {
+    setQuickPending(true);
+    const next = Math.max(0, (item.rest_seconds ?? 0) + deltaSeconds);
+    await actions.update(targetId, item.id, snapshotFormData(item, { rest_seconds: String(next) }));
+    setQuickPending(false);
+  }
 
   if (editing) {
     return (
@@ -296,6 +333,33 @@ function ExerciseRow({
           <div className="text-sm font-medium text-ink-primary">{item.exercise_name}</div>
           <div className="text-xs text-ink-muted">{summarize(item)}</div>
           {item.notes && <div className="mt-1 text-xs text-ink-secondary">{item.notes}</div>}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={addSet}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              +1 set
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustRest(-15)}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              Rest −15s
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustRest(15)}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              Rest +15s
+            </button>
+            {quickPending && <span className="text-xs text-ink-muted">Saving…</span>}
+          </div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">

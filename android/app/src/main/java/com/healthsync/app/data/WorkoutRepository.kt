@@ -36,6 +36,8 @@ data class AssignedWorkoutExercise(
     // 0044_assignment_equipment.sql). "barbell" | "dumbbell" |
     // "kettlebell" | "bodyweight" | "other" | null.
     val equipment: String?,
+    val videoPath: String?,
+    val videoUrl: String?,
 )
 
 data class WorkoutSession(
@@ -229,7 +231,7 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
         val rows = supabase.select(
             "assignment_components",
             mapOf(
-                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds,equipment",
+                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds,equipment,video_path,video_url",
                 "assignment_id" to "eq.$assignedWorkoutId",
                 "order" to "order_index.asc",
             ),
@@ -247,8 +249,26 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                 weightNote = row.optString("weight_note").ifBlank { null },
                 restSeconds = row.optIntOrNull("rest_seconds"),
                 equipment = row.optString("equipment").ifBlank { null },
+                videoPath = row.optString("video_path").ifBlank { null },
+                videoUrl = row.optString("video_url").ifBlank { null },
             )
         }
+    }
+
+    /**
+     * Resolves an exercise's demo video to a URL the player can load --
+     * an uploaded file takes precedence (signed, since the storage
+     * bucket isn't public) over an external link, same precedence as the
+     * web dashboard's resolveMediaUrl (lib/media.ts). Null when neither
+     * is set, or when signing an uploaded file fails.
+     */
+    suspend fun resolveExerciseVideoUrl(exercise: AssignedWorkoutExercise): String? {
+        val path = exercise.videoPath
+        if (path != null) {
+            val signed = supabase.signStorageUrl("library-media", path)
+            if (signed != null) return signed
+        }
+        return exercise.videoUrl
     }
 
     private val sessionSelect = "id,assigned_workout_id,started_at,paused_at,total_paused_seconds,completed_at,notes"

@@ -1,5 +1,8 @@
 package com.healthsync.app.ui
 
+import android.net.Uri
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -59,6 +62,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.AssignedWorkout
 import com.healthsync.app.data.AssignedWorkoutExercise
@@ -566,6 +570,10 @@ private fun ExerciseLogCard(
                 exit = shrinkVertically() + fadeOut(),
             ) {
                 Column {
+                    if (exercise.videoPath != null || exercise.videoUrl != null) {
+                        Spacer(Modifier.height(12.dp))
+                        ExerciseVideoPlayer(exercise = exercise, repository = repository)
+                    }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
@@ -589,6 +597,35 @@ private fun ExerciseLogCard(
                 }
             }
         }
+    }
+}
+
+// Plays an exercise's demo video right on its own session card, so the
+// client never has to leave mid-set-logging to see how it's done --
+// resolved lazily on first expand (an uploaded file needs a signed URL,
+// see WorkoutRepository.resolveExerciseVideoUrl) rather than for every
+// exercise in the workout up front.
+@Composable
+private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: WorkoutRepository) {
+    var videoUrl by remember(exercise.id) { mutableStateOf<String?>(null) }
+    var resolved by remember(exercise.id) { mutableStateOf(false) }
+
+    LaunchedEffect(exercise.id) {
+        videoUrl = repository.resolveExerciseVideoUrl(exercise)
+        resolved = true
+    }
+
+    val url = videoUrl
+    if (resolved && url != null) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
+            factory = { ctx ->
+                VideoView(ctx).apply {
+                    setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
+                    setVideoURI(Uri.parse(url))
+                }
+            },
+        )
     }
 }
 
