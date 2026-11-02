@@ -185,10 +185,15 @@ export async function updateWorkoutExercise(workoutId: string, itemId: string, f
   const supabase = await createClient();
 
   const prescriptionType = formData.get("prescription_type") === "time" ? "time" : "reps";
+  // Swapping which exercise this row points to -- the edit form's
+  // ExerciseSearchField is pre-filled with the current exercise, so this
+  // is empty unless the coach actually picked a different one.
+  const newExerciseId = strOrNull(formData.get("exercise_id"));
 
   await supabase
     .from("template_components")
     .update({
+      ...(newExerciseId ? { child_id: newExerciseId } : {}),
       sets: intOrNull(formData.get("sets")),
       reps: prescriptionType === "reps" ? strOrNull(formData.get("reps")) : null,
       prescription_type: prescriptionType,
@@ -373,15 +378,16 @@ export async function deleteWorkoutBlock(workoutId: string, blockId: string) {
   revalidatePath(`${LIST_PATH}/${workoutId}`);
 }
 
-// Moves a top-level unit -- a standalone exercise, or an entire block --
-// up or down relative to the workout's other top-level units. Computes
-// the current top-level order itself by grouping template_components
-// rows by group_id (rather than requiring the caller to reconstruct and
-// send the whole reordered, block-expanded list), then renumbers every
-// row's order_index from scratch in the new order -- the same
+// Reorders a workout's top-level units -- a standalone exercise, or an
+// entire block -- to match orderedUnitKeys (the drag-and-drop editor's
+// own full desired order, same "block:<id>"/"exercise:<id>" shape
+// groupIntoUnits produces). Computes the current grouping itself from
+// template_components rows (rather than requiring the caller to
+// reconstruct and send the whole block-expanded list), then renumbers
+// every row's order_index from scratch in the new order -- the same
 // full-renumber approach reorderWorkoutExercises above already uses, just
 // with blocks collapsed to one movable unit first.
-export async function moveWorkoutUnit(workoutId: string, unitKey: string, direction: -1 | 1) {
+export async function reorderWorkoutUnits(workoutId: string, orderedUnitKeys: string[]) {
   const coach = await requireCoach();
   const supabase = await createClient();
 
@@ -393,26 +399,13 @@ export async function moveWorkoutUnit(workoutId: string, unitKey: string, direct
 
   if (!rows || rows.length === 0) return;
 
-  const groups = new Map<string, { key: string; memberIds: string[]; minOrder: number }>();
+  const memberIdsByKey = new Map<string, string[]>();
   for (const row of rows) {
     const key = row.group_id ? `block:${row.group_id}` : `exercise:${row.id}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.memberIds.push(row.id);
-      existing.minOrder = Math.min(existing.minOrder, row.order_index);
-    } else {
-      groups.set(key, { key, memberIds: [row.id], minOrder: row.order_index });
-    }
+    memberIdsByKey.set(key, [...(memberIdsByKey.get(key) ?? []), row.id]);
   }
-  const units = [...groups.values()].sort((a, b) => a.minOrder - b.minOrder);
 
-  const idx = units.findIndex((u) => u.key === unitKey);
-  const swapIdx = idx + direction;
-  if (idx < 0 || swapIdx < 0 || swapIdx >= units.length) return;
-
-  const reordered = [...units];
-  [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
-  const flatIds = reordered.flatMap((u) => u.memberIds);
+  const flatIds = orderedUnitKeys.flatMap((key) => memberIdsByKey.get(key) ?? []);
 
   await Promise.all(
     flatIds.map((id, index) =>

@@ -20,7 +20,7 @@ import {
   updateAssignedBlock,
   ungroupAssignedBlock,
   deleteAssignedBlock,
-  moveAssignedUnit,
+  reorderAssignedUnits,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -82,7 +82,7 @@ export default async function AssignedWorkoutPage({
     updateBlock: updateAssignedBlock.bind(null, params.clientId),
     ungroupBlock: ungroupAssignedBlock.bind(null, params.clientId),
     deleteBlock: deleteAssignedBlock.bind(null, params.clientId),
-    moveUnit: moveAssignedUnit.bind(null, params.clientId),
+    reorderUnits: reorderAssignedUnits.bind(null, params.clientId),
   };
 
   const { data: workout, error } = await supabase
