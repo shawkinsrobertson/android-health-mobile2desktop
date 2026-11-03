@@ -4,6 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Vibration fallback when a workout's rest timer runs out
+         (WorkoutScreen.playRestCompleteAlert): a normal permission,
+         granted automatically at install, no runtime prompt. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Health Connect read permissions -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
