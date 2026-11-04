@@ -1,12 +1,8 @@
 package com.healthsync.app.ui
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.Ringtone
-import android.media.RingtoneManager
+import android.media.MediaPlayer
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -77,6 +73,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.healthsync.app.R
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.AssignedWorkout
 import com.healthsync.app.data.AssignedWorkoutExercise
@@ -347,12 +344,11 @@ private fun InProgressWorkout(
         while ((activeRest?.remainingSeconds ?: 0) > 0) {
             delay(1000)
             activeRest = activeRest?.let { it.copy(remainingSeconds = (it.remainingSeconds - 1).coerceAtLeast(0)) }
-            // Last-3-seconds cue, same "fire once per real second reached"
-            // shape as the completion alert below -- a manual Skip/cancel
-            // already nulled activeRest out from under this loop by the
-            // time its remainingSeconds would otherwise hit one of these.
-            val remaining = activeRest?.remainingSeconds
-            if (remaining != null && remaining in 1..3) {
+            // Fires once, right as the last 3 seconds begin -- the
+            // countdown clip itself is a ~1.3s 3-2-1 cue, not a per-
+            // second tick, so this plays it exactly once rather than
+            // once per remaining second.
+            if (activeRest?.remainingSeconds == 3) {
                 playRestCountdownTick(context)
             }
         }
@@ -1041,59 +1037,30 @@ private fun formatEstimatedDuration(totalSeconds: Int): String {
     return "~$minutes min"
 }
 
-// How long the completion chime is allowed to play before being force-
-// stopped. An alarm-category (USAGE_ALARM) system ringtone is often a
-// long or sustained track by OS design -- real alarm apps are expected
-// to call Ringtone.stop() themselves when the user dismisses the alarm.
-// Nothing here ever did that, so the chime played through its own full
-// natural length (which for a genuine alarm tone can be a minute or
-// more) with no way to stop it -- the "continues persistently" bug.
-private const val REST_CHIME_DURATION_MS = 2000L
-
-// TODO(sounds): swap in custom audio once provided -- drop the files in
-// as e.g. res/raw/rest_complete.mp3 and res/raw/rest_countdown_tick.mp3,
-// then have playRestCompleteAlert/playRestCountdownTick build a
-// MediaPlayer via MediaPlayer.create(context, R.raw.rest_complete)
-// instead of RingtoneManager/ToneGenerator below (a MediaPlayer naturally
-// stops when its own clip ends -- no duration cap or vibration fallback
-// needed once a real short clip is in place).
+// Plays a short one-shot clip from res/raw and releases its MediaPlayer
+// the moment playback finishes -- a real short clip naturally stops on
+// its own (no duration cap needed, unlike the system alarm Ringtone this
+// replaced -- see this file's git history for why that was broken:
+// alarm-category ringtones are long/sustained tracks by OS design, and
+// nothing ever called Ringtone.stop() on it).
+private fun playRawSound(context: Context, resId: Int) {
+    try {
+        val player = MediaPlayer.create(context, resId) ?: return
+        player.setOnCompletionListener { it.release() }
+        player.start()
+    } catch (e: Exception) {
+        // A missing/corrupt resource shouldn't crash the workout.
+    }
+}
 
 /**
- * Fires when a rest countdown reaches zero -- an alarm-stream ringtone
- * (USAGE_ALARM, so it plays even in silent/do-not-disturb the way an
- * actual alarm would, unlike a notification sound a ringer-mode toggle
- * would mute) plus a vibration, always both rather than one as a
+ * Fires when a rest countdown reaches zero -- the user-supplied
+ * rest_timer_end clip plus a vibration, always both rather than one as a
  * conditional fallback for the other, since either channel alone can be
  * missed (phone face-down for vibration, a worn phone for sound).
- * Explicitly stopped after [REST_CHIME_DURATION_MS] -- see that
- * constant's own comment for why this is necessary at all.
  */
 private fun playRestCompleteAlert(context: Context) {
-    try {
-        val alarmUri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val ringtone: Ringtone? = RingtoneManager.getRingtone(context, alarmUri)
-        if (ringtone != null) {
-            ringtone.audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            ringtone.play()
-            Handler(Looper.getMainLooper()).postDelayed(
-                {
-                    try {
-                        if (ringtone.isPlaying) ringtone.stop()
-                    } catch (e: Exception) {
-                        // Already stopped/released by the system -- fine.
-                    }
-                },
-                REST_CHIME_DURATION_MS,
-            )
-        }
-    } catch (e: Exception) {
-        // A missing/unreadable ringtone shouldn't crash the workout --
-        // the vibration below still fires either way.
-    }
+    playRawSound(context, R.raw.rest_timer_end)
 
     try {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1110,23 +1077,11 @@ private fun playRestCompleteAlert(context: Context) {
 }
 
 /**
- * The last-3-seconds-of-rest cue (remainingSeconds in 1..3, see the
- * ticking LaunchedEffect above) -- a short, deliberately brief vibration
- * pulse for now, distinct from the longer 500ms completion pulse above,
- * pending a real countdown-tick sound to replace/accompany it (see the
- * TODO(sounds) above playRestCompleteAlert).
+ * Fires once, right as the last 3 seconds of rest begin (see the ticking
+ * LaunchedEffect above) -- the user-supplied countdown_sound clip, a
+ * ~1.3s 3-2-1 cue rather than a per-second tick, so this plays it exactly
+ * once instead of once per remaining second.
  */
 private fun playRestCountdownTick(context: Context) {
-    try {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-        vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-    } catch (e: Exception) {
-        // No vibrator hardware, or service unavailable -- quietly skip;
-        // this cue has no sound fallback yet (see TODO(sounds) above).
-    }
+    playRawSound(context, R.raw.countdown_sound)
 }
