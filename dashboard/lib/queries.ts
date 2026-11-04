@@ -386,6 +386,69 @@ export interface SleepNight {
   hours: number;
 }
 
+interface SleepRow {
+  start_time: string;
+  end_time: string;
+  source_package: string | null;
+}
+
+// Sleep's own counterpart to resolveOverlappingSources (steps, above) --
+// never ported when the steps dedup first landed, so a client with two
+// sources reporting sleep (seen in practice: Garmin plus a phone's own
+// Health Connect sensor both writing a session for the same night) had
+// every source's session summed/listed with no reconciliation at all,
+// which is the "Garmin vs. the app" mismatch Jeff was reporting.
+//
+// Unlike steps, sleep isn't a summable per-minute count where a gap-filler
+// from a second source adds real signal -- two sources' sessions for the
+// same night are two estimates of the *same* sleep, not complementary
+// data, so stitching partial credit from both (as resolveOverlappingSources
+// does for steps) would double-count rather than fill gaps. Simpler and
+// more defensible: per local night, pick whichever source has the most
+// total recorded duration that night as primary, and use only that
+// source's session(s) -- discard the other source(s) entirely for that
+// night, rather than merging them.
+function resolveOverlappingSleepSources(rows: SleepRow[], timeZone: string): SleepRow[] {
+  const byNight = new Map<string, SleepRow[]>();
+  for (const row of rows) {
+    const night = localDateKey(new Date(row.start_time), timeZone);
+    const list = byNight.get(night);
+    if (list) list.push(row);
+    else byNight.set(night, [row]);
+  }
+
+  const resolved: SleepRow[] = [];
+  for (const nightRows of byNight.values()) {
+    const bySource = new Map<string, SleepRow[]>();
+    for (const row of nightRows) {
+      const key = row.source_package ?? "unknown";
+      const list = bySource.get(key);
+      if (list) list.push(row);
+      else bySource.set(key, [row]);
+    }
+
+    if (bySource.size <= 1) {
+      resolved.push(...nightRows);
+      continue;
+    }
+
+    let primaryKey = "";
+    let primaryTotalMs = -1;
+    for (const [key, sourceRows] of bySource) {
+      const totalMs = sourceRows.reduce(
+        (sum, r) => sum + (new Date(r.end_time).getTime() - new Date(r.start_time).getTime()),
+        0,
+      );
+      if (totalMs > primaryTotalMs) {
+        primaryTotalMs = totalMs;
+        primaryKey = key;
+      }
+    }
+    resolved.push(...bySource.get(primaryKey)!);
+  }
+  return resolved;
+}
+
 export async function getSleepNights(
   supabase: SupabaseClient,
   days = 14,
@@ -410,20 +473,24 @@ export async function getSleepNights(
     getClientTimezone(supabase, clientId),
     getSourcePreference(supabase, clientId, "sleep_session"),
   ]);
-  const rows = applySourcePreference(
-    (data ?? []) as { start_time: string; end_time: string; source_package: string | null }[],
-    sourcePreference,
-  );
+  // Same dedup-or-preference branch as getDailySteps -- a client-chosen
+  // source needs no dedup heuristic since there's only one source to begin
+  // with.
+  const rows = sourcePreference
+    ? applySourcePreference((data ?? []) as SleepRow[], sourcePreference)
+    : resolveOverlappingSleepSources((data ?? []) as SleepRow[], timeZone);
 
-  return rows.map((row) => {
-    const hours =
-      (new Date(row.end_time).getTime() - new Date(row.start_time).getTime()) /
-      (1000 * 60 * 60);
-    // Rounded to the nearest minute (not the nearest tenth of an hour) --
-    // the coarser rounding was hiding real discrepancies against a
-    // wearable's own minute-level reading once displayed as "7.5h".
-    return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 60) / 60 };
-  });
+  return rows
+    .map((row) => {
+      const hours =
+        (new Date(row.end_time).getTime() - new Date(row.start_time).getTime()) /
+        (1000 * 60 * 60);
+      // Rounded to the nearest minute (not the nearest tenth of an hour) --
+      // the coarser rounding was hiding real discrepancies against a
+      // wearable's own minute-level reading once displayed as "7.5h".
+      return { date: localDateKey(new Date(row.start_time), timeZone), hours: Math.round(hours * 60) / 60 };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export interface OverviewStats {
@@ -449,12 +516,6 @@ export async function getOverviewStats(
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  let sleepQuery = supabase
-    .from("metrics")
-    .select("start_time, end_time")
-    .eq("metric_type", "sleep_session")
-    .order("start_time", { ascending: false })
-    .limit(1);
   let exerciseQuery = supabase
     .from("metrics")
     .select("id", { count: "exact", head: true })
@@ -462,11 +523,10 @@ export async function getOverviewStats(
     .gte("start_time", sevenDaysAgo.toISOString());
 
   if (clientId) {
-    sleepQuery = sleepQuery.eq("client_id", clientId);
     exerciseQuery = exerciseQuery.eq("client_id", clientId);
   }
 
-  const [stepsRows, hrSamples, sleepRes, exerciseRes] = await Promise.all([
+  const [stepsRows, hrSamples, recentNights, exerciseRes] = await Promise.all([
     fetchAllRows<MetricRow>((from, to) => {
       let q = supabase
         .from("metrics")
@@ -489,11 +549,14 @@ export async function getOverviewStats(
       if (clientId) q = q.eq("client_id", clientId);
       return q;
     }),
-    sleepQuery,
+    // 3 days is enough to catch "last night" even for a client who hasn't
+    // synced in a day or two -- reuses getSleepNights' own dedup (see its
+    // own comment) instead of a second, unmerged query that used to just
+    // take whichever source's row happened to be most recent, arbitrarily.
+    getSleepNights(supabase, 3, clientId),
     exerciseQuery,
   ]);
 
-  if (sleepRes.error) throw new Error(sleepRes.error.message);
   if (exerciseRes.error) throw new Error(exerciseRes.error.message);
 
   // Same dedup-or-preference treatment as getDailySteps -- this used to
@@ -511,19 +574,10 @@ export async function getOverviewStats(
       ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)
       : null;
 
-  let lastSleepHours: number | null = null;
-  const lastSleep = sleepRes.data?.[0];
-  if (lastSleep) {
-    // Minute-level precision (not tenths-of-an-hour) -- this feeds the AI
-    // assistant's own context as a plain number, same reasoning as
-    // getSleepNights below for why the coarser rounding was dropped.
-    lastSleepHours =
-      Math.round(
-        ((new Date(lastSleep.end_time).getTime() - new Date(lastSleep.start_time).getTime()) /
-          (1000 * 60 * 60)) *
-          60,
-      ) / 60;
-  }
+  // recentNights is already sorted ascending by date (getSleepNights'
+  // own sort), already deduped/preference-filtered, and already rounded
+  // to the nearest minute -- the most recent entry is "last night."
+  const lastSleepHours = recentNights.length > 0 ? recentNights[recentNights.length - 1].hours : null;
 
   return {
     stepsToday,

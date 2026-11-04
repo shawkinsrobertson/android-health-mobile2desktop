@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: "/dashboard/library/workouts", label: "Workouts" },
   { href: "/dashboard/library/programs", label: "Programs" },
   { href: "/dashboard/library/documents", label: "Documents" },
+  { href: "/dashboard/library/check-ins", label: "Check-ins" },
 ];
 
 // Persistent (not per-route-reset) left sidebar for every /dashboard/library/**

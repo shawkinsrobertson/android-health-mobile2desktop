@@ -1,20 +1,17 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getClientProfile, getCurrentProfile } from "@/lib/profile";
-import { resolveMediaUrl } from "@/lib/media";
-import { DynamicFormRenderer } from "@/components/library/DynamicFormRenderer";
-import { isFileAnswer } from "@/lib/forms";
-import { getCurrentCheckIn } from "@/lib/check-ins";
-import { submitCheckIn } from "./actions";
+import { ensureCurrentCheckInOccurrence, getActiveCheckInSeries } from "@/lib/check-ins";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientCheckInPage({
-  searchParams,
-}: {
-  searchParams: { error?: string };
-}) {
+// Resolves to whichever occurrence is actually due right now, then hands
+// off to the real per-occurrence page -- see
+// app/client/check-in/[assignmentId]/page.tsx. Kept as its own route
+// (rather than folding this into that one) so the home screen's Tasks
+// link and anywhere else in the app can keep linking to a single,
+// un-parameterized "my check-in" URL.
+export default async function ClientCheckInRedirectPage() {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
   if (profile.role !== "client") redirect("/dashboard");
@@ -23,67 +20,11 @@ export default async function ClientCheckInPage({
   if (!clientProfile?.onboardedAt) redirect("/onboarding");
 
   const supabase = await createClient();
-  const { template, response } = await getCurrentCheckIn(supabase, profile.id);
+  const series = await getActiveCheckInSeries(supabase, profile.id);
+  if (!series) redirect("/client");
 
-  if (!template) {
-    return (
-      <div className="mx-auto flex max-w-lg flex-col gap-4">
-        <Link href="/client" className="text-sm text-ink-secondary hover:text-ink-primary">
-          ← Home
-        </Link>
-        <p className="text-sm text-ink-muted">
-          Your coach hasn&apos;t set up a weekly check-in for you yet.
-        </p>
-      </div>
-    );
-  }
+  const occurrenceId = await ensureCurrentCheckInOccurrence(supabase, series);
+  if (!occurrenceId) redirect("/client");
 
-  const answers = response?.answers ?? {};
-  const existingFileUrls: Record<string, string | null> = {};
-  await Promise.all(
-    template.schema
-      .filter((f) => f.type === "file_upload")
-      .map(async (f) => {
-        const answer = answers[f.id];
-        if (isFileAnswer(answer)) {
-          existingFileUrls[f.id] = await resolveMediaUrl(supabase, answer.path, null);
-        }
-      }),
-  );
-
-  return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6">
-      <div>
-        <Link href="/client" className="text-sm text-ink-secondary hover:text-ink-primary">
-          ← Home
-        </Link>
-        <h1 className="mt-1 text-h3 font-display font-semibold text-ink-primary">
-          {response?.submittedAt ? "Thanks for checking in!" : "Tell me how it was!"}
-        </h1>
-        <p className="text-sm text-ink-secondary">
-          {response?.submittedAt
-            ? "You can still update your answers for this week below."
-            : `Fill out your ${template.name.toLowerCase()}.`}
-        </p>
-      </div>
-
-      {searchParams.error && (
-        <p className="text-sm text-danger">{searchParams.error}</p>
-      )}
-
-      <form action={submitCheckIn.bind(null, template.id)} className="flex flex-col gap-5">
-        <DynamicFormRenderer
-          schema={template.schema}
-          existingAnswers={answers}
-          existingFileUrls={existingFileUrls}
-        />
-        <button
-          type="submit"
-          className="w-fit rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
-        >
-          {response?.submittedAt ? "Update answers" : "Submit"}
-        </button>
-      </form>
-    </div>
-  );
+  redirect(`/client/check-in/${occurrenceId}`);
 }

@@ -1,0 +1,25 @@
+-- Data repair: Android's WorkoutRepository.getWorkoutExercises read
+-- assignment_components' reps/weight_note/equipment/video_path/video_url
+-- via org.json's single-arg optString(key), which on Android's platform
+-- org.json returns the literal 4-character string "null" (not an empty
+-- string, not a real null) for a SQL-null column -- confirmed against the
+-- Android source: JSONObject.optString(name) calls JSON.toString(opt(name)),
+-- and JSONObject.NULL is a real sentinel object (not Kotlin/Java null), so
+-- String.valueOf(JSONObject.NULL) returns "null" rather than short-circuiting.
+-- The existing .ifBlank { null } guard never catches it, since "null" isn't
+-- blank -- the same class of bug task tracker #43 already fixed elsewhere,
+-- missed here.
+--
+-- That corrupted "null" string then got genuinely *written* into
+-- workout_session_sets.weight at session-seed time (WorkoutRepository.
+-- startSession's "weight" to (exercise.weightNote ?: ...) -- since
+-- weightNote was the string "null", not Kotlin null, the elvis operator's
+-- "Body weight" fallback never even ran), for any session a client started
+-- on Android against an exercise whose weight_note was actually unset.
+-- Same risk for reps on a reps-prescribed exercise with no reps value.
+--
+-- The app-side read is fixed alongside this migration (WorkoutRepository.kt
+-- now guards every one of those five fields with isNull() first). This
+-- repairs rows already corrupted by the old code before that fix shipped.
+update public.workout_session_sets set weight = null where weight = 'null';
+update public.workout_session_sets set reps = null where reps = 'null';

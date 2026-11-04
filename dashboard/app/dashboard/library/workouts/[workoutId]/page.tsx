@@ -24,7 +24,7 @@ import {
   updateWorkoutBlock,
   ungroupWorkoutBlock,
   deleteWorkoutBlock,
-  moveWorkoutUnit,
+  reorderWorkoutUnits,
 } from "../actions";
 import { assignLibraryWorkoutToClient } from "../../assign-actions";
 
@@ -37,7 +37,7 @@ const workoutExerciseActions: WorkoutExerciseActions = {
   updateBlock: updateWorkoutBlock,
   ungroupBlock: ungroupWorkoutBlock,
   deleteBlock: deleteWorkoutBlock,
-  moveUnit: moveWorkoutUnit,
+  reorderUnits: reorderWorkoutUnits,
 };
 
 export const dynamic = "force-dynamic";

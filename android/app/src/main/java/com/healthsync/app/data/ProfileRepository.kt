@@ -1,6 +1,7 @@
 package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
+import org.json.JSONObject
 
 data class ClientSummary(
     val id: String,
@@ -30,7 +31,12 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
             mapOf("select" to "full_name", "id" to "eq.$userId"),
         )
         if (rows.length() == 0) return null
-        val fullName = rows.getJSONObject(0).optString("full_name").ifBlank { null } ?: return null
+        // A client who never set a display name is the common case, not
+        // an edge case -- optString(key) alone returns the literal string
+        // "null" for that (Android's platform org.json), which the old
+        // .ifBlank{null} never caught, so the home screen would greet
+        // "Hey, null" instead of falling back to email.
+        val fullName = rows.getJSONObject(0).optStringOrNull("full_name") ?: return null
         return fullName.substringBefore(" ")
     }
 
@@ -61,7 +67,7 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
             val row = profileRows.getJSONObject(i)
             ClientSummary(
                 id = row.getString("id"),
-                fullName = row.optString("full_name").ifBlank { null },
+                fullName = row.optStringOrNull("full_name"),
                 email = row.getString("email"),
             )
         }
@@ -105,7 +111,7 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
         )
         val seen = LinkedHashSet<String>()
         for (i in 0 until rows.length()) {
-            rows.getJSONObject(i).optString("source_package").ifBlank { null }?.let { seen.add(it) }
+            rows.getJSONObject(i).optStringOrNull("source_package")?.let { seen.add(it) }
         }
         return seen.toList()
     }
@@ -139,3 +145,9 @@ class ProfileRepository(private val supabase: SupabaseRestClient) {
         )
     }
 }
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- ifBlank{null}
+// never catches that, since "null" isn't blank.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }

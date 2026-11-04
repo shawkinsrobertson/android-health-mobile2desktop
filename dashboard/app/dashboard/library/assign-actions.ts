@@ -71,3 +71,39 @@ export async function assignLibraryDocumentToClient(documentId: string, formData
   revalidatePath(`/dashboard/clients/${clientId}`);
   redirect(`/dashboard/clients/${clientId}/assigned/documents/${data}`);
 }
+
+// Unlike the three above, a check-in needs a recurrence pattern (which
+// weekday(s), starting when), not just a client -- see
+// AssignCheckInToClientCard, and assign_check_in_to_client
+// (0045_check_ins_assignments.sql) for how the actual first occurrence
+// date gets computed from that pattern.
+export async function assignLibraryCheckInToClient(checkInId: string, formData: FormData) {
+  await requireCoach();
+  const clientId = String(formData.get("client_id") ?? "");
+  const itemPath = `/dashboard/library/check-ins/${checkInId}`;
+  if (!clientId) redirect(`${itemPath}?error=${encodeURIComponent("Pick a client to assign to.")}`);
+
+  let recurrenceDaysOfWeek: number[];
+  try {
+    recurrenceDaysOfWeek = JSON.parse(String(formData.get("recurrence_days_of_week") ?? "[]"));
+  } catch {
+    recurrenceDaysOfWeek = [];
+  }
+  if (!Array.isArray(recurrenceDaysOfWeek) || recurrenceDaysOfWeek.length === 0) {
+    redirect(`${itemPath}?error=${encodeURIComponent("Pick at least one day of the week.")}`);
+  }
+  const startDate = String(formData.get("start_date") ?? "").trim() || undefined;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("assign_check_in_to_client", {
+    p_check_in_id: checkInId,
+    p_client_id: clientId,
+    p_recurrence_days_of_week: recurrenceDaysOfWeek,
+    p_start_date: startDate,
+  });
+
+  if (error) redirect(`${itemPath}?error=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  redirect(`/dashboard/clients/${clientId}/assigned/check-ins/${data}`);
+}

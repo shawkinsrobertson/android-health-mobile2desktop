@@ -14,7 +14,7 @@ import { PersonalRecordsList } from "@/components/PersonalRecordsList";
 import { CalendarCard } from "@/components/calendar/CalendarCard";
 import { DATA_POINTS, labelFor } from "./data-points";
 import { updateDataConsent } from "./actions";
-import { getCurrentCheckIn } from "@/lib/check-ins";
+import { ensureCurrentCheckInOccurrence, getActiveCheckInSeries, getCheckInResponse, isSeriesActive } from "@/lib/check-ins";
 import { DumbbellIcon } from "@/components/icons/DumbbellIcon";
 import { WeightUnitForm } from "@/components/WeightUnitForm";
 
@@ -83,7 +83,7 @@ export default async function ClientDashboardPage() {
     : [null, null];
   const exerciseCount = exerciseCountRes?.count ?? 0;
 
-  const [personalRecords, { data: consentRows }, initialItems, googleConnectionRes, currentCheckIn] =
+  const [personalRecords, { data: consentRows }, initialItems, googleConnectionRes, checkInSeries] =
     await Promise.all([
       getPersonalRecords(supabase, profile.id),
       supabase.from("client_data_consent").select("data_type, consented").eq("client_id", profile.id),
@@ -94,10 +94,21 @@ export default async function ClientDashboardPage() {
         .eq("profile_id", profile.id)
         .eq("provider", "google")
         .maybeSingle(),
-      getCurrentCheckIn(supabase, profile.id),
+      getActiveCheckInSeries(supabase, profile.id),
     ]);
   const consentByType = Object.fromEntries((consentRows ?? []).map((r) => [r.data_type, r.consented]));
-  const checkInDue = currentCheckIn.template?.active && !currentCheckIn.response?.submittedAt;
+
+  // listCalendarItems above already generates this series' upcoming
+  // occurrences as a side effect of loading the month view, but still
+  // needs resolving to a specific occurrence id to check whether it's
+  // been answered -- ensureCurrentCheckInOccurrence's own RPC call is
+  // idempotent, so doing it again here is cheap, not wasted work.
+  const currentOccurrenceId =
+    checkInSeries && isSeriesActive(checkInSeries)
+      ? await ensureCurrentCheckInOccurrence(supabase, checkInSeries)
+      : null;
+  const currentResponse = currentOccurrenceId ? await getCheckInResponse(supabase, currentOccurrenceId) : null;
+  const checkInDue = !!currentOccurrenceId && !currentResponse?.submittedAt;
 
   return (
     <div className="flex flex-col gap-8">

@@ -99,6 +99,7 @@ export async function addAssignedExercise(clientId: string, assignedWorkoutId: s
     rest_seconds: intOrNull(formData.get("rest_seconds")),
     tempo: strOrNull(formData.get("tempo")),
     notes: strOrNull(formData.get("notes")),
+    equipment: strOrNull(formData.get("equipment")),
   });
 
   if (error) {
@@ -118,10 +119,37 @@ export async function updateAssignedExercise(
   const supabase = await createClient();
 
   const prescriptionType = formData.get("prescription_type") === "time" ? "time" : "reps";
+  // Swapping which exercise this row points to. assignment_components is
+  // a flattened copy, not a join (see addAssignedExercise above), so a
+  // swap re-copies the new exercise's display fields the same way the
+  // initial add does -- not just source_template_id -- or the row would
+  // keep showing the old exercise's name/media forever.
+  const newExerciseId = strOrNull(formData.get("exercise_id"));
+  let swap: Record<string, unknown> = {};
+  if (newExerciseId) {
+    const { data: exercise } = await supabase
+      .from("templates")
+      .select("name, instructions, photo_path, photo_url, video_path, video_url")
+      .eq("id", newExerciseId)
+      .eq("type", "exercise")
+      .single();
+    if (exercise) {
+      swap = {
+        source_template_id: newExerciseId,
+        name: exercise.name,
+        instructions: exercise.instructions,
+        photo_path: exercise.photo_path,
+        photo_url: exercise.photo_url,
+        video_path: exercise.video_path,
+        video_url: exercise.video_url,
+      };
+    }
+  }
 
   await supabase
     .from("assignment_components")
     .update({
+      ...swap,
       sets: intOrNull(formData.get("sets")),
       reps: prescriptionType === "reps" ? strOrNull(formData.get("reps")) : null,
       prescription_type: prescriptionType,
@@ -130,6 +158,7 @@ export async function updateAssignedExercise(
       rest_seconds: intOrNull(formData.get("rest_seconds")),
       tempo: strOrNull(formData.get("tempo")),
       notes: strOrNull(formData.get("notes")),
+      equipment: strOrNull(formData.get("equipment")),
     })
     .eq("id", itemId)
     .eq("assignment_id", assignedWorkoutId)
@@ -293,14 +322,13 @@ export async function deleteAssignedBlock(clientId: string, assignedWorkoutId: s
   revalidatePath(path(clientId, assignedWorkoutId));
 }
 
-// Same full-renumber approach as moveWorkoutUnit -- see that function's
-// own comment in workouts/actions.ts for why.
-export async function moveAssignedUnit(
-  clientId: string,
-  assignedWorkoutId: string,
-  unitKey: string,
-  direction: -1 | 1,
-) {
+// Reorders an assigned workout's top-level units -- a standalone
+// exercise, or an entire block -- to match orderedUnitKeys (the
+// drag-and-drop editor's own full desired order, same
+// "block:<id>"/"exercise:<id>" shape groupIntoUnits produces). See
+// reorderWorkoutUnits in workouts/actions.ts for the template-side
+// counterpart this mirrors.
+export async function reorderAssignedUnits(clientId: string, assignedWorkoutId: string, orderedUnitKeys: string[]) {
   const coach = await requireCoach();
   const supabase = await createClient();
 
@@ -313,26 +341,13 @@ export async function moveAssignedUnit(
 
   if (!rows || rows.length === 0) return;
 
-  const groups = new Map<string, { key: string; memberIds: string[]; minOrder: number }>();
+  const memberIdsByKey = new Map<string, string[]>();
   for (const row of rows) {
     const key = row.group_id ? `block:${row.group_id}` : `exercise:${row.id}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.memberIds.push(row.id);
-      existing.minOrder = Math.min(existing.minOrder, row.order_index);
-    } else {
-      groups.set(key, { key, memberIds: [row.id], minOrder: row.order_index });
-    }
+    memberIdsByKey.set(key, [...(memberIdsByKey.get(key) ?? []), row.id]);
   }
-  const units = [...groups.values()].sort((a, b) => a.minOrder - b.minOrder);
 
-  const idx = units.findIndex((u) => u.key === unitKey);
-  const swapIdx = idx + direction;
-  if (idx < 0 || swapIdx < 0 || swapIdx >= units.length) return;
-
-  const reordered = [...units];
-  [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
-  const flatIds = reordered.flatMap((u) => u.memberIds);
+  const flatIds = orderedUnitKeys.flatMap((key) => memberIdsByKey.get(key) ?? []);
 
   await Promise.all(
     flatIds.map((id, index) =>

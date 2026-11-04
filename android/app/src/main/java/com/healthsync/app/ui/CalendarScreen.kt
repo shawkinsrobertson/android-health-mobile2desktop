@@ -76,19 +76,24 @@ private val UPCOMING_WINDOW_DAYS = 30L
  * [onOpenWorkout], since that screen is parameterized by a specific
  * assignment now -- see WorkoutScreen's own doc comment). Tapping a
  * document or check-in hands off to the web dashboard in the device's
- * browser, the same established pattern this screen's own Google
- * Calendar connect already uses below -- this app has no native
- * dynamic-form renderer or file-upload pipeline (the web document/
- * check-in forms support six field types including file uploads;
- * building and maintaining a second implementation of that here is a
- * substantial feature in its own right, not a small addition alongside
- * today's other three items, and flagged as a follow-up in PLANNING.md
- * rather than attempted as a half-native version of it).
+ * browser, at that specific occurrence's own assignment id (a check-in
+ * occurrence is a real assignment row now, same as a workout/document
+ * -- see supabase/migrations/0045_check_ins_assignments.sql), the same
+ * established pattern this screen's own Google Calendar connect already
+ * uses below -- this app has no native dynamic-form renderer or
+ * file-upload pipeline (the web document/check-in forms support six
+ * field types including file uploads; building and maintaining a second
+ * implementation of that here is a substantial feature in its own
+ * right, not a small addition alongside today's other three items, and
+ * flagged as a follow-up in PLANNING.md rather than attempted as a
+ * half-native version of it).
  *
- * Reschedule is a small pencil icon on a workout/document row (not the
- * row's own tap target, which already means "open/complete it") --
- * opens the platform `DatePickerDialog` and calls the same
- * `reschedule_assignment` RPC the web dashboard's drag-and-drop uses.
+ * Reschedule is a small pencil icon on a workout/document/check-in row
+ * (not the row's own tap target, which already means "open/complete
+ * it") -- opens the platform `DatePickerDialog` and calls the same
+ * `reschedule_assignment` RPC the web dashboard's drag-and-drop uses
+ * (always "this occurrence only" here -- see CalendarRepository's doc
+ * comment on why there's no this-vs-future prompt on this screen).
  * Still does NOT implement native Google OAuth -- see this screen's
  * original doc comment on why that specific flow stays web-only.
  */
@@ -138,12 +143,9 @@ fun CalendarScreen(
             CalendarItemKind.CALL -> Unit // Read-only here -- see this screen's doc comment.
             CalendarItemKind.WORKOUT -> item.assignmentId?.let(onOpenWorkout)
             CalendarItemKind.DOCUMENT -> item.assignmentId?.let { openInBrowser("/client/documents/$it") }
-            // Always the current week's check-in regardless of which
-            // occurrence was tapped -- same simplification the web
-            // dashboard's own CalendarCard makes (see its handleSelectItem
-            // doc comment): there's no per-occurrence check-in view
-            // anywhere in this app today.
-            CalendarItemKind.CHECK_IN -> openInBrowser("/client/check-in")
+            // The tapped occurrence's own real assignment id, matching
+            // DOCUMENT above -- see this screen's doc comment.
+            CalendarItemKind.CHECK_IN -> item.assignmentId?.let { openInBrowser("/client/check-in/$it") }
         }
     }
 
@@ -308,7 +310,7 @@ private fun ItemCard(item: CalendarItem, onSelect: (CalendarItem) -> Unit, onRes
             if (item.hasVideoCall) {
                 Text("📹", style = MaterialTheme.typography.bodyMedium)
             }
-            if (item.kind == CalendarItemKind.WORKOUT || item.kind == CalendarItemKind.DOCUMENT) {
+            if (item.kind == CalendarItemKind.WORKOUT || item.kind == CalendarItemKind.DOCUMENT || item.kind == CalendarItemKind.CHECK_IN) {
                 IconButton(onClick = { onReschedule(item) }) {
                     Icon(Icons.Filled.Edit, contentDescription = "Reschedule")
                 }

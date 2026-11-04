@@ -218,6 +218,40 @@ class SupabaseRestClient(
     }
 
     /**
+     * Signs a Storage object for temporary read access -- the Android
+     * equivalent of the web dashboard's resolveMediaUrl (lib/media.ts),
+     * used so an exercise's uploaded demo video can be played during a
+     * workout without the storage bucket being public. [path] is the
+     * object key as stored in a *_path column (e.g.
+     * "exercises/<coachId>/<file>"); returns null on any failure so a
+     * caller can fall back to an external video_url instead, same as the
+     * web version falls through.
+     */
+    suspend fun signStorageUrl(bucket: String, path: String, expiresInSeconds: Int = 3600): String? {
+        val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("storage")
+            .addPathSegment("v1")
+            .addPathSegment("object")
+            .addPathSegment("sign")
+            .addPathSegment(bucket)
+        path.split("/").forEach { urlBuilder.addPathSegment(it) }
+
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Content-Type", "application/json")
+            .post(JSONObject(mapOf("expiresIn" to expiresInSeconds)).toString().toRequestBody(jsonMediaType))
+            .build()
+        return try {
+            val signedPath = JSONObject(executeReturningBody(request)).optString("signedURL").ifBlank { null }
+            signedPath?.let { baseUrl.trimEnd('/') + "/storage/v1" + it }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * Read-only PostgREST select against [table] -- [params] become query
      * parameters verbatim, e.g. `mapOf("select" to "start_time,count",
      * "client_id" to "eq.<uuid>", "order" to "start_time.asc")`. RLS on

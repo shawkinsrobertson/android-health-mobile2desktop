@@ -20,7 +20,7 @@ import {
   updateAssignedBlock,
   ungroupAssignedBlock,
   deleteAssignedBlock,
-  moveAssignedUnit,
+  reorderAssignedUnits,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +47,7 @@ interface AssignmentComponentRow {
   rest_seconds: number | null;
   tempo: string | null;
   notes: string | null;
+  equipment: "barbell" | "dumbbell" | "kettlebell" | "bodyweight" | "other" | null;
 }
 
 export default async function AssignedWorkoutPage({
@@ -82,7 +83,7 @@ export default async function AssignedWorkoutPage({
     updateBlock: updateAssignedBlock.bind(null, params.clientId),
     ungroupBlock: ungroupAssignedBlock.bind(null, params.clientId),
     deleteBlock: deleteAssignedBlock.bind(null, params.clientId),
-    moveUnit: moveAssignedUnit.bind(null, params.clientId),
+    reorderUnits: reorderAssignedUnits.bind(null, params.clientId),
   };
 
   const { data: workout, error } = await supabase
@@ -102,7 +103,7 @@ export default async function AssignedWorkoutPage({
     supabase
       .from("assignment_components")
       .select(
-        "id, order_index, group_id, source_template_id, name, instructions, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes",
+        "id, order_index, group_id, source_template_id, name, instructions, sets, reps, prescription_type, duration_seconds, weight_note, rest_seconds, tempo, notes, equipment",
       )
       .eq("assignment_id", workout.id)
       .order("order_index"),
@@ -128,6 +129,7 @@ export default async function AssignedWorkoutPage({
     rest_seconds: row.rest_seconds,
     tempo: row.tempo,
     notes: row.notes,
+    equipment: row.equipment,
   }));
 
   const blocks = (blockRows ?? []) as WorkoutBlock[];
@@ -220,6 +222,7 @@ export default async function AssignedWorkoutPage({
           items={items}
           blocks={blocks}
           availableExercises={availableExercises}
+          showEquipment
         />
       </section>
 

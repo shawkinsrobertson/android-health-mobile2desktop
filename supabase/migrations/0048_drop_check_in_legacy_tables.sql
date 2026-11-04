@@ -1,0 +1,23 @@
+-- Day 5 (check-in architecture migration), final step: drop the
+-- pre-migration check_in_templates/check_in_responses tables.
+--
+-- 0045-0047 moved check-ins onto templates/assignments (type='check_in')
+-- -- created like a document, assigned like a workout -- and left these
+-- two tables in place as a safety net while dashboard and Android both
+-- got cut over (same deferred-drop posture 0033-0036's own comments used,
+-- finished off by 0037_drop_legacy_tables.sql). That cutover is done on
+-- both platforms: re-confirmed with a fresh repo-wide grep immediately
+-- before writing this migration, finding zero remaining
+-- `.from("check_in_templates"/"check_in_responses")`/PostgREST
+-- `"check_in_templates"/"check_in_responses"` references anywhere in
+-- dashboard/ or android/ -- the only hits left are explanatory comments
+-- in dashboard/lib/check-ins.ts and android/.../CalendarRepository.kt
+-- describing the *old* model for context, and the migrations themselves
+-- (0023 created these tables, 0047 read from them one last time to
+-- migrate their data forward), none of which are a live code reference.
+--
+-- check_in_responses depends on check_in_templates via FK, so it drops
+-- first regardless; `cascade` on each is a second line of defense, not a
+-- substitute for that ordering.
+drop table if exists public.check_in_responses cascade;
+drop table if exists public.check_in_templates cascade;

@@ -1,9 +1,38 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type CSSProperties, type ReactNode } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { groupIntoUnits, type Unit as WorkoutUnit } from "@/lib/workout-blocks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ExerciseSearchField, type ExerciseOption } from "@/components/library/ExerciseSearchField";
+import { DragHandleIcon } from "@/components/icons/DragHandleIcon";
+
+// Same activation constraint as the calendar's own dnd-kit setup
+// (components/calendar/CalendarViews.tsx) -- without it, PointerSensor
+// starts a "drag" on any pointer movement at all, which eats ordinary
+// clicks on the row's own buttons underneath.
+function useDragSensors() {
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+}
 
 export interface WorkoutExerciseItem {
   id: string;
@@ -19,7 +48,20 @@ export interface WorkoutExerciseItem {
   rest_seconds: number | null;
   tempo: string | null;
   notes: string | null;
+  // Only meaningful on an assignment's own exercise rows (per the plan,
+  // equipment is set per-assignment when prescribing, not on the shared
+  // library exercise) -- absent/null on a template's rows, where the
+  // editor is told not to render the field at all via showEquipment.
+  equipment?: "barbell" | "dumbbell" | "kettlebell" | "bodyweight" | "other" | null;
 }
+
+export const EQUIPMENT_OPTIONS = [
+  { value: "barbell", label: "Barbell" },
+  { value: "dumbbell", label: "Dumbbell" },
+  { value: "kettlebell", label: "Kettlebell" },
+  { value: "bodyweight", label: "Body weight" },
+  { value: "other", label: "Other" },
+] as const;
 
 export interface WorkoutBlock {
   id: string;
@@ -28,7 +70,7 @@ export interface WorkoutBlock {
   notes: string | null;
 }
 
-// The nine exercise/block mutations this editor drives, injected rather
+// The eight exercise/block mutations this editor drives, injected rather
 // than imported by name -- lets the exact same editor UI run against
 // either a template workout's own template_components/
 // template_component_groups (workouts/actions.ts) or a specific client's
@@ -49,7 +91,7 @@ export interface WorkoutExerciseActions {
   updateBlock: (targetId: string, blockId: string, formData: FormData) => Promise<void>;
   ungroupBlock: (targetId: string, blockId: string) => Promise<void>;
   deleteBlock: (targetId: string, blockId: string) => Promise<void>;
-  moveUnit: (targetId: string, unitKey: string, direction: -1 | 1) => Promise<void>;
+  reorderUnits: (targetId: string, orderedUnitKeys: string[]) => Promise<void>;
 }
 
 // See lib/workout-blocks.ts for the grouping algorithm (shared with the
@@ -61,13 +103,23 @@ const inputClass =
 
 function PrescriptionFields({
   defaults,
+  showEquipment,
 }: {
   defaults?: Partial<
     Pick<
       WorkoutExerciseItem,
-      "sets" | "reps" | "prescription_type" | "duration_seconds" | "weight_note" | "rest_seconds" | "tempo" | "notes"
+      | "sets"
+      | "reps"
+      | "prescription_type"
+      | "duration_seconds"
+      | "weight_note"
+      | "rest_seconds"
+      | "tempo"
+      | "notes"
+      | "equipment"
     >
   >;
+  showEquipment: boolean;
 }) {
   const [timed, setTimed] = useState(defaults?.prescription_type === "time");
 
@@ -113,12 +165,23 @@ function PrescriptionFields({
         <input name="rest_seconds" type="number" min={0} placeholder="Rest (sec)" defaultValue={defaults?.rest_seconds ?? ""} className={inputClass} />
         <input name="tempo" placeholder="Tempo" defaultValue={defaults?.tempo ?? ""} className={inputClass} />
         <input name="notes" placeholder="Notes" defaultValue={defaults?.notes ?? ""} className={inputClass} />
+        {showEquipment && (
+          <select name="equipment" defaultValue={defaults?.equipment ?? ""} className={inputClass}>
+            <option value="">Equipment…</option>
+            {EQUIPMENT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
     </div>
   );
 }
 
 function summarize(item: WorkoutExerciseItem): string {
+  const equipmentLabel = EQUIPMENT_OPTIONS.find((opt) => opt.value === item.equipment)?.label;
   return (
     [
       item.sets ? `${item.sets} sets` : null,
@@ -129,13 +192,40 @@ function summarize(item: WorkoutExerciseItem): string {
         : item.reps
           ? `${item.reps} reps`
           : null,
-      item.weight_note,
+      // A null weight_note means "bodyweight exercise" only when
+      // equipment says so -- otherwise it just means "not filled in yet"
+      // and gets no label at all (see Day 1/3 plan item on this).
+      item.weight_note ?? (item.equipment === "bodyweight" ? "Body weight" : null),
       item.rest_seconds ? `${item.rest_seconds}s rest` : null,
       item.tempo,
+      equipmentLabel && item.equipment !== "bodyweight" ? equipmentLabel : null,
     ]
       .filter(Boolean)
       .join(" · ") || "No prescription details"
   );
+}
+
+// Round-trips every field actions.update expects, overriding just one --
+// used by the quick +1 set / ±15s rest buttons below so they don't need
+// their own narrower server action, and don't accidentally blank out a
+// field (notably equipment) that the full edit form would have resubmitted
+// anyway but a minimal FormData wouldn't.
+function snapshotFormData(item: WorkoutExerciseItem, overrides: Record<string, string>): FormData {
+  const fd = new FormData();
+  fd.set("prescription_type", item.prescription_type);
+  if (item.prescription_type === "time") {
+    fd.set("duration_seconds", item.duration_seconds != null ? String(item.duration_seconds) : "");
+  } else {
+    fd.set("reps", item.reps ?? "");
+  }
+  fd.set("sets", item.sets != null ? String(item.sets) : "");
+  fd.set("weight_note", item.weight_note ?? "");
+  fd.set("rest_seconds", item.rest_seconds != null ? String(item.rest_seconds) : "");
+  fd.set("tempo", item.tempo ?? "");
+  fd.set("notes", item.notes ?? "");
+  if (item.equipment) fd.set("equipment", item.equipment);
+  for (const [key, value] of Object.entries(overrides)) fd.set(key, value);
+  return fd;
 }
 
 function ExerciseRow({
@@ -151,6 +241,9 @@ function ExerciseRow({
   selected,
   onToggleSelected,
   isPending,
+  availableExercises,
+  returnTo,
+  showEquipment,
 }: {
   targetId: string;
   actions: WorkoutExerciseActions;
@@ -164,9 +257,26 @@ function ExerciseRow({
   selected: boolean;
   onToggleSelected: () => void;
   isPending: boolean;
+  availableExercises: ExerciseOption[];
+  returnTo: string;
+  showEquipment: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [quickPending, setQuickPending] = useState(false);
+
+  async function addSet() {
+    setQuickPending(true);
+    await actions.update(targetId, item.id, snapshotFormData(item, { sets: String((item.sets ?? 0) + 1) }));
+    setQuickPending(false);
+  }
+
+  async function adjustRest(deltaSeconds: number) {
+    setQuickPending(true);
+    const next = Math.max(0, (item.rest_seconds ?? 0) + deltaSeconds);
+    await actions.update(targetId, item.id, snapshotFormData(item, { rest_seconds: String(next) }));
+    setQuickPending(false);
+  }
 
   if (editing) {
     return (
@@ -183,8 +293,14 @@ function ExerciseRow({
         }}
         className="flex flex-col gap-2"
       >
-        <div className="text-sm font-medium text-ink-primary">{item.exercise_name}</div>
-        <PrescriptionFields defaults={item} />
+        <ExerciseSearchField
+          exercises={availableExercises}
+          returnTo={returnTo}
+          initialId={item.exercise_id}
+          initialName={item.exercise_name}
+          className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
+        />
+        <PrescriptionFields defaults={item} showEquipment={showEquipment} />
         <div className="flex gap-3">
           <button
             type="submit"
@@ -217,6 +333,33 @@ function ExerciseRow({
           <div className="text-sm font-medium text-ink-primary">{item.exercise_name}</div>
           <div className="text-xs text-ink-muted">{summarize(item)}</div>
           {item.notes && <div className="mt-1 text-xs text-ink-secondary">{item.notes}</div>}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={addSet}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              +1 set
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustRest(-15)}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              Rest −15s
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustRest(15)}
+              disabled={isPending || quickPending}
+              className="rounded-md border border-[color:var(--border-hairline)] px-2 py-1 text-xs text-ink-secondary disabled:opacity-60"
+            >
+              Rest +15s
+            </button>
+            {quickPending && <span className="text-xs text-ink-muted">Saving…</span>}
+          </div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -247,6 +390,7 @@ export function WorkoutExerciseListEditor({
   items,
   blocks,
   availableExercises,
+  showEquipment = false,
 }: {
   targetId: string;
   actions: WorkoutExerciseActions;
@@ -254,6 +398,10 @@ export function WorkoutExerciseListEditor({
   items: WorkoutExerciseItem[];
   blocks: WorkoutBlock[];
   availableExercises: ExerciseOption[];
+  // Equipment is per-assignment (set when prescribing to a client), not
+  // part of a shared library exercise -- true only on the assigned-
+  // workout page, false (the default) on the template editor.
+  showEquipment?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -264,6 +412,7 @@ export function WorkoutExerciseListEditor({
   type RowAction = { kind: "remove-exercise" | "ungroup-block" | "delete-block"; id: string };
   const [confirmAction, setConfirmAction] = useState<RowAction | null>(null);
   const [pendingAction, setPendingAction] = useState<RowAction | null>(null);
+  const sensors = useDragSensors();
 
   const units = groupIntoUnits(items, blocks);
 
@@ -283,18 +432,25 @@ export function WorkoutExerciseListEditor({
     });
   }
 
-  function moveUnit(key: string, direction: -1 | 1) {
+  function handleUnitDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = units.findIndex((u) => u.key === active.id);
+    const newIndex = units.findIndex((u) => u.key === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(units, oldIndex, newIndex).map((u) => u.key);
     startTransition(() => {
-      actions.moveUnit(targetId, key, direction);
+      actions.reorderUnits(targetId, reordered);
     });
   }
 
-  function moveWithinBlock(members: WorkoutExerciseItem[], itemId: string, direction: -1 | 1) {
-    const idx = members.findIndex((m) => m.id === itemId);
-    const swapIdx = idx + direction;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= members.length) return;
-    const reordered = [...members];
-    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+  function handleMemberDragEnd(members: WorkoutExerciseItem[], event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = members.findIndex((m) => m.id === active.id);
+    const newIndex = members.findIndex((m) => m.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(members, oldIndex, newIndex);
     startTransition(() => {
       actions.reorder(targetId, reordered.map((m) => m.id));
     });
@@ -313,159 +469,170 @@ export function WorkoutExerciseListEditor({
       {units.length === 0 ? (
         <p className="text-sm text-ink-muted">No exercises added yet.</p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {units.map((unit, idx) => (
-            <li key={unit.key}>
-              {unit.type === "exercise" ? (
-                <div className="rounded-lg border border-[color:var(--border-hairline)] p-3">
-                  <div className="mb-1 flex justify-end gap-1">
-                    <UnitMoveButtons
-                      disabledUp={idx === 0 || isPending}
-                      disabledDown={idx === units.length - 1 || isPending}
-                      onUp={() => moveUnit(unit.key, -1)}
-                      onDown={() => moveUnit(unit.key, 1)}
-                    />
-                  </div>
-                  <ExerciseRow
-                    targetId={targetId}
-                    actions={actions}
-                    item={unit.item}
-                    editing={editingId === unit.item.id}
-                    onEdit={() => setEditingId(unit.item.id)}
-                    onCancelEdit={() => setEditingId(null)}
-                    onRemove={() => setConfirmAction({ kind: "remove-exercise", id: unit.item.id })}
-                    removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === unit.item.id}
-                    selectable
-                    selected={selectedIds.includes(unit.item.id)}
-                    onToggleSelected={() => toggleSelected(unit.item.id)}
-                    isPending={isPending}
-                  />
-                </div>
-              ) : (
-                <div className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
-                        {unit.block.block_type}
-                      </span>
-                      <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <UnitMoveButtons
-                        disabledUp={idx === 0 || isPending}
-                        disabledDown={idx === units.length - 1 || isPending}
-                        onUp={() => moveUnit(unit.key, -1)}
-                        onDown={() => moveUnit(unit.key, 1)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setEditingBlockId(editingBlockId === unit.block.id ? null : unit.block.id)}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isPending}
-                        onClick={() => setConfirmAction({ kind: "ungroup-block", id: unit.block.id })}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-60"
-                      >
-                        {pendingAction?.kind === "ungroup-block" && pendingAction.id === unit.block.id
-                          ? "Ungrouping…"
-                          : "Ungroup"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isPending}
-                        onClick={() => setConfirmAction({ kind: "delete-block", id: unit.block.id })}
-                        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-60"
-                      >
-                        {pendingAction?.kind === "delete-block" && pendingAction.id === unit.block.id
-                          ? "Deleting…"
-                          : "Delete"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {editingBlockId === unit.block.id && (
-                    <form
-                      action={async (formData: FormData) => {
-                        await actions.updateBlock(targetId, unit.block.id, formData);
-                        setEditingBlockId(null);
-                      }}
-                      className="mb-3 flex flex-wrap items-end gap-2 rounded-md bg-[color:var(--page-plane)] p-2"
-                    >
-                      <label className="flex flex-col gap-1 text-xs text-ink-secondary">
-                        Type
-                        <select name="block_type" defaultValue={unit.block.block_type} className={inputClass}>
-                          <option value="superset">Superset</option>
-                          <option value="circuit">Circuit</option>
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1 text-xs text-ink-secondary">
-                        Rounds
-                        <input
-                          name="rounds"
-                          type="number"
-                          min={1}
-                          defaultValue={unit.block.rounds}
-                          className={`${inputClass} w-20`}
-                        />
-                      </label>
-                      <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
-                        Notes
-                        <input name="notes" defaultValue={unit.block.notes ?? ""} className={inputClass} />
-                      </label>
-                      <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
-                        Save
-                      </button>
-                    </form>
-                  )}
-
-                  {unit.block.block_type === "superset" && (
-                    <p className="mb-2 text-xs text-ink-muted">
-                      Performed back-to-back, no rest in between -- only the last exercise&apos;s rest applies (before the next round).
-                    </p>
-                  )}
-                  {unit.block.block_type === "circuit" && (
-                    <p className="mb-2 text-xs text-ink-muted">
-                      Each exercise&apos;s rest is the rest before the next one -- the last exercise&apos;s rest is the rest between rounds.
-                    </p>
-                  )}
-
-                  <ul className="flex flex-col gap-2">
-                    {unit.members.map((member, memberIdx) => (
-                      <li key={member.id} className="rounded-md border border-[color:var(--border-hairline)] bg-surface p-2">
-                        <div className="mb-1 flex justify-end gap-1">
-                          <UnitMoveButtons
-                            disabledUp={memberIdx === 0 || isPending}
-                            disabledDown={memberIdx === unit.members.length - 1 || isPending}
-                            onUp={() => moveWithinBlock(unit.members, member.id, -1)}
-                            onDown={() => moveWithinBlock(unit.members, member.id, 1)}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleUnitDragEnd}>
+          <SortableContext items={units.map((u) => u.key)} strategy={verticalListSortingStrategy}>
+            <ul className="flex flex-col gap-2">
+              {units.map((unit) => (
+                <SortableItem key={unit.key} id={unit.key} disabled={isPending}>
+                  {(handle) => (
+                    <li>
+                      {unit.type === "exercise" ? (
+                        <div className="rounded-lg border border-[color:var(--border-hairline)] p-3">
+                          <div className="mb-1 flex justify-end gap-1">
+                            <DragHandle handle={handle} disabled={isPending} />
+                          </div>
+                          <ExerciseRow
+                            targetId={targetId}
+                            actions={actions}
+                            item={unit.item}
+                            editing={editingId === unit.item.id}
+                            onEdit={() => setEditingId(unit.item.id)}
+                            onCancelEdit={() => setEditingId(null)}
+                            onRemove={() => setConfirmAction({ kind: "remove-exercise", id: unit.item.id })}
+                            removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === unit.item.id}
+                            selectable
+                            selected={selectedIds.includes(unit.item.id)}
+                            onToggleSelected={() => toggleSelected(unit.item.id)}
+                            isPending={isPending}
+                            availableExercises={availableExercises}
+                            returnTo={returnTo}
+                            showEquipment={showEquipment}
                           />
                         </div>
-                        <ExerciseRow
-                          targetId={targetId}
-                          actions={actions}
-                          item={member}
-                          editing={editingId === member.id}
-                          onEdit={() => setEditingId(member.id)}
-                          onCancelEdit={() => setEditingId(null)}
-                          onRemove={() => setConfirmAction({ kind: "remove-exercise", id: member.id })}
-                          removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === member.id}
-                          selectable={false}
-                          selected={false}
-                          onToggleSelected={() => {}}
-                          isPending={isPending}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                      ) : (
+                        <div className="rounded-lg border-2 border-[color:var(--series-exercise)]/40 p-3">
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-[color:var(--series-exercise)]/20 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-[color:var(--series-exercise)]">
+                                {unit.block.block_type}
+                              </span>
+                              <span className="text-xs text-ink-muted">{unit.block.rounds} rounds</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <DragHandle handle={handle} disabled={isPending} />
+                              <button
+                                type="button"
+                                onClick={() => setEditingBlockId(editingBlockId === unit.block.id ? null : unit.block.id)}
+                                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isPending}
+                                onClick={() => setConfirmAction({ kind: "ungroup-block", id: unit.block.id })}
+                                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-60"
+                              >
+                                {pendingAction?.kind === "ungroup-block" && pendingAction.id === unit.block.id
+                                  ? "Ungrouping…"
+                                  : "Ungroup"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isPending}
+                                onClick={() => setConfirmAction({ kind: "delete-block", id: unit.block.id })}
+                                className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary hover:text-danger disabled:opacity-60"
+                              >
+                                {pendingAction?.kind === "delete-block" && pendingAction.id === unit.block.id
+                                  ? "Deleting…"
+                                  : "Delete"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {editingBlockId === unit.block.id && (
+                            <form
+                              action={async (formData: FormData) => {
+                                await actions.updateBlock(targetId, unit.block.id, formData);
+                                setEditingBlockId(null);
+                              }}
+                              className="mb-3 flex flex-wrap items-end gap-2 rounded-md bg-[color:var(--page-plane)] p-2"
+                            >
+                              <label className="flex flex-col gap-1 text-xs text-ink-secondary">
+                                Type
+                                <select name="block_type" defaultValue={unit.block.block_type} className={inputClass}>
+                                  <option value="superset">Superset</option>
+                                  <option value="circuit">Circuit</option>
+                                </select>
+                              </label>
+                              <label className="flex flex-col gap-1 text-xs text-ink-secondary">
+                                Rounds
+                                <input
+                                  name="rounds"
+                                  type="number"
+                                  min={1}
+                                  defaultValue={unit.block.rounds}
+                                  className={`${inputClass} w-20`}
+                                />
+                              </label>
+                              <label className="flex flex-1 flex-col gap-1 text-xs text-ink-secondary">
+                                Notes
+                                <input name="notes" defaultValue={unit.block.notes ?? ""} className={inputClass} />
+                              </label>
+                              <button type="submit" className="rounded-md bg-[color:var(--accent)] px-2 py-1 text-xs text-white">
+                                Save
+                              </button>
+                            </form>
+                          )}
+
+                          {unit.block.block_type === "superset" && (
+                            <p className="mb-2 text-xs text-ink-muted">
+                              Performed back-to-back, no rest in between -- only the last exercise&apos;s rest applies (before the next round).
+                            </p>
+                          )}
+                          {unit.block.block_type === "circuit" && (
+                            <p className="mb-2 text-xs text-ink-muted">
+                              Each exercise&apos;s rest is the rest before the next one -- the last exercise&apos;s rest is the rest between rounds.
+                            </p>
+                          )}
+
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => handleMemberDragEnd(unit.members, event)}
+                          >
+                            <SortableContext items={unit.members.map((m) => m.id)} strategy={verticalListSortingStrategy}>
+                              <ul className="flex flex-col gap-2">
+                                {unit.members.map((member) => (
+                                  <SortableItem key={member.id} id={member.id} disabled={isPending}>
+                                    {(memberHandle) => (
+                                      <li className="rounded-md border border-[color:var(--border-hairline)] bg-surface p-2">
+                                        <div className="mb-1 flex justify-end gap-1">
+                                          <DragHandle handle={memberHandle} disabled={isPending} />
+                                        </div>
+                                        <ExerciseRow
+                                          targetId={targetId}
+                                          actions={actions}
+                                          item={member}
+                                          editing={editingId === member.id}
+                                          onEdit={() => setEditingId(member.id)}
+                                          onCancelEdit={() => setEditingId(null)}
+                                          onRemove={() => setConfirmAction({ kind: "remove-exercise", id: member.id })}
+                                          removing={pendingAction?.kind === "remove-exercise" && pendingAction.id === member.id}
+                                          selectable={false}
+                                          selected={false}
+                                          onToggleSelected={() => {}}
+                                          isPending={isPending}
+                                          availableExercises={availableExercises}
+                                          returnTo={returnTo}
+                                          showEquipment={showEquipment}
+                                        />
+                                      </li>
+                                    )}
+                                  </SortableItem>
+                                ))}
+                              </ul>
+                            </SortableContext>
+                          </DndContext>
+                        </div>
+                      )}
+                    </li>
+                  )}
+                </SortableItem>
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
 
       {selectedIds.length >= 2 && (
@@ -517,7 +684,7 @@ export function WorkoutExerciseListEditor({
           returnTo={returnTo}
           className="rounded-md border border-[color:var(--border-hairline)] bg-transparent px-2 py-1.5 text-sm text-ink-primary outline-none"
         />
-        <PrescriptionFields />
+        <PrescriptionFields showEquipment={showEquipment} />
         <button
           type="submit"
           className="w-fit rounded-md bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
@@ -563,35 +730,47 @@ export function WorkoutExerciseListEditor({
   );
 }
 
-function UnitMoveButtons({
-  disabledUp,
-  disabledDown,
-  onUp,
-  onDown,
+type SortableHandleProps = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
+
+// Wraps one draggable row (a top-level unit, or a block member) in the
+// DOM node dnd-kit needs a ref on, while handing the drag
+// attributes/listeners back to the caller rather than attaching them
+// here -- so only the small handle button is draggable, not a click
+// anywhere on the row (which would fight with the Edit/Remove buttons
+// right next to it).
+function SortableItem({
+  id,
+  disabled,
+  children,
 }: {
-  disabledUp: boolean;
-  disabledDown: boolean;
-  onUp: () => void;
-  onDown: () => void;
+  id: string;
+  disabled?: boolean;
+  children: (handle: SortableHandleProps) => ReactNode;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
   return (
-    <>
-      <button
-        type="button"
-        disabled={disabledUp}
-        onClick={onUp}
-        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
-      >
-        ↑
-      </button>
-      <button
-        type="button"
-        disabled={disabledDown}
-        onClick={onDown}
-        className="rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-xs text-ink-secondary disabled:opacity-30"
-      >
-        ↓
-      </button>
-    </>
+    <div ref={setNodeRef} style={style}>
+      {children({ attributes, listeners })}
+    </div>
+  );
+}
+
+function DragHandle({ handle, disabled }: { handle: SortableHandleProps; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      {...handle.attributes}
+      {...handle.listeners}
+      disabled={disabled}
+      aria-label="Drag to reorder"
+      className="cursor-grab touch-none rounded-md border border-[color:var(--border-hairline)] px-2.5 py-2 text-ink-secondary disabled:cursor-not-allowed disabled:opacity-30 active:cursor-grabbing"
+    >
+      <DragHandleIcon className="h-4 w-4" />
+    </button>
   );
 }

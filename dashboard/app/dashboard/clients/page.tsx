@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { ClientSearchList } from "@/components/ClientSearchList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
+import { InviteLinkModal } from "@/components/InviteLinkModal";
 import { createInviteLink } from "../actions";
+import { unarchiveClient } from "./[clientId]/client-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +14,7 @@ const siteUrl = process.env.SITE_URL ?? "http://localhost:3000";
 
 interface InviteRow {
   token: string;
-  status: string;
-  expires_at: string;
-  used_by: string | null;
+  client_name: string | null;
 }
 
 interface ClientRow {
@@ -29,15 +30,27 @@ export default async function ClientsPage() {
 
   const supabase = await createClient();
 
-  const [invitesRes, clientsRes] = await Promise.all([
+  const [invitesRes, clientsRes, archivedRes] = await Promise.all([
+    // Pending + unexpired only -- used and expired links used to stay
+    // listed forever. The coach can always generate a fresh one for the
+    // rare case they need to re-send; nothing is destroyed, just no
+    // longer shown here (the row itself still exists in the table).
     supabase
       .from("invite_links")
-      .select("token, status, expires_at, used_by")
+      .select("token, client_name")
+      .eq("status", "pending")
+      .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false }),
     supabase
       .from("client_profiles")
       .select("profile_id, onboarded_at, profiles!client_profiles_profile_id_fkey(full_name, email)")
-      .eq("coach_id", profile.id),
+      .eq("coach_id", profile.id)
+      .is("archived_at", null),
+    supabase
+      .from("client_profiles")
+      .select("profile_id, profiles!client_profiles_profile_id_fkey(full_name, email)")
+      .eq("coach_id", profile.id)
+      .not("archived_at", "is", null),
   ]);
 
   const invites = (invitesRes.data ?? []) as InviteRow[];
@@ -47,6 +60,12 @@ export default async function ClientsPage() {
     name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
     email: c.profiles?.email ?? "",
     onboarded: !!c.onboarded_at,
+  }));
+  const archivedClients = (
+    (archivedRes.data ?? []) as unknown as { profile_id: string; profiles: { full_name: string | null; email: string } | null }[]
+  ).map((c) => ({
+    profileId: c.profile_id,
+    name: c.profiles?.full_name || c.profiles?.email || "Unnamed client",
   }));
 
   return (
@@ -61,42 +80,25 @@ export default async function ClientsPage() {
       <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-primary">Invite links</h2>
-          <form action={createInviteLink}>
-            <button
-              type="submit"
-              className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
-            >
-              Generate invite link
-            </button>
-          </form>
+          <InviteLinkModal createInviteLink={createInviteLink} />
         </div>
 
         {invites.length === 0 ? (
-          <p className="text-sm text-ink-muted">No invite links yet.</p>
+          <p className="text-sm text-ink-muted">No pending invite links.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {invites.map((invite) => {
               const url = `${siteUrl}/join/${invite.token}`;
-              const expired = invite.status === "pending" && new Date(invite.expires_at) < new Date();
-              const label = expired ? "expired" : invite.status;
               return (
                 <li
                   key={invite.token}
                   className="flex items-center gap-2 rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm"
                 >
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                      label === "used"
-                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-                        : label === "expired"
-                          ? "bg-ink-muted/20 text-ink-muted"
-                          : "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
-                    }`}
-                  >
-                    {label}
-                  </span>
+                  {invite.client_name && (
+                    <span className="shrink-0 font-medium text-ink-primary">{invite.client_name}</span>
+                  )}
                   <code className="flex-1 truncate text-ink-secondary">{url}</code>
-                  {label === "pending" && <CopyLinkButton url={url} />}
+                  <CopyLinkButton url={url} />
                 </li>
               );
             })}
@@ -116,6 +118,29 @@ export default async function ClientsPage() {
           <ClientSearchList clients={clientItems} />
         )}
       </section>
+
+      {archivedClients.length > 0 && (
+        <section className="rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4">
+          <h2 className="mb-2 text-sm font-semibold text-ink-primary">Archived clients</h2>
+          <ul className="flex flex-col gap-2">
+            {archivedClients.map((c) => (
+              <li
+                key={c.profileId}
+                className="flex items-center justify-between gap-2 rounded-lg bg-[color:var(--page-plane)] px-3 py-2 text-sm"
+              >
+                <Link href={`/dashboard/clients/${c.profileId}`} className="text-ink-secondary hover:text-ink-primary">
+                  {c.name}
+                </Link>
+                <form action={unarchiveClient.bind(null, c.profileId)}>
+                  <button type="submit" className="text-xs text-[color:var(--accent)] hover:underline">
+                    Unarchive
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

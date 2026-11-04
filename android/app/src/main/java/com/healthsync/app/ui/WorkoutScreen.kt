@@ -1,5 +1,12 @@
 package com.healthsync.app.ui
 
+import android.content.Context
+import android.media.MediaPlayer
+import android.os.Build
+import android.util.Log
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -43,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +66,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import com.healthsync.app.R
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.AssignedWorkout
 import com.healthsync.app.data.AssignedWorkoutExercise
@@ -80,6 +96,26 @@ private data class WorkoutUiState(
     // Keyed by assigned_workout_exercise_id / session_exercise_id respectively.
     val sessionExercises: Map<String, SessionExercise>,
     val setsByExercise: Map<String, List<SessionSet>>,
+)
+
+/**
+ * The single rest period that can be counting down at any moment, for the
+ * whole in-progress workout -- replaces what used to be fully independent
+ * per-SetRow timer state. Hoisting it here (to InProgressWorkout, outside
+ * any per-exercise-card AnimatedVisibility) fixes two bugs that were really
+ * one bug: two rows could each run their own countdown at once, and
+ * collapsing a card destroyed whichever row's timer was live, since that
+ * row's composable -- and the remembered state/coroutine living on it --
+ * got torn down. [startToken] is a fresh value per start (not just
+ * [setId]) so re-checking the very same set's checkbox twice in a row still
+ * launches a new countdown rather than being a no-op key for LaunchedEffect.
+ */
+private data class ActiveRest(
+    val setId: String,
+    val exerciseName: String,
+    val totalSeconds: Int,
+    val remainingSeconds: Int,
+    val startToken: Long,
 )
 
 /**
@@ -111,6 +147,7 @@ fun WorkoutScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var repository by remember { mutableStateOf<WorkoutRepository?>(null) }
+    var weightUnit by remember { mutableStateOf("lbs") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(clientId, assignedWorkoutId) {
@@ -124,6 +161,7 @@ fun WorkoutScreen(
         val repo = WorkoutRepository(SupabaseRestClient(token))
         repository = repo
         try {
+            weightUnit = repo.getPreferredWeightUnit(clientId)
             // Same program-aware pick HomeScreen's "Your Training" card
             // shows, so tapping that card and opening Workouts from the
             // nav both land on the same workout -- unless a specific one
@@ -185,12 +223,15 @@ fun WorkoutScreen(
                     state = currentState,
                     onStateChange = { state = it },
                     onSaved = onBack,
+                    weightUnit = weightUnit,
                 )
                 currentState.session != null -> InProgressWorkout(
                     repository = repository!!,
                     scope = scope,
                     state = currentState,
                     onStateChange = { state = it },
+                    weightUnit = weightUnit,
+                    clientId = clientId,
                 )
                 else -> NotStartedWorkout(
                     state = currentState,
@@ -225,6 +266,11 @@ private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )
+        Text(
+            "Est. ${formatEstimatedDuration(estimatedWorkoutSeconds(state.exercises))}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(8.dp))
         Button(onClick = onStart) { Text("Start workout") }
         Spacer(Modifier.height(20.dp))
@@ -244,6 +290,10 @@ private fun NotStartedWorkout(state: WorkoutUiState, onStart: () -> Unit) {
                 }
             }
         }
+        // Clearance for the system 3-button nav bar at the very bottom of
+        // a long exercise list -- same pattern as ProfileScreen's "Data
+        // types" section.
+        Spacer(Modifier.height(72.dp))
     }
 }
 
@@ -253,6 +303,8 @@ private fun InProgressWorkout(
     scope: CoroutineScope,
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
+    weightUnit: String,
+    clientId: String,
 ) {
     val session = state.session!!
     var confirmingFinish by remember { mutableStateOf(false) }
@@ -281,6 +333,54 @@ private fun InProgressWorkout(
         elapsedDisplaySeconds = elapsedSeconds(session)
     }
 
+    // The one rest countdown live for the whole workout -- see ActiveRest's
+    // own doc comment for why this replaced per-row timer state. The
+    // ticking loop reads/writes `activeRest` on every iteration (not a
+    // separately-captured local counter), so the +15s/-15s/skip controls
+    // on the banner below and this loop never fight over which value is
+    // current.
+    var activeRest by remember(state.workout.id) { mutableStateOf<ActiveRest?>(null) }
+    val context = LocalContext.current
+
+    LaunchedEffect(activeRest?.startToken) {
+        if (activeRest == null) return@LaunchedEffect
+        while ((activeRest?.remainingSeconds ?: 0) > 0) {
+            delay(1000)
+            activeRest = activeRest?.let { it.copy(remainingSeconds = (it.remainingSeconds - 1).coerceAtLeast(0)) }
+            // countdown_sound.mp3 is a single chime, not a pre-baked
+            // 3-2-1 sequence -- fires once per remaining second for the
+            // last 3 seconds, not once at the top of the window.
+            val remaining = activeRest?.remainingSeconds
+            if (remaining != null && remaining in 1..3) {
+                playRestCountdownTick(context)
+            }
+        }
+        // Only fire the alert if this rest actually ran out on its own --
+        // a manual Skip already nulled activeRest out from under this
+        // loop, which the while condition above already caught.
+        if (activeRest?.remainingSeconds == 0) {
+            playRestCompleteAlert(context)
+            activeRest = null
+        }
+    }
+
+    fun startRest(set: SessionSet, exercise: AssignedWorkoutExercise) {
+        val restSeconds = set.restSeconds ?: exercise.restSeconds
+        if (restSeconds == null || restSeconds <= 0) return
+        activeRest = ActiveRest(
+            setId = set.id,
+            exerciseName = exercise.name,
+            totalSeconds = restSeconds,
+            remainingSeconds = restSeconds,
+            startToken = System.currentTimeMillis(),
+        )
+    }
+
+    fun cancelRestIfActive(setId: String) {
+        if (activeRest?.setId == setId) activeRest = null
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Text(
@@ -355,10 +455,52 @@ private fun InProgressWorkout(
                         onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
                     }
                 },
+                onSetCompletionChanged = { set, completed ->
+                    if (completed) startRest(set, exercise) else cancelRestIfActive(set.id)
+                },
+                onAddSet = sessionExercise?.id?.let { sessionExerciseId ->
+                    {
+                        scope.launch {
+                            val newSet = repository.addSet(exercise, sessionExerciseId, clientId, state.workout.coachId, sets)
+                            val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList()) + newSet
+                            onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                        }
+                    }
+                },
+                onDeleteSet = sessionExercise?.id?.let { sessionExerciseId ->
+                    { set: SessionSet ->
+                        scope.launch {
+                            repository.removeSet(set.id)
+                            cancelRestIfActive(set.id)
+                            val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList()).filter { it.id != set.id }
+                            onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                        }
+                    }
+                },
+                activeRestSetId = activeRest?.setId,
+                activeRestRemainingSeconds = activeRest?.remainingSeconds,
                 repository = repository,
                 scope = scope,
+                weightUnit = weightUnit,
             )
         }
+        // Clearance for the system 3-button nav bar -- same pattern as
+        // ProfileScreen's "Data types" section. A bit more while the rest
+        // banner is showing, so the last card's content can still scroll
+        // clear of it rather than staying permanently hidden underneath.
+        Spacer(Modifier.height(if (activeRest != null) 160.dp else 72.dp))
+    }
+
+    if (activeRest != null) {
+        ActiveRestBanner(
+            rest = activeRest!!,
+            onAdjust = { deltaSeconds ->
+                activeRest = activeRest?.let { it.copy(remainingSeconds = (it.remainingSeconds + deltaSeconds).coerceAtLeast(0)) }
+            },
+            onSkip = { activeRest = null },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
     }
 
     if (confirmingFinish) {
@@ -401,6 +543,7 @@ private fun SummaryWorkout(
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
     onSaved: () -> Unit,
+    weightUnit: String,
 ) {
     val session = state.session!!
     var notes by remember(session.id) { mutableStateOf(session.notes ?: "") }
@@ -457,6 +600,7 @@ private fun SummaryWorkout(
                 },
                 repository = repository,
                 scope = scope,
+                weightUnit = weightUnit,
             )
         }
 
@@ -474,6 +618,9 @@ private fun SummaryWorkout(
                 },
             )
         }
+        // Clearance for the system 3-button nav bar -- same pattern as
+        // ProfileScreen's "Data types" section.
+        Spacer(Modifier.height(72.dp))
     }
 
     if (confirmingSave) {
@@ -506,9 +653,21 @@ private fun ExerciseLogCard(
     onSetChanged: (SessionSet) -> Unit,
     repository: WorkoutRepository,
     scope: CoroutineScope,
+    weightUnit: String,
     collapsible: Boolean = true,
     isPr: Boolean = false,
     onTogglePr: (() -> Unit)? = null,
+    // Only set from InProgressWorkout -- null here (SummaryWorkout's post-
+    // finish recap) means checking a set's checkbox just toggles
+    // completed, with no live rest side effect at all.
+    onSetCompletionChanged: ((SessionSet, Boolean) -> Unit)? = null,
+    // Null (InProgressWorkout omits these for a finished/not-logging
+    // context) means no "+ Add set" row and no per-set delete icon --
+    // same opt-in-via-null pattern onSetCompletionChanged already uses.
+    onAddSet: (() -> Unit)? = null,
+    onDeleteSet: ((SessionSet) -> Unit)? = null,
+    activeRestSetId: String? = null,
+    activeRestRemainingSeconds: Int? = null,
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -547,24 +706,124 @@ private fun ExerciseLogCard(
                 exit = shrinkVertically() + fadeOut(),
             ) {
                 Column {
+                    if (exercise.videoPath != null || exercise.videoUrl != null) {
+                        Spacer(Modifier.height(12.dp))
+                        ExerciseVideoPlayer(exercise = exercise, repository = repository)
+                    }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Text("SET", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(40.dp))
                         Text("REPS", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                        Text("WEIGHT", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                        Text(
+                            "WEIGHT (${weightUnit.uppercase()})",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.weight(1f),
+                        )
                         Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                        Spacer(Modifier.width(36.dp))
+                        Spacer(Modifier.width(if (onDeleteSet != null) 72.dp else 36.dp))
                     }
                     sets.forEach { set ->
                         SetRow(
                             set = set,
                             onChanged = onSetChanged,
+                            onCompletionChanged = onSetCompletionChanged,
+                            onDelete = onDeleteSet,
+                            isActiveRest = activeRestSetId == set.id,
+                            activeRestRemainingSeconds = if (activeRestSetId == set.id) activeRestRemainingSeconds else null,
                             repository = repository,
                             scope = scope,
                         )
                     }
+                    if (onAddSet != null) {
+                        TextButton(onClick = onAddSet, modifier = Modifier.padding(top = 4.dp)) {
+                            Text("+ Add set")
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+// Plays an exercise's demo video right on its own session card, so the
+// client never has to leave mid-set-logging to see how it's done --
+// resolved lazily on first expand (an uploaded file needs a signed URL,
+// see WorkoutRepository.resolveExerciseVideoUrl) rather than for every
+// exercise in the workout up front.
+//
+// Media3's ExoPlayer, not the platform VideoView/MediaPlayer this started
+// on -- a video recorded in-browser (MediaUploadField.tsx's MediaRecorder,
+// no explicit mimeType) comes back as WebM/VP8-VP9+Opus, which the plain
+// MediaPlayer a VideoView wraps plays unreliably device-to-device (it
+// depends entirely on whatever codecs the OEM registered). ExoPlayer
+// bundles its own WebM/VP8/VP9/Opus extraction and software decoding.
+//
+// A playback failure (bad/unsupported file, stale signed URL, whatever)
+// shows a plain, same-size "Video unavailable" placeholder instead of the
+// real player -- never a raw PlaybackException error code (logged for
+// diagnosis instead, not shown to the client: it's not actionable mid-
+// workout and just reads as the app being broken). Keeping a same-sized
+// placeholder rather than rendering nothing at all matters here too: this
+// card reserves space for a video whenever the exercise has one assigned
+// at all, win or fail, so the card's footprint doesn't visibly change
+// depending on whether that particular file happens to load.
+@Composable
+private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: WorkoutRepository) {
+    var videoUrl by remember(exercise.id) { mutableStateOf<String?>(null) }
+    var resolved by remember(exercise.id) { mutableStateOf(false) }
+    var playbackFailed by remember(exercise.id) { mutableStateOf(false) }
+
+    LaunchedEffect(exercise.id) {
+        videoUrl = repository.resolveExerciseVideoUrl(exercise)
+        resolved = true
+    }
+
+    val url = videoUrl
+    val context = LocalContext.current
+    if (resolved && url != null) {
+        if (playbackFailed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .padding(bottom = 8.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Video unavailable",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        } else {
+            val player = remember(exercise.id) {
+                ExoPlayer.Builder(context).build().apply {
+                    addListener(
+                        object : Player.Listener {
+                            override fun onPlayerError(error: PlaybackException) {
+                                Log.w("ExerciseVideoPlayer", "Playback failed for ${exercise.id}: ${error.errorCodeName}")
+                                playbackFailed = true
+                            }
+                        },
+                    )
+                    setMediaItem(MediaItem.fromUri(url))
+                    prepare()
+                }
+            }
+            // ExoPlayer instances own real decoder/media resources --
+            // must be released when this card's video leaves composition
+            // (collapsed, or the session screen navigated away from),
+            // not just garbage collected, or every exercise ever
+            // expanded this session leaks one.
+            DisposableEffect(player) {
+                onDispose { player.release() }
+            }
+
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
+                factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
+            )
         }
     }
 }
@@ -575,9 +834,16 @@ private fun SetRow(
     onChanged: (SessionSet) -> Unit,
     repository: WorkoutRepository,
     scope: CoroutineScope,
+    onCompletionChanged: ((SessionSet, Boolean) -> Unit)? = null,
+    // Null (ExerciseLogCard's onDeleteSet) means no delete icon at all --
+    // same opt-in-via-null pattern onCompletionChanged already uses.
+    onDelete: ((SessionSet) -> Unit)? = null,
+    isActiveRest: Boolean = false,
+    activeRestRemainingSeconds: Int? = null,
 ) {
     var reps by remember(set.id) { mutableStateOf(set.reps ?: set.durationSeconds?.let { "${it}s" } ?: "") }
     var weight by remember(set.id) { mutableStateOf(set.weight ?: "") }
+    var confirmingDelete by remember(set.id) { mutableStateOf(false) }
     // Brief border-color pulse on the two fields right where the user was
     // just typing -- the only signal this row has that a commit actually
     // landed, since it saves silently on focus-loss with no button/toast.
@@ -622,13 +888,20 @@ private fun SetRow(
                 }
             },
         )
-        RestCell(restSeconds = set.restSeconds, modifier = Modifier.weight(1f))
+        RestColumnCell(
+            restSeconds = set.restSeconds,
+            isActiveRest = isActiveRest,
+            remainingSeconds = activeRestRemainingSeconds,
+            modifier = Modifier.weight(1f),
+        )
         IconButton(
             onClick = {
                 scope.launch {
                     val newCompleted = !set.completed
                     repository.setCompleted(set.id, newCompleted)
-                    onChanged(set.copy(completed = newCompleted))
+                    val updated = set.copy(completed = newCompleted)
+                    onChanged(updated)
+                    onCompletionChanged?.invoke(updated, newCompleted)
                 }
             },
             modifier = Modifier.size(36.dp),
@@ -647,6 +920,24 @@ private fun SetRow(
                 )
             }
         }
+        if (onDelete != null) {
+            IconButton(onClick = { confirmingDelete = true }, modifier = Modifier.size(36.dp)) {
+                Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    if (confirmingDelete) {
+        ConfirmDialog(
+            title = "Delete this set?",
+            body = "Set ${set.setNumber}'s logged reps/weight will be removed.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmingDelete = false
+                onDelete?.invoke(set)
+            },
+            onDismiss = { confirmingDelete = false },
+        )
     }
 }
 
@@ -693,45 +984,80 @@ private fun CompactNumberField(
 }
 
 /**
- * Local, ephemeral rest countdown -- tapping starts a plain coroutine
- * tick from the exercise's prescribed rest_seconds down to zero, showing
- * a checkmark once it reaches zero. Deliberately not persisted anywhere
- * (unlike the reps/weight/completed fields above): a rest timer only
- * matters live, in the moment, and re-opening this screen mid-rest with
- * no way to know how long ago it was started would just show a wrong
- * countdown -- resetting to "not started" on re-entry is the honest
- * behavior, not a gap to fix later.
+ * This set's rest column -- no longer an independent timer widget (see
+ * ActiveRest's doc comment for why that was replaced). Plain static text
+ * for the prescribed rest duration normally; while this exact set is the
+ * one the shared countdown is running for, it instead mirrors that
+ * countdown's remaining time, read straight from the hoisted state passed
+ * down as a prop rather than owning any ticking state of its own.
  */
 @Composable
-private fun RestCell(restSeconds: Int?, modifier: Modifier = Modifier) {
-    if (restSeconds == null || restSeconds <= 0) {
-        Box(modifier, contentAlignment = Alignment.Center) {
-            Text("—", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        return
-    }
-    var remaining by remember(restSeconds) { mutableStateOf(restSeconds) }
-    var running by remember(restSeconds) { mutableStateOf(false) }
-
-    LaunchedEffect(running) {
-        while (running && remaining > 0) {
-            delay(1000)
-            remaining -= 1
-        }
-        if (remaining <= 0) running = false
-    }
-
+private fun RestColumnCell(
+    restSeconds: Int?,
+    isActiveRest: Boolean,
+    remainingSeconds: Int?,
+    modifier: Modifier = Modifier,
+) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        if (remaining <= 0 && restSeconds > 0 && !running && remaining != restSeconds) {
-            Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-        } else {
-            TextButton(onClick = { if (!running) running = true }) {
-                Text(
-                    (if (!running && remaining == restSeconds) "▶ " else "") + formatElapsed(remaining.toLong()),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+        when {
+            isActiveRest && remainingSeconds != null -> Text(
+                formatElapsed(remainingSeconds.toLong()),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            restSeconds == null || restSeconds <= 0 -> Text(
+                "—",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> Text(
+                formatElapsed(restSeconds.toLong()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+/**
+ * The persistent, workout-wide rest banner -- lives outside the scrollable
+ * exercise list (see InProgressWorkout's Box) so it stays visible and
+ * running no matter which card is expanded/collapsed or how far the list
+ * is scrolled.
+ */
+@Composable
+private fun ActiveRestBanner(
+    rest: ActiveRest,
+    onAdjust: (Int) -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Resting · ${rest.exerciseName}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                formatElapsed(rest.remainingSeconds.toLong()),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        TextButton(onClick = { onAdjust(-15) }) { Text("−15s") }
+        TextButton(onClick = { onAdjust(15) }) { Text("+15s") }
+        TextButton(onClick = onSkip) { Text("Skip") }
     }
 }
 
@@ -763,4 +1089,70 @@ private fun formatElapsed(totalSeconds: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%02d:%02d".format(minutes, seconds)
+}
+
+// Very rough "how long will this take" estimate for the not-started
+// screen -- sets * (an assumed ~45s to actually perform one set, since
+// that isn't tracked anywhere) + each set's own prescribed rest. Not
+// meant to be precise, just enough to set expectations before starting.
+private const val ASSUMED_SECONDS_PER_SET = 45
+
+private fun estimatedWorkoutSeconds(exercises: List<AssignedWorkoutExercise>): Int =
+    exercises.sumOf { exercise ->
+        val sets = exercise.sets ?: 1
+        sets * (ASSUMED_SECONDS_PER_SET + (exercise.restSeconds ?: 0))
+    }
+
+private fun formatEstimatedDuration(totalSeconds: Int): String {
+    val minutes = (totalSeconds / 60).coerceAtLeast(1)
+    return "~$minutes min"
+}
+
+// Plays a short one-shot clip from res/raw and releases its MediaPlayer
+// the moment playback finishes -- a real short clip naturally stops on
+// its own (no duration cap needed, unlike the system alarm Ringtone this
+// replaced -- see this file's git history for why that was broken:
+// alarm-category ringtones are long/sustained tracks by OS design, and
+// nothing ever called Ringtone.stop() on it).
+private fun playRawSound(context: Context, resId: Int) {
+    try {
+        val player = MediaPlayer.create(context, resId) ?: return
+        player.setOnCompletionListener { it.release() }
+        player.start()
+    } catch (e: Exception) {
+        // A missing/corrupt resource shouldn't crash the workout.
+    }
+}
+
+/**
+ * Fires when a rest countdown reaches zero -- the user-supplied
+ * rest_timer_end clip plus a vibration, always both rather than one as a
+ * conditional fallback for the other, since either channel alone can be
+ * missed (phone face-down for vibration, a worn phone for sound).
+ */
+private fun playRestCompleteAlert(context: Context) {
+    playRawSound(context, R.raw.rest_timer_end)
+
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+    } catch (e: Exception) {
+        // No vibrator hardware, or service unavailable -- the chime above
+        // already fired, so this is a quiet best-effort extra.
+    }
+}
+
+/**
+ * Fires once per remaining second for the last 3 seconds of rest (see
+ * the ticking LaunchedEffect above) -- countdown_sound.mp3 is a single
+ * chime clip, not a pre-baked 3-2-1 sequence, so this plays it three
+ * times (once at each of 3, 2, 1) to get that cadence rather than once.
+ */
+private fun playRestCountdownTick(context: Context) {
+    playRawSound(context, R.raw.countdown_sound)
 }

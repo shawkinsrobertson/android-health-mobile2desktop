@@ -32,6 +32,12 @@ data class AssignedWorkoutExercise(
     val durationSeconds: Int?,
     val weightNote: String?,
     val restSeconds: Int?,
+    // Set per-assignment when a coach prescribes the exercise (see
+    // 0044_assignment_equipment.sql). "barbell" | "dumbbell" |
+    // "kettlebell" | "bodyweight" | "other" | null.
+    val equipment: String?,
+    val videoPath: String?,
+    val videoUrl: String?,
 )
 
 data class WorkoutSession(
@@ -82,6 +88,26 @@ data class SessionSet(
  *    editable -- see WorkoutScreen's Summary state.
  */
 class WorkoutRepository(private val supabase: SupabaseRestClient) {
+
+    /**
+     * client_profiles.preferred_weight_unit ("lbs" | "kg") -- the web
+     * dashboard's own WeightUnitForm.tsx already lets a client set this;
+     * this app had no concept of it at all until now (every weight input
+     * was unitless). Defaults to "lbs", matching the web side's own
+     * `?? "lbs"` fallback (lib/profile.ts).
+     */
+    suspend fun getPreferredWeightUnit(clientId: String): String {
+        val rows = supabase.select(
+            "client_profiles",
+            mapOf(
+                "select" to "preferred_weight_unit",
+                "profile_id" to "eq.$clientId",
+                "limit" to "1",
+            ),
+        )
+        if (rows.length() == 0) return "lbs"
+        return rows.getJSONObject(0).optString("preferred_weight_unit").ifBlank { "lbs" }
+    }
 
     /**
      * A specific assignment by id, rather than "whatever's next" --
@@ -205,7 +231,7 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
         val rows = supabase.select(
             "assignment_components",
             mapOf(
-                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds",
+                "select" to "id,order_index,name,sets,reps,prescription_type,duration_seconds,weight_note,rest_seconds,equipment,video_path,video_url",
                 "assignment_id" to "eq.$assignedWorkoutId",
                 "order" to "order_index.asc",
             ),
@@ -217,13 +243,42 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                 orderIndex = row.optInt("order_index", 0),
                 name = row.getString("name"),
                 sets = row.optIntOrNull("sets"),
-                reps = row.optString("reps").ifBlank { null },
+                // optString(key) alone returns the literal string "null"
+                // (not blank) for a SQL-null column on Android's platform
+                // org.json -- .ifBlank{null} never catches that, so every
+                // one of these came back as the real string "null" for any
+                // exercise that simply never set the column, not Kotlin
+                // null. That's what put a literal "null" in the Weight
+                // input (weightNote) and made every exercise -- not just
+                // ones with a real demo video -- try to load video_path
+                // "null" as if it were a Storage object. Same isNull()
+                // guard toSessionSet()/toWorkoutSession() already use.
+                reps = if (row.isNull("reps")) null else row.optString("reps").ifBlank { null },
                 prescriptionType = row.optString("prescription_type", "reps"),
                 durationSeconds = row.optIntOrNull("duration_seconds"),
-                weightNote = row.optString("weight_note").ifBlank { null },
+                weightNote = if (row.isNull("weight_note")) null else row.optString("weight_note").ifBlank { null },
                 restSeconds = row.optIntOrNull("rest_seconds"),
+                equipment = if (row.isNull("equipment")) null else row.optString("equipment").ifBlank { null },
+                videoPath = if (row.isNull("video_path")) null else row.optString("video_path").ifBlank { null },
+                videoUrl = if (row.isNull("video_url")) null else row.optString("video_url").ifBlank { null },
             )
         }
+    }
+
+    /**
+     * Resolves an exercise's demo video to a URL the player can load --
+     * an uploaded file takes precedence (signed, since the storage
+     * bucket isn't public) over an external link, same precedence as the
+     * web dashboard's resolveMediaUrl (lib/media.ts). Null when neither
+     * is set, or when signing an uploaded file fails.
+     */
+    suspend fun resolveExerciseVideoUrl(exercise: AssignedWorkoutExercise): String? {
+        val path = exercise.videoPath
+        if (path != null) {
+            val signed = supabase.signStorageUrl("library-media", path)
+            if (signed != null) return signed
+        }
+        return exercise.videoUrl
     }
 
     private val sessionSelect = "id,assigned_workout_id,started_at,paused_at,total_paused_seconds,completed_at,notes"
@@ -390,7 +445,10 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                         "set_number" to setNumber,
                         "reps" to if (exercise.prescriptionType == "reps") exercise.reps else null,
                         "duration_seconds" to if (exercise.prescriptionType == "time") exercise.durationSeconds else null,
-                        "weight" to exercise.weightNote,
+                        // A null weightNote means "bodyweight" only when
+                        // equipment says so -- otherwise it just means
+                        // "not filled in yet" and seeds an empty field.
+                        "weight" to (exercise.weightNote ?: if (exercise.equipment == "bodyweight") "Body weight" else null),
                         "rest_seconds" to exercise.restSeconds,
                     ),
                 )
@@ -413,6 +471,44 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
 
     suspend fun setCompleted(setId: String, completed: Boolean) {
         supabase.patch("workout_session_sets", mapOf("id" to "eq.$setId"), mapOf("completed" to completed))
+    }
+
+    /**
+     * Appends one more set to an exercise mid-logging, numbered right
+     * after the current last one -- the schema itself has supported this
+     * since 0010_session_sets_and_timers.sql ("sets addable/removable
+     * during logging", full insert/delete RLS already in place), this is
+     * just the client side of it. Copies the last existing set's own
+     * reps/weight/rest as the new row's starting point (so "add set"
+     * repeats what the client just logged, the common case), falling
+     * back to the exercise's own prescription only when there's no
+     * existing set yet to copy from.
+     */
+    suspend fun addSet(
+        exercise: AssignedWorkoutExercise,
+        sessionExerciseId: String,
+        clientId: String,
+        coachId: String,
+        existingSets: List<SessionSet>,
+    ): SessionSet {
+        val last = existingSets.maxByOrNull { it.setNumber }
+        val row = mapOf(
+            "session_exercise_id" to sessionExerciseId,
+            "client_id" to clientId,
+            "coach_id" to coachId,
+            "set_number" to (last?.setNumber ?: 0) + 1,
+            "reps" to (last?.reps ?: if (exercise.prescriptionType == "reps") exercise.reps else null),
+            "duration_seconds" to (last?.durationSeconds ?: if (exercise.prescriptionType == "time") exercise.durationSeconds else null),
+            "weight" to (last?.weight ?: if (exercise.equipment == "bodyweight") "Body weight" else null),
+            "rest_seconds" to (last?.restSeconds ?: exercise.restSeconds),
+        )
+        val inserted = supabase.insert("workout_session_sets", listOf(row))
+        return inserted.getJSONObject(0).toSessionSet()
+    }
+
+    /** Removes one logged set -- workout_session_sets_delete_own (0010) scopes this to the signed-in client's own rows. */
+    suspend fun removeSet(setId: String) {
+        supabase.delete("workout_session_sets", mapOf("id" to "eq.$setId"))
     }
 }
 

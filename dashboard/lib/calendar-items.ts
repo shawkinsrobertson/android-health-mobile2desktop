@@ -2,19 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { listEvents, type CalendarEventRow, type DateRange } from "./calendar";
 import { getClientTimezone, localDateKey } from "./queries";
 
-// One calendar day as an abstract "YYYY-MM-DD" step, with no timezone of
-// its own -- `from`/`to` are themselves already resolved to the client's
-// local calendar dates (via localDateKey below) before this is used, so
-// this just walks whole days between two date keys.
-function* eachDateKey(fromKey: string, toKey: string): Generator<string> {
-  let cursor = new Date(`${fromKey}T00:00:00Z`);
-  const end = new Date(`${toKey}T00:00:00Z`);
-  while (cursor < end) {
-    yield cursor.toISOString().slice(0, 10);
-    cursor = new Date(cursor.getTime() + 24 * 3_600_000);
-  }
-}
-
 export type CalendarItemKind = "call" | "workout" | "document" | "check_in";
 
 // One shared shape CalendarViews.tsx's grid/list components render,
@@ -39,13 +26,12 @@ export interface CalendarItem {
   allDay: boolean;
   hasVideoCall: boolean;
   completed: boolean;
-  // Set for kind 'workout'/'document' -- what reschedule_assignment and
-  // the click-to-edit/complete actions operate on.
+  // Set for kind 'workout'/'document'/'check_in' -- what
+  // reschedule_assignment and the click-to-edit/complete actions operate
+  // on. A check-in occurrence is a real assignment row now (see
+  // 0045_check_ins_assignments.sql), not a projected virtual date, so it
+  // carries this exactly like a workout/document does.
   assignmentId: string | null;
-  // Set for kind 'check_in' -- a virtual occurrence, never its own row
-  // until a client actually submits it (see check_in_templates.day_of_week
-  // / lib/check-ins.ts's currentWeekStart, which this mirrors).
-  checkIn: { templateId: string; weekStart: string } | null;
   // Set for kind 'call' -- the original row, for EventModal/Join.
   event: CalendarEventRow | null;
 }
@@ -62,16 +48,41 @@ export function eventToItem(ev: CalendarEventRow): CalendarItem {
     hasVideoCall: ev.has_video_call,
     completed: false,
     assignmentId: null,
-    checkIn: null,
     event: ev,
   };
 }
 
 interface ScheduledAssignmentRow {
   id: string;
-  type: "workout" | "document";
+  type: "workout" | "document" | "check_in";
   name: string;
   scheduled_date: string;
+}
+
+// Recurring series (recurrence_days_of_week set -- only ever true on a
+// series' own source row, never a generated occurrence) only ever grow
+// new rows forward from "today" when generate_recurring_occurrences is
+// actually called -- nothing in this app calls it on a schedule, so it
+// has to happen lazily here, right before reading the range a calendar
+// view asks for. Harmless to call for an already-ended series (its own
+// while loop is then immediately a no-op) or for a past date range
+// (p_through < today also makes it a no-op) -- see that function's body.
+async function ensureRecurringOccurrences(
+  supabase: SupabaseClient,
+  clientId: string,
+  throughKey: string,
+): Promise<void> {
+  const { data: sources } = await supabase
+    .from("assignments")
+    .select("id")
+    .eq("client_id", clientId)
+    .not("recurrence_days_of_week", "is", null);
+
+  await Promise.all(
+    (sources ?? []).map((s) =>
+      supabase.rpc("generate_recurring_occurrences", { p_assignment_id: s.id, p_through: throughKey }),
+    ),
+  );
 }
 
 async function listScheduledAssignments(
@@ -80,11 +91,13 @@ async function listScheduledAssignments(
   startKey: string,
   endKey: string,
 ): Promise<CalendarItem[]> {
+  await ensureRecurringOccurrences(supabase, clientId, endKey);
+
   const { data, error } = await supabase
     .from("assignments")
     .select("id, type, name, scheduled_date")
     .eq("client_id", clientId)
-    .in("type", ["workout", "document"])
+    .in("type", ["workout", "document", "check_in"])
     .gte("scheduled_date", startKey)
     .lt("scheduled_date", endKey);
 
@@ -93,7 +106,9 @@ async function listScheduledAssignments(
   if (rows.length === 0) return [];
 
   const workoutIds = rows.filter((r) => r.type === "workout").map((r) => r.id);
-  const documentIds = rows.filter((r) => r.type === "document").map((r) => r.id);
+  // Documents and check-ins both complete the same way -- an
+  // assignment_responses row with submitted_at set.
+  const formIds = rows.filter((r) => r.type === "document" || r.type === "check_in").map((r) => r.id);
 
   const [sessionRows, responseRows] = await Promise.all([
     workoutIds.length
@@ -103,17 +118,17 @@ async function listScheduledAssignments(
           .in("assigned_workout_id", workoutIds)
           .not("completed_at", "is", null)
       : Promise.resolve({ data: [] as { assigned_workout_id: string }[] }),
-    documentIds.length
+    formIds.length
       ? supabase
           .from("assignment_responses")
           .select("assignment_id")
-          .in("assignment_id", documentIds)
+          .in("assignment_id", formIds)
           .not("submitted_at", "is", null)
       : Promise.resolve({ data: [] as { assignment_id: string }[] }),
   ]);
 
   const completedWorkoutIds = new Set((sessionRows.data ?? []).map((r) => r.assigned_workout_id));
-  const completedDocumentIds = new Set((responseRows.data ?? []).map((r) => r.assignment_id));
+  const completedFormIds = new Set((responseRows.data ?? []).map((r) => r.assignment_id));
 
   return rows.map((r) => ({
     kind: r.type,
@@ -124,62 +139,8 @@ async function listScheduledAssignments(
     endTime: null,
     allDay: true,
     hasVideoCall: false,
-    completed: r.type === "workout" ? completedWorkoutIds.has(r.id) : completedDocumentIds.has(r.id),
+    completed: r.type === "workout" ? completedWorkoutIds.has(r.id) : completedFormIds.has(r.id),
     assignmentId: r.id,
-    checkIn: null,
-    event: null,
-  }));
-}
-
-// Projects virtual check-in occurrences for the visible range -- never
-// materialized as their own row until a client actually submits one (see
-// lib/check-ins.ts's currentWeekStart, which this mirrors: week_start IS
-// the occurrence date itself, 0=Sunday..6=Saturday in UTC, matching
-// check_in_templates.day_of_week).
-async function listCheckInOccurrences(
-  supabase: SupabaseClient,
-  clientId: string,
-  startKey: string,
-  endKey: string,
-): Promise<CalendarItem[]> {
-  const { data: template } = await supabase
-    .from("check_in_templates")
-    .select("id, name, day_of_week")
-    .eq("client_id", clientId)
-    .eq("active", true)
-    .maybeSingle();
-
-  if (!template) return [];
-
-  // Each date key is already an abstract calendar date (not an instant),
-  // so its day-of-week is unambiguous -- read via a UTC-anchored Date
-  // purely as a weekday calculator, matching lib/check-ins.ts's own
-  // 0=Sunday..6=Saturday convention.
-  const occurrences = [...eachDateKey(startKey, endKey)].filter(
-    (key) => new Date(`${key}T00:00:00Z`).getUTCDay() === template.day_of_week,
-  );
-  if (occurrences.length === 0) return [];
-
-  const { data: responses } = await supabase
-    .from("check_in_responses")
-    .select("week_start, submitted_at")
-    .eq("template_id", template.id)
-    .in("week_start", occurrences);
-
-  const submittedWeeks = new Set((responses ?? []).filter((r) => r.submitted_at).map((r) => r.week_start));
-
-  return occurrences.map((date) => ({
-    kind: "check_in" as const,
-    id: `check_in:${template.id}:${date}`,
-    title: template.name,
-    date,
-    startTime: null,
-    endTime: null,
-    allDay: true,
-    hasVideoCall: false,
-    completed: submittedWeeks.has(date),
-    assignmentId: null,
-    checkIn: { templateId: template.id, weekStart: date },
     event: null,
   }));
 }
@@ -210,10 +171,7 @@ export async function listCalendarItems(
   const startKey = localDateKey(new Date(range.start), timeZone);
   const endKey = localDateKey(new Date(range.end), timeZone);
 
-  const [assignmentItems, checkInItems] = await Promise.all([
-    listScheduledAssignments(supabase, scope.clientId, startKey, endKey),
-    listCheckInOccurrences(supabase, scope.clientId, startKey, endKey),
-  ]);
+  const assignmentItems = await listScheduledAssignments(supabase, scope.clientId, startKey, endKey);
 
-  return [...callItems, ...assignmentItems, ...checkInItems];
+  return [...callItems, ...assignmentItems];
 }

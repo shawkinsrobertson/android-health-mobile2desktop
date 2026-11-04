@@ -4,6 +4,7 @@ import com.healthsync.app.supabase.SupabaseRestClient
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -47,6 +48,7 @@ private val dashboardCache = TtlCache<DashboardData>(Duration.ofSeconds(60))
 // resolveOverlappingSources (below) has what it needs; bucketStepsByDay
 // only reads start_time/count.
 private data class StepsRawRow(val startTime: String, val endTime: String, val count: Double, val sourcePackage: String?)
+private data class SleepRawRow(val startTime: String, val endTime: String, val sourcePackage: String?)
 
 /**
  * Basic per-client data-viz queries for the Android dashboard -- a
@@ -85,7 +87,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
                 "limit" to "1",
             ),
         )
-        return if (rows.length() == 0) null else rows.getJSONObject(0).optString("source_package").ifBlank { null }
+        return if (rows.length() == 0) null else rows.getJSONObject(0).optStringOrNull("source_package")
     }
 
     private suspend fun loadDashboardFresh(clientId: String, days: Int): DashboardData = coroutineScope {
@@ -175,8 +177,13 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         val dailySteps = bucketStepsByDay(resolvedSteps)
 
         val sleepPreference = sleepPreferenceDeferred.await()
-        val sleepRows = sleepDeferred.await()
-        val sleepNights = bucketSleepByNight(filterBySource(sleepRows, sleepPreference))
+        val rawSleep = parseSleepRows(sleepDeferred.await())
+        val resolvedSleep = if (sleepPreference != null) {
+            rawSleep.filter { it.sourcePackage == sleepPreference }
+        } else {
+            resolveOverlappingSleepSources(rawSleep)
+        }
+        val sleepNights = bucketSleepByNight(resolvedSleep)
 
         val hrPreference = hrPreferenceDeferred.await()
         val hrRows = hrDeferred.await()
@@ -211,7 +218,7 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         val filtered = JSONArray()
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
-            if (row.optString("source_package").ifBlank { null } == sourcePackage) filtered.put(row)
+            if (row.optStringOrNull("source_package") == sourcePackage) filtered.put(row)
         }
         return filtered
     }
@@ -224,9 +231,9 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
             parsed.add(
                 StepsRawRow(
                     startTime = start,
-                    endTime = row.optString("end_time").ifBlank { start },
+                    endTime = row.optStringOrNull("end_time") ?: start,
                     count = row.getJSONObject("value").optDouble("count", 0.0),
-                    sourcePackage = row.optString("source_package").ifBlank { null },
+                    sourcePackage = row.optStringOrNull("source_package"),
                 ),
             )
         }
@@ -328,21 +335,80 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         return byDay.entries.sortedBy { it.key }.map { DailySteps(it.key, Math.round(it.value)) }
     }
 
-    private fun bucketSleepByNight(rows: JSONArray): List<SleepNight> {
-        val nights = mutableListOf<SleepNight>()
+    private fun parseSleepRows(rows: JSONArray): List<SleepRawRow> {
+        val parsed = mutableListOf<SleepRawRow>()
         for (i in 0 until rows.length()) {
             val row = rows.getJSONObject(i)
-            val start = Instant.parse(row.getString("start_time"))
-            val end = Instant.parse(row.getString("end_time"))
-            val hours = (end.epochSecond - start.epochSecond) / 3600.0
-            val date = localDateOf(row.getString("start_time"))
+            parsed.add(
+                SleepRawRow(
+                    startTime = row.getString("start_time"),
+                    endTime = row.getString("end_time"),
+                    sourcePackage = row.optStringOrNull("source_package"),
+                ),
+            )
+        }
+        return parsed
+    }
+
+    // Sleep's own counterpart to resolveOverlappingSources (steps, above) --
+    // never ported when the steps dedup first landed, which is why a
+    // client with two sources reporting sleep (a wearable and the phone's
+    // own Health Connect sensor both writing a session for the same night)
+    // saw every source's session counted with no reconciliation at all.
+    // Unlike steps, sleep isn't a summable per-minute count where a second
+    // source's gap-filler adds real signal -- two sources' sessions for the
+    // same night are two estimates of the *same* sleep, so merging partial
+    // credit from both would double-count rather than fill gaps. Per local
+    // night, pick whichever source has the most total recorded duration
+    // that night as primary, and use only that source's session(s).
+    private fun resolveOverlappingSleepSources(rows: List<SleepRawRow>): List<SleepRawRow> {
+        val byNight = rows.groupBy { localDateOf(it.startTime) }
+        val resolved = mutableListOf<SleepRawRow>()
+        for (nightRows in byNight.values) {
+            val bySource = nightRows.groupBy { it.sourcePackage ?: "unknown" }
+            if (bySource.size <= 1) {
+                resolved.addAll(nightRows)
+                continue
+            }
+            val (_, primaryRows) = bySource.entries.maxBy { (_, rs) ->
+                rs.sumOf { Instant.parse(it.endTime).epochSecond - Instant.parse(it.startTime).epochSecond }
+            }
+            resolved.addAll(primaryRows)
+        }
+        return resolved
+    }
+
+    // Groups rows by local calendar night and merges each night's own
+    // intervals (mergeIntervals, defined above for steps dedup) -- this
+    // was never actually "bucketing" before: every row became its own
+    // entry with no merge step at all, so a night with more than one
+    // real session row showed up as multiple separate rows under the
+    // same date instead of one. resolveOverlappingSleepSources has
+    // already picked a single primary *source* per night by this point,
+    // but that source can still have more than one session row for the
+    // same calendar date that don't actually overlap or connect (a short
+    // nap plus the overnight sleep, a stray duplicate from a resync,
+    // etc.) -- summing those blindly double-counts rather than filling a
+    // gap, the exact failure resolveOverlappingSleepSources' own doc
+    // comment already calls out for the cross-source case ("two
+    // estimates of the same sleep, not complementary data"). Same fix
+    // here: mergeIntervals only coalesces ranges that truly overlap or
+    // touch (real fragments of one interrupted night), and if more than
+    // one disjoint cluster remains after that, keep only the longest --
+    // not sum them -- same heuristic as the cross-source primary pick.
+    private fun bucketSleepByNight(rows: List<SleepRawRow>): List<SleepNight> {
+        val byNight = rows.groupBy { localDateOf(it.startTime) }
+        return byNight.entries.map { (date, nightRows) ->
+            val merged = mergeIntervals(
+                nightRows.map { Instant.parse(it.startTime).toEpochMilli() to Instant.parse(it.endTime).toEpochMilli() },
+            )
+            val longestMs = merged.maxOfOrNull { it.second - it.first } ?: 0L
             // Rounded to the nearest minute (not the nearest tenth of an
             // hour) -- the coarser rounding was hiding real discrepancies
             // against a wearable's own minute-level reading once displayed
             // as "7.5h". See formatHoursMinutes() for the display side.
-            nights.add(SleepNight(date = date, hours = Math.round(hours * 60) / 60.0))
-        }
-        return nights
+            SleepNight(date = date, hours = Math.round(longestMs / 60000.0) / 60.0)
+        }.sortedBy { it.date }
     }
 
     private fun averageBpm(rows: JSONArray): Int? {
@@ -354,3 +420,9 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
         return Math.round(sum / rows.length()).toInt()
     }
 }
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- ifBlank{null}
+// never catches that, since "null" isn't blank.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }

@@ -27,14 +27,21 @@ export function ExerciseSearchField({
   name = "exercise_id",
   returnTo,
   className,
+  initialId,
+  initialName,
 }: {
   exercises: ExerciseOption[];
   name?: string;
   returnTo: string;
   className?: string;
+  // Pre-fills the field with an already-picked exercise -- used when
+  // editing an existing row's exercise identity in place, as opposed to
+  // adding a new one (where both are simply absent).
+  initialId?: string;
+  initialName?: string;
 }) {
-  const [text, setText] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [text, setText] = useState(initialName ?? "");
+  const [selectedId, setSelectedId] = useState<string | null>(initialId ?? null);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 

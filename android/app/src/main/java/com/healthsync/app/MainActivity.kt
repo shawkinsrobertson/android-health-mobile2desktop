@@ -371,6 +371,13 @@ class MainActivity : ComponentActivity() {
                     // exactly what ROUTE_WORKOUT etc. are -- no need to
                     // decode the actual clientId argument to compare.
                     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+                    // Hidden entirely on the Workout screen (not just its
+                    // own icon dropped from the list, like every other
+                    // destination gets above) -- a client mid-set doesn't
+                    // need a way to navigate elsewhere, and the floating
+                    // nav was covering the bottom of that screen's own
+                    // content (set rows, the Finish button) on top of it.
+                    if (currentRoute != ROUTE_WORKOUT) {
                     SlideOutNav(
                         destinations = buildList {
                             if (currentRoute != ROUTE_HOME) {
@@ -444,6 +451,7 @@ class MainActivity : ComponentActivity() {
                             .navigationBarsPadding()
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = NAV_BOTTOM_CLEARANCE),
                     )
+                    }
                 }
                 }
             }

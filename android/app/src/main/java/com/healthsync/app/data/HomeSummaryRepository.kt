@@ -3,11 +3,11 @@ package com.healthsync.app.data
 import com.healthsync.app.supabase.SupabaseRestClient
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
+import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 enum class DayCompletion { NONE, PARTIAL, DONE }
@@ -134,10 +134,17 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         )
         if (rows.length() == 0) return false
         val thread = rows.getJSONObject(0)
-        val lastMessageAt = thread.optString("last_message_at").ifBlank { null } ?: return false
-        val lastSenderId = thread.optString("last_sender_id").ifBlank { null } ?: return false
+        val lastMessageAt = thread.optStringOrNull("last_message_at") ?: return false
+        val lastSenderId = thread.optStringOrNull("last_sender_id") ?: return false
         if (lastSenderId == clientId) return false
-        val lastRead = thread.optString("client_last_read_at").ifBlank { null } ?: return true
+        // client_last_read_at is null for the common "never opened this
+        // thread" case -- plain optString(key) returns the literal string
+        // "null" for a SQL-null column on Android's platform org.json, not
+        // blank, so the old `?: return true` here never actually fired:
+        // a client's very first unread message threw out of
+        // Instant.parse("null") instead, silently swallowed by this
+        // function's own runCatching caller into hasUnreadMessages=false.
+        val lastRead = thread.optStringOrNull("client_last_read_at") ?: return true
         return Instant.parse(lastMessageAt).isAfter(Instant.parse(lastRead))
     }
 
@@ -164,7 +171,7 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         if (messageRows.length() == 0) return null
         val message = messageRows.getJSONObject(0)
         if (message.optString("sender_role") != "coach") return null
-        val body = message.optString("body").ifBlank { null } ?: return null
+        val body = message.optStringOrNull("body") ?: return null
         return MessagePreview(senderLabel = "Your Coach", body = body)
     }
 
@@ -189,37 +196,58 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         }
     }
 
-    // Mirrors dashboard/lib/check-ins.ts's currentWeekStart exactly (same
-    // UTC-based Sunday-anchored bucketing) so a client's "is this due"
-    // state agrees with what their coach sees on the web dashboard.
-    private fun currentWeekStartUtc(dayOfWeek: Int, reference: Instant = Instant.now()): LocalDate {
-        val today = reference.atZone(ZoneOffset.UTC).toLocalDate()
-        val diff = ((today.dayOfWeek.value % 7) - dayOfWeek + 7) % 7
-        return today.minusDays(diff.toLong())
-    }
-
+    // A client's recurring check-in is one "source" assignment row
+    // (type='check_in', recurrence_days_of_week set), the same recurrence
+    // mechanism a recurring workout uses -- see
+    // supabase/migrations/0045_check_ins_assignments.sql and the web
+    // dashboard's lib/check-ins.ts (getActiveCheckInSeries/
+    // ensureCurrentCheckInOccurrence), which this mirrors exactly so a
+    // client's "is this due" state agrees with what their coach sees.
     private suspend fun loadCheckInDue(clientId: String): Boolean {
-        val templateRows = supabase.select(
-            "check_in_templates",
+        val seriesRows = supabase.select(
+            "assignments",
             mapOf(
-                "select" to "id,day_of_week",
+                "select" to "id,recurrence_end_date",
                 "client_id" to "eq.$clientId",
-                "active" to "eq.true",
+                "type" to "eq.check_in",
+                "recurrence_days_of_week" to "not.is.null",
+                "order" to "created_at.desc",
                 "limit" to "1",
             ),
         )
-        if (templateRows.length() == 0) return false
-        val template = templateRows.getJSONObject(0)
-        val templateId = template.getString("id")
-        val dayOfWeek = template.getInt("day_of_week")
-        val weekStart = currentWeekStartUtc(dayOfWeek).toString()
+        if (seriesRows.length() == 0) return false
+        val series = seriesRows.getJSONObject(0)
+        val sourceId = series.getString("id")
+        val recurrenceEndDate = series.optStringOrNull("recurrence_end_date")
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val isActive = recurrenceEndDate == null || recurrenceEndDate >= today.toString()
+        if (!isActive) return false
+
+        supabase.rpc(
+            "generate_recurring_occurrences",
+            mapOf("p_assignment_id" to sourceId, "p_through" to today.plusDays(7).toString()),
+        )
+
+        val occurrenceRows = supabase.select(
+            "assignments",
+            mapOf(
+                "select" to "id",
+                "client_id" to "eq.$clientId",
+                "type" to "eq.check_in",
+                "or" to "(id.eq.$sourceId,recurrence_source_id.eq.$sourceId)",
+                "scheduled_date" to "lte.$today",
+                "order" to "scheduled_date.desc",
+                "limit" to "1",
+            ),
+        )
+        if (occurrenceRows.length() == 0) return false
+        val occurrenceId = occurrenceRows.getJSONObject(0).getString("id")
 
         val responseRows = supabase.select(
-            "check_in_responses",
+            "assignment_responses",
             mapOf(
                 "select" to "submitted_at",
-                "template_id" to "eq.$templateId",
-                "week_start" to "eq.$weekStart",
+                "assignment_id" to "eq.$occurrenceId",
                 "limit" to "1",
             ),
         )
@@ -279,3 +307,12 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         }
     }
 }
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- JSONObject.NULL is
+// a real sentinel object, not Kotlin/Java null, so String.valueOf(NULL)
+// runs and returns "null" instead of short-circuiting. ifBlank{null}
+// never catches that, since "null" isn't blank. Same isNull() guard
+// WorkoutRepository.kt's optIntOrNull already uses for the Int case.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }
