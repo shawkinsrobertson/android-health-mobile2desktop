@@ -347,11 +347,11 @@ private fun InProgressWorkout(
         while ((activeRest?.remainingSeconds ?: 0) > 0) {
             delay(1000)
             activeRest = activeRest?.let { it.copy(remainingSeconds = (it.remainingSeconds - 1).coerceAtLeast(0)) }
-            // Fires once, right as the last 3 seconds begin -- the
-            // countdown clip itself is a ~1.3s 3-2-1 cue, not a per-
-            // second tick, so this plays it exactly once rather than
-            // once per remaining second.
-            if (activeRest?.remainingSeconds == 3) {
+            // countdown_sound.mp3 is a single chime, not a pre-baked
+            // 3-2-1 sequence -- fires once per remaining second for the
+            // last 3 seconds, not once at the top of the window.
+            val remaining = activeRest?.remainingSeconds
+            if (remaining != null && remaining in 1..3) {
                 playRestCountdownTick(context)
             }
         }
@@ -1148,10 +1148,10 @@ private fun playRestCompleteAlert(context: Context) {
 }
 
 /**
- * Fires once, right as the last 3 seconds of rest begin (see the ticking
- * LaunchedEffect above) -- the user-supplied countdown_sound clip, a
- * ~1.3s 3-2-1 cue rather than a per-second tick, so this plays it exactly
- * once instead of once per remaining second.
+ * Fires once per remaining second for the last 3 seconds of rest (see
+ * the ticking LaunchedEffect above) -- countdown_sound.mp3 is a single
+ * chime clip, not a pre-baked 3-2-1 sequence, so this plays it three
+ * times (once at each of 3, 2, 1) to get that cadence rather than once.
  */
 private fun playRestCountdownTick(context: Context) {
     playRawSound(context, R.raw.countdown_sound)
