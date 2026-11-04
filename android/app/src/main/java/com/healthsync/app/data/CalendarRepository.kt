@@ -1,6 +1,7 @@
 package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -80,8 +81,15 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
         if (rows.length() == 0) return null
         val row = rows.getJSONObject(0)
         return GoogleCalendarConnection(
-            externalAccountEmail = row.optString("external_account_email").ifBlank { null },
-            lastSyncedAt = row.optString("last_synced_at").ifBlank { null }?.let { Instant.parse(it) },
+            externalAccountEmail = row.optStringOrNull("external_account_email"),
+            // last_synced_at is null for every connection until its first
+            // sync actually runs -- the common case right after connecting,
+            // not an edge case. optString(key) alone returns the literal
+            // string "null" for that (Android's platform org.json), which
+            // Instant.parse() would throw on, taking down this whole
+            // screen's load (see CalendarScreen's try/catch around this
+            // call) instead of just showing "Not synced yet."
+            lastSyncedAt = row.optStringOrNull("last_synced_at")?.let { Instant.parse(it) },
         )
     }
 
@@ -111,7 +119,7 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
                 title = row.getString("title"),
                 startTime = Instant.parse(row.getString("start_time")),
                 endTime = Instant.parse(row.getString("end_time")),
-                location = row.optString("location").ifBlank { null },
+                location = row.optStringOrNull("location"),
                 hasVideoCall = row.optBoolean("has_video_call", false),
             )
             CalendarItem(
@@ -241,3 +249,9 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
 }
 
 private fun LocalDate.atStartOfDayIso(): String = ISO_INSTANT.format(this.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant())
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- ifBlank{null}
+// never catches that, since "null" isn't blank.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }

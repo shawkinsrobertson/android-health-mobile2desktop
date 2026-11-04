@@ -2,6 +2,7 @@ package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -79,7 +80,7 @@ class DataPointRepository(private val supabase: SupabaseRestClient) {
                 "limit" to "1",
             ),
         )
-        return if (rows.length() == 0) null else rows.getJSONObject(0).optString("source_package").ifBlank { null }
+        return if (rows.length() == 0) null else rows.getJSONObject(0).optStringOrNull("source_package")
     }
 
     suspend fun getSummary(clientId: String, dataPointKey: String): String {
@@ -172,9 +173,9 @@ class DataPointRepository(private val supabase: SupabaseRestClient) {
             parsed.add(
                 DataPointStepsRawRow(
                     startTime = start,
-                    endTime = row.optString("end_time").ifBlank { start },
+                    endTime = row.optStringOrNull("end_time") ?: start,
                     count = row.getJSONObject("value").optDouble("count", 0.0),
-                    sourcePackage = row.optString("source_package").ifBlank { null },
+                    sourcePackage = row.optStringOrNull("source_package"),
                 ),
             )
         }
@@ -283,3 +284,9 @@ private fun Long.thousands(): String {
     }
     return sb.reverse().toString()
 }
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- ifBlank{null}
+// never catches that, since "null" isn't blank.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }

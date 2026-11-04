@@ -243,14 +243,24 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
                 orderIndex = row.optInt("order_index", 0),
                 name = row.getString("name"),
                 sets = row.optIntOrNull("sets"),
-                reps = row.optString("reps").ifBlank { null },
+                // optString(key) alone returns the literal string "null"
+                // (not blank) for a SQL-null column on Android's platform
+                // org.json -- .ifBlank{null} never catches that, so every
+                // one of these came back as the real string "null" for any
+                // exercise that simply never set the column, not Kotlin
+                // null. That's what put a literal "null" in the Weight
+                // input (weightNote) and made every exercise -- not just
+                // ones with a real demo video -- try to load video_path
+                // "null" as if it were a Storage object. Same isNull()
+                // guard toSessionSet()/toWorkoutSession() already use.
+                reps = if (row.isNull("reps")) null else row.optString("reps").ifBlank { null },
                 prescriptionType = row.optString("prescription_type", "reps"),
                 durationSeconds = row.optIntOrNull("duration_seconds"),
-                weightNote = row.optString("weight_note").ifBlank { null },
+                weightNote = if (row.isNull("weight_note")) null else row.optString("weight_note").ifBlank { null },
                 restSeconds = row.optIntOrNull("rest_seconds"),
-                equipment = row.optString("equipment").ifBlank { null },
-                videoPath = row.optString("video_path").ifBlank { null },
-                videoUrl = row.optString("video_url").ifBlank { null },
+                equipment = if (row.isNull("equipment")) null else row.optString("equipment").ifBlank { null },
+                videoPath = if (row.isNull("video_path")) null else row.optString("video_path").ifBlank { null },
+                videoUrl = if (row.isNull("video_url")) null else row.optString("video_url").ifBlank { null },
             )
         }
     }

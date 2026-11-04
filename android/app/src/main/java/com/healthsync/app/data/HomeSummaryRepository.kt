@@ -3,6 +3,7 @@ package com.healthsync.app.data
 import com.healthsync.app.supabase.SupabaseRestClient
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
+import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -133,10 +134,17 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         )
         if (rows.length() == 0) return false
         val thread = rows.getJSONObject(0)
-        val lastMessageAt = thread.optString("last_message_at").ifBlank { null } ?: return false
-        val lastSenderId = thread.optString("last_sender_id").ifBlank { null } ?: return false
+        val lastMessageAt = thread.optStringOrNull("last_message_at") ?: return false
+        val lastSenderId = thread.optStringOrNull("last_sender_id") ?: return false
         if (lastSenderId == clientId) return false
-        val lastRead = thread.optString("client_last_read_at").ifBlank { null } ?: return true
+        // client_last_read_at is null for the common "never opened this
+        // thread" case -- plain optString(key) returns the literal string
+        // "null" for a SQL-null column on Android's platform org.json, not
+        // blank, so the old `?: return true` here never actually fired:
+        // a client's very first unread message threw out of
+        // Instant.parse("null") instead, silently swallowed by this
+        // function's own runCatching caller into hasUnreadMessages=false.
+        val lastRead = thread.optStringOrNull("client_last_read_at") ?: return true
         return Instant.parse(lastMessageAt).isAfter(Instant.parse(lastRead))
     }
 
@@ -163,7 +171,7 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         if (messageRows.length() == 0) return null
         val message = messageRows.getJSONObject(0)
         if (message.optString("sender_role") != "coach") return null
-        val body = message.optString("body").ifBlank { null } ?: return null
+        val body = message.optStringOrNull("body") ?: return null
         return MessagePreview(senderLabel = "Your Coach", body = body)
     }
 
@@ -210,7 +218,7 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         if (seriesRows.length() == 0) return false
         val series = seriesRows.getJSONObject(0)
         val sourceId = series.getString("id")
-        val recurrenceEndDate = series.optString("recurrence_end_date").ifBlank { null }
+        val recurrenceEndDate = series.optStringOrNull("recurrence_end_date")
         val today = LocalDate.now(ZoneId.systemDefault())
         val isActive = recurrenceEndDate == null || recurrenceEndDate >= today.toString()
         if (!isActive) return false
@@ -299,3 +307,12 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         }
     }
 }
+
+// optString(key) alone returns the literal string "null" (not blank) for
+// a SQL-null column on Android's platform org.json -- JSONObject.NULL is
+// a real sentinel object, not Kotlin/Java null, so String.valueOf(NULL)
+// runs and returns "null" instead of short-circuiting. ifBlank{null}
+// never catches that, since "null" isn't blank. Same isNull() guard
+// WorkoutRepository.kt's optIntOrNull already uses for the Int case.
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).ifBlank { null }
