@@ -3330,3 +3330,122 @@ date (-> that date) -- behave exactly as intended. Database and service
 cleaned up afterward. Web-side changes verified with `tsc --noEmit`,
 `next lint`, and a dummy-env `next build`; none of this has been
 exercised in a real browser in this environment.
+
+## Phase 28 -- Check-in architecture migration: off `check_in_templates`/`check_in_responses`, onto `templates`/`assignments`
+
+The biggest item on the current user-testing fix list, flagged from the
+start as likely spanning multiple sessions: check-ins were the one
+remaining feature still living on their own parallel pair of tables
+(`check_in_templates`/`check_in_responses`, from `0023_check_ins.sql`,
+predating the Template/Assignment primitives restructure in Phase 15).
+This phase moves check-ins onto `templates`/`assignments` like every
+other assignable thing -- "created like a document, assigned like a
+workout" -- so they inherit calendar drag-and-drop, click-to-edit, and
+reschedule for free instead of needing their own version of each (Phase
+27's calendar work had already special-cased check-ins as read-only
+*projected* occurrences for exactly this reason).
+
+**Schema (`0045_check_ins_assignments.sql`).** `templates`/`assignments`
+both gain `'check_in'` as a valid `type`, with a check constraint that a
+check-in row always carries a `form_schema`.
+`generate_recurring_occurrences` (Phase 27) is extended to copy
+`document_type`/`file_path`/`file_url`/`form_schema` onto every generated
+occurrence -- previously silently omitted for every recurring type, a
+real pre-existing gap this surfaced, not something check-ins introduced.
+New RPC `assign_check_in_to_client` (coach picks a client + days of
+week + start date) creates the series' source `assignments` row, letting
+the recurrence mechanism's existing lazy-generation (`generate_
+recurring_occurrences`) materialize each week's real row going forward --
+no separate check-in-specific scheduling logic.
+
+**Reschedule, "this occurrence" vs "this and future"
+(`0046_reschedule_series.sql`).** `reschedule_assignment` gains
+`p_apply_to_future boolean default false` (backward compatible --
+existing 2-arg callers keep today's single-occurrence behavior). Moving
+a series' source row in place updates its own pattern and drops any
+not-yet-submitted/not-yet-completed future sibling that no longer
+matches; moving a generated child occurrence with `apply_to_future=true`
+splits the series at that point -- caps the old source's
+`recurrence_end_date` the day before, and promotes the moved row into a
+brand-new source with its own pattern. An already-answered/finished
+week is never touched by either path, regardless of pattern staleness.
+
+**Data migration (`0047_check_ins_data_migration.sql`), real production
+data.** Per the user's own confirmation that live `check_in_templates`/
+`check_in_responses` rows exist and needed careful migration, not a
+dev-data reset: every template becomes a `templates` row plus a source
+`assignments` row, anchored at its earliest historical response's week
+if one exists (every other response becomes its own generated child
+row, preserving original ids throughout) or, for a template with zero
+history, the next upcoming matching weekday if still active, or its own
+`created_at` date if retired (never projecting a phantom future
+occurrence for something nobody will ever answer again). Idempotent per
+template. Verified against four scenarios covering active/retired ×
+has-responses/no-responses, including the inconsistent-anchor bug this
+caught and fixed during verification (a retired, never-answered
+template's first draft anchored a future `scheduled_date` behind an
+already-past `recurrence_end_date` -- branching the zero-response case
+on `active` fixed it).
+
+**Web cutover (library creation, assign flow, response viewer, client
+fill-out, calendar, adherence) -- done together, deliberately.** Coach-
+facing creation and client-facing fill-out have to cut over atomically:
+switching one before the other creates check-ins no client could ever
+answer. `lib/check-ins.ts` is the new read layer
+(`getActiveCheckInSeries`/`ensureCurrentCheckInOccurrence`/
+`getCheckInOccurrence`/`getCheckInResponse`/
+`listCheckInOccurrencesForSeries`), all built on real `assignments`/
+`assignment_responses` rows, two-query-then-merge rather than a
+PostgREST embed (this project's established convention). Check-in
+creation/editing/assignment now lives in the template library
+(`dashboard/library/check-ins`), reusing `FormBuilder`/
+`DynamicFormRenderer` exactly as documents do. New coach-side response
+viewer (`assigned/check-ins/[assignmentId]`) -- the one thing the old
+model never had a page for -- shows a series' full history newest-first.
+Client fill-out (`/client/check-in/[assignmentId]`) now answers a real
+assignment row; `/client/check-in` is a thin redirector to the current
+due occurrence. Calendar (`lib/calendar-items.ts`) treats check-ins
+exactly like workouts/documents now -- real draggable/clickable rows --
+and gained a related fix along the way: `generate_recurring_occurrences`
+was never actually called from any app code before this, so recurring
+*workouts* never got future occurrences either; a new
+`ensureRecurringOccurrences` helper now runs for every recurring type,
+not just check-ins. Adherence (`lib/assistant.ts`'s
+`fetchCheckInAdherenceForAssistant`) now reads real rows for the
+submitted-vs-due history, per the user's explicit choice to keep virtual
+date-math only for weeks that were never materialized (the
+pre-migration semantics, preserved).
+
+**Android cutover.** `CalendarRepository.kt`'s virtual `day_of_week`
+projection against the old tables is gone; check-in occurrences are now
+covered by the same `listScheduledAssignments`/`ensureRecurringOccurrences`
+path workouts/documents already used. `CalendarScreen.kt` now opens a
+tapped check-in's own real assignment id in the browser (previously
+always `/client/check-in`, "whichever week that currently meant") and
+shows the reschedule pencil on check-in rows too.
+`HomeSummaryRepository.kt`'s `loadCheckInDue` resolves the client's
+active series, ensures the current occurrence, and checks
+`assignment_responses` for it -- replacing the old `day_of_week`/
+`week_start` lookup.
+
+**Cleanup (`0048_drop_check_in_legacy_tables.sql`).** Dropped
+`check_in_templates`/`check_in_responses` only once both dashboard and
+Android were confirmed cut over -- the same deferred-drop posture Phase
+15/20 used for the original primitives restructure. A repo-wide grep
+immediately before writing the drop found zero remaining live
+references on either platform (only explanatory comments describing the
+old model, and the migrations themselves).
+
+Verified: each new/changed migration against this environment's local
+PostgreSQL 16 (real inserts/RPC calls/assertions, not just "the SQL
+parses"), including the drop migration itself against a throwaway
+database seeded with the old tables' shape. Web: `tsc --noEmit`, `next
+lint`, dummy-env `next build` (58/58 pages) all clean. Android:
+`./gradlew :app:compileDebugKotlin` and `:app:lintDebug` both clean.
+None of this has been exercised against a live Supabase project or a
+real device/emulator in this environment -- in particular, the
+drag-and-drop/click-to-edit interaction on a check-in pill and the
+"this vs. this-and-future" reschedule choice have no UI prompt built
+for calendar drag-and-drop yet (the capability is wired through
+`reschedule_assignment`'s new parameter, but drag-and-drop itself still
+always sends single-occurrence moves on both platforms).
