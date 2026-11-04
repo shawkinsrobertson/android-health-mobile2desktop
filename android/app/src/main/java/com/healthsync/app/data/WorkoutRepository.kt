@@ -472,6 +472,44 @@ class WorkoutRepository(private val supabase: SupabaseRestClient) {
     suspend fun setCompleted(setId: String, completed: Boolean) {
         supabase.patch("workout_session_sets", mapOf("id" to "eq.$setId"), mapOf("completed" to completed))
     }
+
+    /**
+     * Appends one more set to an exercise mid-logging, numbered right
+     * after the current last one -- the schema itself has supported this
+     * since 0010_session_sets_and_timers.sql ("sets addable/removable
+     * during logging", full insert/delete RLS already in place), this is
+     * just the client side of it. Copies the last existing set's own
+     * reps/weight/rest as the new row's starting point (so "add set"
+     * repeats what the client just logged, the common case), falling
+     * back to the exercise's own prescription only when there's no
+     * existing set yet to copy from.
+     */
+    suspend fun addSet(
+        exercise: AssignedWorkoutExercise,
+        sessionExerciseId: String,
+        clientId: String,
+        coachId: String,
+        existingSets: List<SessionSet>,
+    ): SessionSet {
+        val last = existingSets.maxByOrNull { it.setNumber }
+        val row = mapOf(
+            "session_exercise_id" to sessionExerciseId,
+            "client_id" to clientId,
+            "coach_id" to coachId,
+            "set_number" to (last?.setNumber ?: 0) + 1,
+            "reps" to (last?.reps ?: if (exercise.prescriptionType == "reps") exercise.reps else null),
+            "duration_seconds" to (last?.durationSeconds ?: if (exercise.prescriptionType == "time") exercise.durationSeconds else null),
+            "weight" to (last?.weight ?: if (exercise.equipment == "bodyweight") "Body weight" else null),
+            "rest_seconds" to (last?.restSeconds ?: exercise.restSeconds),
+        )
+        val inserted = supabase.insert("workout_session_sets", listOf(row))
+        return inserted.getJSONObject(0).toSessionSet()
+    }
+
+    /** Removes one logged set -- workout_session_sets_delete_own (0010) scopes this to the signed-in client's own rows. */
+    suspend fun removeSet(setId: String) {
+        supabase.delete("workout_session_sets", mapOf("id" to "eq.$setId"))
+    }
 }
 
 private fun JSONObject.optIntOrNull(key: String): Int? = if (isNull(key)) null else optInt(key)

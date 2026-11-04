@@ -231,6 +231,7 @@ fun WorkoutScreen(
                     state = currentState,
                     onStateChange = { state = it },
                     weightUnit = weightUnit,
+                    clientId = clientId,
                 )
                 else -> NotStartedWorkout(
                     state = currentState,
@@ -303,6 +304,7 @@ private fun InProgressWorkout(
     state: WorkoutUiState,
     onStateChange: (WorkoutUiState) -> Unit,
     weightUnit: String,
+    clientId: String,
 ) {
     val session = state.session!!
     var confirmingFinish by remember { mutableStateOf(false) }
@@ -455,6 +457,25 @@ private fun InProgressWorkout(
                 },
                 onSetCompletionChanged = { set, completed ->
                     if (completed) startRest(set, exercise) else cancelRestIfActive(set.id)
+                },
+                onAddSet = sessionExercise?.id?.let { sessionExerciseId ->
+                    {
+                        scope.launch {
+                            val newSet = repository.addSet(exercise, sessionExerciseId, clientId, state.workout.coachId, sets)
+                            val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList()) + newSet
+                            onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                        }
+                    }
+                },
+                onDeleteSet = sessionExercise?.id?.let { sessionExerciseId ->
+                    { set: SessionSet ->
+                        scope.launch {
+                            repository.removeSet(set.id)
+                            cancelRestIfActive(set.id)
+                            val updatedSets = (state.setsByExercise[sessionExerciseId] ?: emptyList()).filter { it.id != set.id }
+                            onStateChange(state.copy(setsByExercise = state.setsByExercise + (sessionExerciseId to updatedSets)))
+                        }
+                    }
                 },
                 activeRestSetId = activeRest?.setId,
                 activeRestRemainingSeconds = activeRest?.remainingSeconds,
@@ -640,6 +661,11 @@ private fun ExerciseLogCard(
     // finish recap) means checking a set's checkbox just toggles
     // completed, with no live rest side effect at all.
     onSetCompletionChanged: ((SessionSet, Boolean) -> Unit)? = null,
+    // Null (InProgressWorkout omits these for a finished/not-logging
+    // context) means no "+ Add set" row and no per-set delete icon --
+    // same opt-in-via-null pattern onSetCompletionChanged already uses.
+    onAddSet: (() -> Unit)? = null,
+    onDeleteSet: ((SessionSet) -> Unit)? = null,
     activeRestSetId: String? = null,
     activeRestRemainingSeconds: Int? = null,
 ) {
@@ -694,18 +720,24 @@ private fun ExerciseLogCard(
                             modifier = Modifier.weight(1f),
                         )
                         Text("REST", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                        Spacer(Modifier.width(36.dp))
+                        Spacer(Modifier.width(if (onDeleteSet != null) 72.dp else 36.dp))
                     }
                     sets.forEach { set ->
                         SetRow(
                             set = set,
                             onChanged = onSetChanged,
                             onCompletionChanged = onSetCompletionChanged,
+                            onDelete = onDeleteSet,
                             isActiveRest = activeRestSetId == set.id,
                             activeRestRemainingSeconds = if (activeRestSetId == set.id) activeRestRemainingSeconds else null,
                             repository = repository,
                             scope = scope,
                         )
+                    }
+                    if (onAddSet != null) {
+                        TextButton(onClick = onAddSet, modifier = Modifier.padding(top = 4.dp)) {
+                            Text("+ Add set")
+                        }
                     }
                 }
             }
@@ -803,11 +835,15 @@ private fun SetRow(
     repository: WorkoutRepository,
     scope: CoroutineScope,
     onCompletionChanged: ((SessionSet, Boolean) -> Unit)? = null,
+    // Null (ExerciseLogCard's onDeleteSet) means no delete icon at all --
+    // same opt-in-via-null pattern onCompletionChanged already uses.
+    onDelete: ((SessionSet) -> Unit)? = null,
     isActiveRest: Boolean = false,
     activeRestRemainingSeconds: Int? = null,
 ) {
     var reps by remember(set.id) { mutableStateOf(set.reps ?: set.durationSeconds?.let { "${it}s" } ?: "") }
     var weight by remember(set.id) { mutableStateOf(set.weight ?: "") }
+    var confirmingDelete by remember(set.id) { mutableStateOf(false) }
     // Brief border-color pulse on the two fields right where the user was
     // just typing -- the only signal this row has that a commit actually
     // landed, since it saves silently on focus-loss with no button/toast.
@@ -884,6 +920,24 @@ private fun SetRow(
                 )
             }
         }
+        if (onDelete != null) {
+            IconButton(onClick = { confirmingDelete = true }, modifier = Modifier.size(36.dp)) {
+                Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    if (confirmingDelete) {
+        ConfirmDialog(
+            title = "Delete this set?",
+            body = "Set ${set.setNumber}'s logged reps/weight will be removed.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmingDelete = false
+                onDelete?.invoke(set)
+            },
+            onDismiss = { confirmingDelete = false },
+        )
     }
 }
 
