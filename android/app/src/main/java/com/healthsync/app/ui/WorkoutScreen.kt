@@ -3,6 +3,7 @@ package com.healthsync.app.ui
 import android.content.Context
 import android.media.MediaPlayer
 import android.os.Build
+import android.util.Log
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -723,14 +724,19 @@ private fun ExerciseLogCard(
 // no explicit mimeType) comes back as WebM/VP8-VP9+Opus, which the plain
 // MediaPlayer a VideoView wraps plays unreliably device-to-device (it
 // depends entirely on whatever codecs the OEM registered). ExoPlayer
-// bundles its own WebM/VP8/VP9/Opus extraction and software decoding, and
-// surfaces a real Player.Listener.onPlayerError with a PlaybackException
-// instead of a bare, undiagnosable "Can't play this video" system dialog.
+// bundles its own WebM/VP8/VP9/Opus extraction and software decoding.
+//
+// A playback failure (bad/unsupported file, stale signed URL, whatever)
+// collapses this back to exactly the same "nothing shown" state as an
+// exercise with no video at all, logged for diagnosis rather than shown
+// to the client -- a raw PlaybackException error code mid-workout reads
+// as the app being broken, not as useful information to someone logging
+// a set, and a client can't do anything about it anyway.
 @Composable
 private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: WorkoutRepository) {
     var videoUrl by remember(exercise.id) { mutableStateOf<String?>(null) }
     var resolved by remember(exercise.id) { mutableStateOf(false) }
-    var playbackError by remember(exercise.id) { mutableStateOf<String?>(null) }
+    var playbackFailed by remember(exercise.id) { mutableStateOf(false) }
 
     LaunchedEffect(exercise.id) {
         videoUrl = repository.resolveExerciseVideoUrl(exercise)
@@ -739,13 +745,14 @@ private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: W
 
     val url = videoUrl
     val context = LocalContext.current
-    if (resolved && url != null) {
+    if (resolved && url != null && !playbackFailed) {
         val player = remember(exercise.id) {
             ExoPlayer.Builder(context).build().apply {
                 addListener(
                     object : Player.Listener {
                         override fun onPlayerError(error: PlaybackException) {
-                            playbackError = error.errorCodeName
+                            Log.w("ExerciseVideoPlayer", "Playback failed for ${exercise.id}: ${error.errorCodeName}")
+                            playbackFailed = true
                         }
                     },
                 )
@@ -762,20 +769,10 @@ private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: W
             onDispose { player.release() }
         }
 
-        val error = playbackError
-        if (error != null) {
-            Text(
-                "Couldn't play this video ($error).",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        } else {
-            AndroidView(
-                modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
-                factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
-            )
-        }
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
+            factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
+        )
     }
 }
 
