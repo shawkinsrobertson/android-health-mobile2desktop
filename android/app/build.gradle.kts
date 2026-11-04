@@ -108,6 +108,19 @@ dependencies {
     // Networking (direct PostgREST + Supabase Auth REST calls)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Exercise demo video playback (WorkoutScreen.kt's ExerciseVideoPlayer)
+    // -- not the platform VideoView/MediaPlayer this started on: that
+    // player's codec support is whatever the OEM shipped, and a video
+    // recorded in-browser via MediaRecorder (MediaUploadField.tsx, no
+    // explicit mimeType) comes back as WebM/VP8-VP9+Opus, which plain
+    // MediaPlayer plays unreliably device-to-device. Media3's ExoPlayer
+    // bundles its own WebM/VP8/VP9/Opus extraction and decoding instead of
+    // depending on what the device's MediaPlayer happens to support, and
+    // exposes a real Player.Listener.onPlayerError with a PlaybackException
+    // instead of a bare system "Can't play this video" dialog.
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 

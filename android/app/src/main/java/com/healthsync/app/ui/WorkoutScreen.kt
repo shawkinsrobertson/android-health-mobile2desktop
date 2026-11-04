@@ -2,14 +2,14 @@ package com.healthsync.app.ui
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.Ringtone
 import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +72,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.healthsync.app.auth.AuthRepository
 import com.healthsync.app.data.AssignedWorkout
 import com.healthsync.app.data.AssignedWorkoutExercise
@@ -341,6 +347,14 @@ private fun InProgressWorkout(
         while ((activeRest?.remainingSeconds ?: 0) > 0) {
             delay(1000)
             activeRest = activeRest?.let { it.copy(remainingSeconds = (it.remainingSeconds - 1).coerceAtLeast(0)) }
+            // Last-3-seconds cue, same "fire once per real second reached"
+            // shape as the completion alert below -- a manual Skip/cancel
+            // already nulled activeRest out from under this loop by the
+            // time its remainingSeconds would otherwise hit one of these.
+            val remaining = activeRest?.remainingSeconds
+            if (remaining != null && remaining in 1..3) {
+                playRestCountdownTick(context)
+            }
         }
         // Only fire the alert if this rest actually ran out on its own --
         // a manual Skip already nulled activeRest out from under this
@@ -707,10 +721,20 @@ private fun ExerciseLogCard(
 // resolved lazily on first expand (an uploaded file needs a signed URL,
 // see WorkoutRepository.resolveExerciseVideoUrl) rather than for every
 // exercise in the workout up front.
+//
+// Media3's ExoPlayer, not the platform VideoView/MediaPlayer this started
+// on -- a video recorded in-browser (MediaUploadField.tsx's MediaRecorder,
+// no explicit mimeType) comes back as WebM/VP8-VP9+Opus, which the plain
+// MediaPlayer a VideoView wraps plays unreliably device-to-device (it
+// depends entirely on whatever codecs the OEM registered). ExoPlayer
+// bundles its own WebM/VP8/VP9/Opus extraction and software decoding, and
+// surfaces a real Player.Listener.onPlayerError with a PlaybackException
+// instead of a bare, undiagnosable "Can't play this video" system dialog.
 @Composable
 private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: WorkoutRepository) {
     var videoUrl by remember(exercise.id) { mutableStateOf<String?>(null) }
     var resolved by remember(exercise.id) { mutableStateOf(false) }
+    var playbackError by remember(exercise.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(exercise.id) {
         videoUrl = repository.resolveExerciseVideoUrl(exercise)
@@ -718,16 +742,44 @@ private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: W
     }
 
     val url = videoUrl
+    val context = LocalContext.current
     if (resolved && url != null) {
-        AndroidView(
-            modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
-            factory = { ctx ->
-                VideoView(ctx).apply {
-                    setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
-                    setVideoURI(Uri.parse(url))
-                }
-            },
-        )
+        val player = remember(exercise.id) {
+            ExoPlayer.Builder(context).build().apply {
+                addListener(
+                    object : Player.Listener {
+                        override fun onPlayerError(error: PlaybackException) {
+                            playbackError = error.errorCodeName
+                        }
+                    },
+                )
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+            }
+        }
+        // ExoPlayer instances own real decoder/media resources -- must be
+        // released when this card's video leaves composition (collapsed,
+        // or the session screen navigated away from), not just garbage
+        // collected, or every exercise ever expanded this session leaks
+        // one.
+        DisposableEffect(player) {
+            onDispose { player.release() }
+        }
+
+        val error = playbackError
+        if (error != null) {
+            Text(
+                "Couldn't play this video ($error).",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        } else {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
+                factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
+            )
+        }
     }
 }
 
@@ -989,6 +1041,23 @@ private fun formatEstimatedDuration(totalSeconds: Int): String {
     return "~$minutes min"
 }
 
+// How long the completion chime is allowed to play before being force-
+// stopped. An alarm-category (USAGE_ALARM) system ringtone is often a
+// long or sustained track by OS design -- real alarm apps are expected
+// to call Ringtone.stop() themselves when the user dismisses the alarm.
+// Nothing here ever did that, so the chime played through its own full
+// natural length (which for a genuine alarm tone can be a minute or
+// more) with no way to stop it -- the "continues persistently" bug.
+private const val REST_CHIME_DURATION_MS = 2000L
+
+// TODO(sounds): swap in custom audio once provided -- drop the files in
+// as e.g. res/raw/rest_complete.mp3 and res/raw/rest_countdown_tick.mp3,
+// then have playRestCompleteAlert/playRestCountdownTick build a
+// MediaPlayer via MediaPlayer.create(context, R.raw.rest_complete)
+// instead of RingtoneManager/ToneGenerator below (a MediaPlayer naturally
+// stops when its own clip ends -- no duration cap or vibration fallback
+// needed once a real short clip is in place).
+
 /**
  * Fires when a rest countdown reaches zero -- an alarm-stream ringtone
  * (USAGE_ALARM, so it plays even in silent/do-not-disturb the way an
@@ -996,17 +1065,30 @@ private fun formatEstimatedDuration(totalSeconds: Int): String {
  * would mute) plus a vibration, always both rather than one as a
  * conditional fallback for the other, since either channel alone can be
  * missed (phone face-down for vibration, a worn phone for sound).
+ * Explicitly stopped after [REST_CHIME_DURATION_MS] -- see that
+ * constant's own comment for why this is necessary at all.
  */
 private fun playRestCompleteAlert(context: Context) {
     try {
         val alarmUri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        RingtoneManager.getRingtone(context, alarmUri)?.apply {
-            audioAttributes = AudioAttributes.Builder()
+        val ringtone: Ringtone? = RingtoneManager.getRingtone(context, alarmUri)
+        if (ringtone != null) {
+            ringtone.audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            play()
+            ringtone.play()
+            Handler(Looper.getMainLooper()).postDelayed(
+                {
+                    try {
+                        if (ringtone.isPlaying) ringtone.stop()
+                    } catch (e: Exception) {
+                        // Already stopped/released by the system -- fine.
+                    }
+                },
+                REST_CHIME_DURATION_MS,
+            )
         }
     } catch (e: Exception) {
         // A missing/unreadable ringtone shouldn't crash the workout --
@@ -1024,5 +1106,27 @@ private fun playRestCompleteAlert(context: Context) {
     } catch (e: Exception) {
         // No vibrator hardware, or service unavailable -- the chime above
         // already fired, so this is a quiet best-effort extra.
+    }
+}
+
+/**
+ * The last-3-seconds-of-rest cue (remainingSeconds in 1..3, see the
+ * ticking LaunchedEffect above) -- a short, deliberately brief vibration
+ * pulse for now, distinct from the longer 500ms completion pulse above,
+ * pending a real countdown-tick sound to replace/accompany it (see the
+ * TODO(sounds) above playRestCompleteAlert).
+ */
+private fun playRestCountdownTick(context: Context) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+    } catch (e: Exception) {
+        // No vibrator hardware, or service unavailable -- quietly skip;
+        // this cue has no sound fallback yet (see TODO(sounds) above).
     }
 }
