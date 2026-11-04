@@ -199,25 +199,24 @@ export function CalendarCard({
       router.push(!fixedClientId && item.kind === "document" ? `/client/documents/${item.assignmentId}` : path);
       return;
     }
-    if (item.kind === "check_in" && !fixedClientId) {
-      // Always the current week's check-in (see lib/check-ins.ts's
-      // getCurrentCheckIn) regardless of which occurrence pill was
-      // clicked -- there's no per-occurrence check-in view anywhere in
-      // this app today, matching how the client's own "due" tasks already
-      // link to this same page.
-      router.push("/client/check-in");
+    if (item.kind === "check_in" && item.assignmentId) {
+      // A check-in occurrence is a real assignment row now (see
+      // 0045_check_ins_assignments.sql) -- the coach gets the series'
+      // full response history (any occurrence id resolves the series),
+      // the client gets that exact week's own fill-out page.
+      router.push(
+        fixedClientId
+          ? `/dashboard/clients/${fixedClientId}/assigned/check-ins/${item.assignmentId}`
+          : `/client/check-in/${item.assignmentId}`,
+      );
     }
-    // A coach viewing a check-in occurrence has nothing to edit -- it's
-    // virtual/template-driven with no per-occurrence row (see
-    // lib/calendar-items.ts's listCheckInOccurrences) -- so this is a
-    // deliberate no-op for that one case.
   }
 
-  // Drag-and-drop's only mutation -- a workout/document moves via
-  // reschedule_assignment (see lib/calendar-actions.ts); a call keeps its
-  // own time-of-day and duration, just shifted onto the new day, via the
-  // existing updateEvent. A check-in item is never draggable (see
-  // CalendarViews.tsx's isDraggableKind), so it never reaches here.
+  // Drag-and-drop's only mutation -- a workout/document/check-in moves
+  // via reschedule_assignment (see lib/calendar-actions.ts), all three
+  // now real assignment rows with their own scheduled_date; a call keeps
+  // its own time-of-day and duration, just shifted onto the new day, via
+  // the existing updateEvent.
   async function handleReschedule(item: CalendarItem, newDate: string) {
     setRescheduleError(null);
     const previousItems = items;

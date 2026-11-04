@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDailySteps, getDataPointSummary, getOverviewStats, getSleepNights, type DailySteps, type OverviewStats, type SleepNight } from "@/lib/queries";
 import { getPersonalRecords, type PersonalRecord } from "@/lib/personal-records";
 import { getBusyBlocks, type BusyBlock, type DateRange } from "@/lib/calendar";
-import { currentWeekStart, type CheckInTemplate } from "@/lib/check-ins";
+import { getActiveCheckInSeries, isSeriesActive } from "@/lib/check-ins";
 
 // Every function in this file is the one place in the codebase where every
 // byte the AI assistant model can ever see must be traceable back to a
@@ -175,43 +175,57 @@ export interface CheckInAdherence {
   recentWeeks: { weekStart: string; submitted: boolean }[];
 }
 
-// Reuses check_in_templates/responses (lib/check-ins.ts) but, unlike
-// getCheckInHistory, deliberately includes the *missed* weeks -- the
-// pattern the assistant needs is submitted-vs-due, not just a list of
-// what was submitted.
+// Built on the check-in series model (lib/check-ins.ts), but unlike that
+// file's own listCheckInOccurrencesForSeries, deliberately includes the
+// *missed* weeks -- the pattern the assistant needs is submitted-vs-due,
+// not just a list of what was submitted. Past weeks are computed by
+// weekday math regardless of whether a real assignment row exists for
+// them yet (generate_recurring_occurrences only ever materializes rows
+// forward from "today" -- see its own doc comment -- so a week nobody
+// opened the calendar during has no row at all, which this correctly
+// still reports as "not submitted," same as before the check-in
+// architecture migration).
 export async function fetchCheckInAdherenceForAssistant(
   supabase: SupabaseClient,
   clientId: string,
   weeks = 8,
 ): Promise<CheckInAdherence> {
-  const { data: templateRow } = await supabase
-    .from("check_in_templates")
-    .select("id, day_of_week")
-    .eq("client_id", clientId)
-    .eq("active", true)
-    .maybeSingle();
+  const series = await getActiveCheckInSeries(supabase, clientId);
+  if (!series || !isSeriesActive(series)) return { hasActiveTemplate: false, recentWeeks: [] };
 
-  if (!templateRow) return { hasActiveTemplate: false, recentWeeks: [] };
+  const isodow = series.recurrenceDaysOfWeek[0] ?? 1;
+  const today = new Date();
+  const todayIsodow = today.getUTCDay() === 0 ? 7 : today.getUTCDay();
+  const latest = new Date(today);
+  latest.setUTCDate(latest.getUTCDate() - ((todayIsodow - isodow + 7) % 7));
 
-  const template = templateRow as Pick<CheckInTemplate, "id"> & { day_of_week: number };
   const expectedWeeks: string[] = [];
-  const latest = new Date(currentWeekStart(template.day_of_week));
   for (let i = 0; i < weeks; i++) {
     const d = new Date(latest);
     d.setUTCDate(d.getUTCDate() - i * 7);
     expectedWeeks.push(d.toISOString().slice(0, 10));
   }
 
-  const { data: responseRows } = await supabase
-    .from("check_in_responses")
-    .select("week_start, submitted_at")
-    .eq("template_id", template.id)
-    .in("week_start", expectedWeeks);
+  const { data: rows } = await supabase
+    .from("assignments")
+    .select("id, scheduled_date")
+    .eq("type", "check_in")
+    .or(`id.eq.${series.sourceId},recurrence_source_id.eq.${series.sourceId}`)
+    .in("scheduled_date", expectedWeeks);
+
+  const dateById = new Map((rows ?? []).map((r) => [r.id, r.scheduled_date as string]));
+  const rowIds = [...dateById.keys()];
+
+  const { data: responseRows } = rowIds.length
+    ? await supabase
+        .from("assignment_responses")
+        .select("assignment_id, submitted_at")
+        .in("assignment_id", rowIds)
+        .not("submitted_at", "is", null)
+    : { data: [] as { assignment_id: string }[] };
 
   const submittedWeeks = new Set(
-    ((responseRows ?? []) as { week_start: string; submitted_at: string | null }[])
-      .filter((r) => r.submitted_at)
-      .map((r) => r.week_start),
+    (responseRows ?? []).map((r) => dateById.get(r.assignment_id)).filter((d): d is string => !!d),
   );
 
   return {

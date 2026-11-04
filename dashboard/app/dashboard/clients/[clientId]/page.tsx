@@ -27,8 +27,7 @@ import { ClientInsights } from "@/components/ClientInsights";
 import { getLatestInsight } from "@/lib/insights";
 import { PendingProposals } from "@/components/PendingProposals";
 import { listPendingProposals } from "@/lib/proposals";
-import { CheckInEditor } from "@/components/CheckInEditor";
-import { getCheckInTemplate } from "@/lib/check-ins";
+import { getActiveCheckInSeries } from "@/lib/check-ins";
 import { ArchiveClientButton } from "@/components/ArchiveClientButton";
 import { archiveClient } from "./client-actions";
 import { formatClock, sessionDurationSeconds } from "@/lib/time-format";
@@ -79,7 +78,7 @@ export default async function ClientDetailPage({
   const client = profileRes.data;
   const thread = await getThreadReadOnly(supabase, coach.id, params.clientId);
   const chatUnread = thread ? isThreadUnread(thread, "coach") : false;
-  const checkInTemplate = await getCheckInTemplate(supabase, coach.id, params.clientId);
+  const checkInSeries = await getActiveCheckInSeries(supabase, params.clientId);
   const latestInsight = await getLatestInsight(supabase, coach.id, params.clientId);
   const pendingProposals = await listPendingProposals(supabase, coach.id, params.clientId);
 
@@ -359,19 +358,28 @@ export default async function ClientDetailPage({
                 <p className="mb-3 text-xs text-ink-muted">
                   A recurring set of questions this client answers each week -- shows up in their Tasks.
                 </p>
-                <CheckInEditor
-                  clientId={params.clientId}
-                  template={
-                    checkInTemplate
-                      ? {
-                          name: checkInTemplate.name,
-                          schema: checkInTemplate.schema,
-                          dayOfWeek: checkInTemplate.dayOfWeek,
-                          active: checkInTemplate.active,
-                        }
-                      : null
-                  }
-                />
+                {checkInSeries ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-ink-secondary">
+                      <span className="text-ink-primary">{checkInSeries.name}</span> ·{" "}
+                      {checkInSeries.schema.length} question{checkInSeries.schema.length === 1 ? "" : "s"}
+                    </p>
+                    <Link
+                      href={`/dashboard/clients/${params.clientId}/assigned/check-ins/${checkInSeries.sourceId}`}
+                      className="w-fit text-xs font-medium text-[color:var(--accent)] hover:underline"
+                    >
+                      View responses →
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-muted">No weekly check-in set up for this client yet.</p>
+                )}
+                <Link
+                  href="/dashboard/library/check-ins"
+                  className="mt-3 inline-block w-fit rounded-md border border-[color:var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-ink-secondary hover:text-ink-primary"
+                >
+                  {checkInSeries ? "Assign another check-in" : "Set up a weekly check-in"}
+                </Link>
               </section>
 
               <section className="w-full rounded-xl border border-[color:var(--border-hairline)] bg-surface p-4 sm:w-[45%]">

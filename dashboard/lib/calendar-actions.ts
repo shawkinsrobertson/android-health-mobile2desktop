@@ -49,7 +49,16 @@ export async function fetchCalendarItems(
 // supabase/migrations/0039_assignment_scheduling.sql's reschedule_
 // assignment: security definer, narrower than a client-side UPDATE
 // policy on `assignments` would be).
-export async function rescheduleAssignment(assignmentId: string, newDate: string): Promise<void> {
+// applyToFuture defaults to false -- "this occurrence only," the same
+// single-row move drag-and-drop has always done. Passing true instead
+// either moves a recurring series' own pattern in place, or splits the
+// series at this occurrence and carries the new weekday forward -- see
+// reschedule_assignment's own doc comment (0046_reschedule_series.sql).
+export async function rescheduleAssignment(
+  assignmentId: string,
+  newDate: string,
+  applyToFuture = false,
+): Promise<void> {
   const profile = await getCurrentProfile();
   if (!profile) throw new Error("Not signed in.");
 
@@ -57,6 +66,7 @@ export async function rescheduleAssignment(assignmentId: string, newDate: string
   const { error } = await supabase.rpc("reschedule_assignment", {
     p_assignment_id: assignmentId,
     p_new_date: newDate,
+    p_apply_to_future: applyToFuture,
   });
   if (error) throw new Error(error.message);
 

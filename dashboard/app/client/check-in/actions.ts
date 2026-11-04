@@ -6,38 +6,37 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile";
 import { hasFile, uploadMedia } from "@/lib/media";
 import { isFileAnswer, type FormAnswers, type FormSchema } from "@/lib/forms";
-import { currentWeekStart } from "@/lib/check-ins";
 
-const PATH = "/client/check-in";
+function path(assignmentId: string) {
+  return `/client/check-in/${assignmentId}`;
+}
 
-export async function submitCheckIn(templateId: string, formData: FormData) {
+export async function submitCheckIn(assignmentId: string, formData: FormData) {
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "client") redirect("/login");
 
   const supabase = await createClient();
 
-  const { data: template, error: templateError } = await supabase
-    .from("check_in_templates")
-    .select("id, coach_id, client_id, form_schema, day_of_week, active")
-    .eq("id", templateId)
+  const { data: occurrence, error: occurrenceError } = await supabase
+    .from("assignments")
+    .select("id, coach_id, form_schema")
+    .eq("id", assignmentId)
     .eq("client_id", profile.id)
+    .eq("type", "check_in")
     .single();
 
-  if (templateError || !template || !template.active) {
-    redirect(`${PATH}?error=${encodeURIComponent("This check-in isn't available.")}`);
+  if (occurrenceError || !occurrence) {
+    redirect(`${path(assignmentId)}?error=${encodeURIComponent("This check-in isn't available.")}`);
   }
 
-  const weekStart = currentWeekStart(template.day_of_week);
-
   const { data: existingResponse } = await supabase
-    .from("check_in_responses")
+    .from("assignment_responses")
     .select("answers")
-    .eq("template_id", templateId)
-    .eq("week_start", weekStart)
+    .eq("assignment_id", assignmentId)
     .maybeSingle();
   const existingAnswers = (existingResponse?.answers ?? {}) as FormAnswers;
 
-  const schema = (template.form_schema ?? []) as FormSchema;
+  const schema = (occurrence.form_schema ?? []) as FormSchema;
   const answers: FormAnswers = {};
 
   try {
@@ -49,10 +48,10 @@ export async function submitCheckIn(templateId: string, formData: FormData) {
         if (hasFile(fileValue)) {
           const uploadedPath = await uploadMedia(
             supabase,
-            template.coach_id,
+            occurrence.coach_id,
             "responses",
             fileValue,
-            `checkin-${templateId}-${weekStart}`,
+            `checkin-${assignmentId}`,
           );
           answers[field.id] = { path: uploadedPath, filename: fileValue.name };
         } else if (isFileAnswer(existingAnswers[field.id])) {
@@ -83,26 +82,25 @@ export async function submitCheckIn(templateId: string, formData: FormData) {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Couldn't submit this check-in.";
-    redirect(`${PATH}?error=${encodeURIComponent(message)}`);
+    redirect(`${path(assignmentId)}?error=${encodeURIComponent(message)}`);
   }
 
-  const { error } = await supabase.from("check_in_responses").upsert(
+  const { error } = await supabase.from("assignment_responses").upsert(
     {
-      template_id: templateId,
+      assignment_id: assignmentId,
       client_id: profile.id,
-      coach_id: template.coach_id,
-      week_start: weekStart,
+      coach_id: occurrence.coach_id,
       answers,
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "template_id,week_start" },
+    { onConflict: "assignment_id" },
   );
 
   if (error) {
-    redirect(`${PATH}?error=${encodeURIComponent(error.message)}`);
+    redirect(`${path(assignmentId)}?error=${encodeURIComponent(error.message)}`);
   }
 
-  revalidatePath(PATH);
+  revalidatePath(path(assignmentId));
   revalidatePath("/client");
 }

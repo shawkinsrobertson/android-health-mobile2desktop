@@ -161,20 +161,15 @@ export function ItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (it
   );
 }
 
-// A check-in occurrence has no row of its own to move -- its day comes
-// straight from check_in_templates.day_of_week, not a per-occurrence
-// date -- so it's the one kind that never drags.
-function isDraggableKind(kind: CalendarItemKind): boolean {
-  return kind !== "check_in";
-}
-
-// Wraps ItemPill as a dnd-kit drag source when its kind supports being
-// rescheduled this way; a plain ItemPill otherwise. `id` doubles as the
-// DragEndEvent payload's own id, reparsed by the caller's onReschedule.
+// Wraps ItemPill as a dnd-kit drag source -- every kind drags now (a
+// check-in occurrence is a real assignment row, just like a workout or
+// document, see 0045_check_ins_assignments.sql; a call drags too, via its
+// own updateEvent path -- see CalendarCard's handleReschedule). `id`
+// doubles as the DragEndEvent payload's own id, reparsed by the caller's
+// onReschedule.
 function DraggableItemPill({ item, onSelect }: { item: CalendarItem; onSelect: (item: CalendarItem) => void }) {
   const id = `${item.kind}:${item.id}`;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, data: { item } });
-  if (!isDraggableKind(item.kind)) return <ItemPill item={item} onSelect={onSelect} />;
   return (
     <div
       ref={setNodeRef}
