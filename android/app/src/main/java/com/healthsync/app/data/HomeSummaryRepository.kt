@@ -7,7 +7,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 enum class DayCompletion { NONE, PARTIAL, DONE }
@@ -189,37 +188,58 @@ class HomeSummaryRepository(private val supabase: SupabaseRestClient) {
         }
     }
 
-    // Mirrors dashboard/lib/check-ins.ts's currentWeekStart exactly (same
-    // UTC-based Sunday-anchored bucketing) so a client's "is this due"
-    // state agrees with what their coach sees on the web dashboard.
-    private fun currentWeekStartUtc(dayOfWeek: Int, reference: Instant = Instant.now()): LocalDate {
-        val today = reference.atZone(ZoneOffset.UTC).toLocalDate()
-        val diff = ((today.dayOfWeek.value % 7) - dayOfWeek + 7) % 7
-        return today.minusDays(diff.toLong())
-    }
-
+    // A client's recurring check-in is one "source" assignment row
+    // (type='check_in', recurrence_days_of_week set), the same recurrence
+    // mechanism a recurring workout uses -- see
+    // supabase/migrations/0045_check_ins_assignments.sql and the web
+    // dashboard's lib/check-ins.ts (getActiveCheckInSeries/
+    // ensureCurrentCheckInOccurrence), which this mirrors exactly so a
+    // client's "is this due" state agrees with what their coach sees.
     private suspend fun loadCheckInDue(clientId: String): Boolean {
-        val templateRows = supabase.select(
-            "check_in_templates",
+        val seriesRows = supabase.select(
+            "assignments",
             mapOf(
-                "select" to "id,day_of_week",
+                "select" to "id,recurrence_end_date",
                 "client_id" to "eq.$clientId",
-                "active" to "eq.true",
+                "type" to "eq.check_in",
+                "recurrence_days_of_week" to "not.is.null",
+                "order" to "created_at.desc",
                 "limit" to "1",
             ),
         )
-        if (templateRows.length() == 0) return false
-        val template = templateRows.getJSONObject(0)
-        val templateId = template.getString("id")
-        val dayOfWeek = template.getInt("day_of_week")
-        val weekStart = currentWeekStartUtc(dayOfWeek).toString()
+        if (seriesRows.length() == 0) return false
+        val series = seriesRows.getJSONObject(0)
+        val sourceId = series.getString("id")
+        val recurrenceEndDate = series.optString("recurrence_end_date").ifBlank { null }
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val isActive = recurrenceEndDate == null || recurrenceEndDate >= today.toString()
+        if (!isActive) return false
+
+        supabase.rpc(
+            "generate_recurring_occurrences",
+            mapOf("p_assignment_id" to sourceId, "p_through" to today.plusDays(7).toString()),
+        )
+
+        val occurrenceRows = supabase.select(
+            "assignments",
+            mapOf(
+                "select" to "id",
+                "client_id" to "eq.$clientId",
+                "type" to "eq.check_in",
+                "or" to "(id.eq.$sourceId,recurrence_source_id.eq.$sourceId)",
+                "scheduled_date" to "lte.$today",
+                "order" to "scheduled_date.desc",
+                "limit" to "1",
+            ),
+        )
+        if (occurrenceRows.length() == 0) return false
+        val occurrenceId = occurrenceRows.getJSONObject(0).getString("id")
 
         val responseRows = supabase.select(
-            "check_in_responses",
+            "assignment_responses",
             mapOf(
                 "select" to "submitted_at",
-                "template_id" to "eq.$templateId",
-                "week_start" to "eq.$weekStart",
+                "assignment_id" to "eq.$occurrenceId",
                 "limit" to "1",
             ),
         )

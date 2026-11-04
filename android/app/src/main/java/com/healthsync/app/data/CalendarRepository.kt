@@ -1,7 +1,6 @@
 package com.healthsync.app.data
 
 import com.healthsync.app.supabase.SupabaseRestClient
-import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -25,11 +24,13 @@ enum class CalendarItemKind { CALL, WORKOUT, DOCUMENT, CHECK_IN }
 /**
  * Kotlin counterpart to the web dashboard's `CalendarItem`
  * (`dashboard/lib/calendar-items.ts`) -- one merged shape for everything
- * that can show up on a given day: coaching calls, workouts/documents
- * scheduled via `assignments.scheduled_date`, and projected check-in
- * occurrences. [date] is a plain device-local calendar date (a call's
- * own [call]?.startTime decides its [date]; a workout/document/check-in
- * only ever has a day, not a time).
+ * that can show up on a given day: coaching calls, and
+ * workouts/documents/check-ins scheduled via `assignments.scheduled_date`
+ * (a check-in occurrence is a real generated row now, same as a
+ * recurring workout's -- see supabase/migrations/0045_check_ins_
+ * assignments.sql). [date] is a plain device-local calendar date (a
+ * call's own [call]?.startTime decides its [date]; a
+ * workout/document/check-in only ever has a day, not a time).
  */
 data class CalendarItem(
     val kind: CalendarItemKind,
@@ -38,7 +39,7 @@ data class CalendarItem(
     val date: LocalDate,
     val hasVideoCall: Boolean,
     val completed: Boolean,
-    // WORKOUT/DOCUMENT only -- what reschedule_assignment and
+    // WORKOUT/DOCUMENT/CHECK_IN only -- what reschedule_assignment and
     // tap-to-complete operate on.
     val assignmentId: String? = null,
     // CALL only -- the original row, for the Join action.
@@ -49,14 +50,14 @@ private val ISO_INSTANT = DateTimeFormatter.ISO_INSTANT
 
 /**
  * Client-side reads merging `calendar_events` with scheduled
- * `assignments` (workout/document) and projected `check_in_templates`
- * occurrences -- the same three sources the web dashboard's
- * `listCalendarItems` merges (`dashboard/lib/calendar-items.ts`), read
- * directly against PostgREST instead of through the Supabase JS SDK.
- * Unlike the web side, this never needs a separate client-timezone
- * lookup to avoid off-by-one-day UTC slicing -- [from]/[to] are already
- * plain device-local `LocalDate`s, the same convention
- * `WorkoutRepository.findTodaysSession` already uses for "today."
+ * `assignments` (workout/document/check_in) -- the same two sources the
+ * web dashboard's `listCalendarItems` merges
+ * (`dashboard/lib/calendar-items.ts`), read directly against PostgREST
+ * instead of through the Supabase JS SDK. Unlike the web side, this
+ * never needs a separate client-timezone lookup to avoid off-by-one-day
+ * UTC slicing -- [from]/[to] are already plain device-local
+ * `LocalDate`s, the same convention `WorkoutRepository.findTodaysSession`
+ * already uses for "today."
  *
  * Writes (`reschedule_assignment`) are scoped by this same client-only
  * role: this screen is only ever a client viewing their own calendar
@@ -87,8 +88,7 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
     suspend fun getCalendarItems(clientId: String, from: LocalDate, to: LocalDate): List<CalendarItem> {
         val calls = listCalls(clientId, from, to)
         val assignments = listScheduledAssignments(clientId, from, to)
-        val checkIns = listCheckInOccurrences(clientId, from, to)
-        return calls + assignments + checkIns
+        return calls + assignments
     }
 
     private suspend fun listCalls(clientId: String, from: LocalDate, to: LocalDate): List<CalendarItem> {
@@ -126,13 +126,47 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
         }
     }
 
+    // Recurring series (recurrence_days_of_week set -- only ever true on a
+    // series' own source row, never a generated occurrence) only ever grow
+    // new rows forward from "today" when generate_recurring_occurrences is
+    // actually called -- nothing calls it on a schedule, so it happens
+    // lazily here, right before reading the range this screen asks for.
+    // Mirrors the web dashboard's own ensureRecurringOccurrences
+    // (dashboard/lib/calendar-items.ts) exactly, including that it's a
+    // no-op for an already-ended series or a past [to].
+    private suspend fun ensureRecurringOccurrences(clientId: String, through: LocalDate) {
+        val sources = supabase.select(
+            "assignments",
+            mapOf(
+                "select" to "id",
+                "client_id" to "eq.$clientId",
+                "recurrence_days_of_week" to "not.is.null",
+            ),
+        )
+        (0 until sources.length()).forEach { i ->
+            val sourceId = sources.getJSONObject(i).getString("id")
+            supabase.rpc(
+                "generate_recurring_occurrences",
+                mapOf("p_assignment_id" to sourceId, "p_through" to through.toString()),
+            )
+        }
+    }
+
+    // Workouts, documents, and check-ins are all real `assignments` rows
+    // on their own `scheduled_date` now (see
+    // supabase/migrations/0045_check_ins_assignments.sql) -- a check-in
+    // occurrence is no longer a virtual date projected against
+    // check_in_templates/check_in_responses, it's a generated row exactly
+    // like a recurring workout's, so this reads/completes it the same way.
     private suspend fun listScheduledAssignments(clientId: String, from: LocalDate, to: LocalDate): List<CalendarItem> {
+        ensureRecurringOccurrences(clientId, to)
+
         val rows = supabase.select(
             "assignments",
             mapOf(
                 "select" to "id,type,name,scheduled_date",
                 "client_id" to "eq.$clientId",
-                "type" to "in.(workout,document)",
+                "type" to "in.(workout,document,check_in)",
                 "and" to "(scheduled_date.gte.$from,scheduled_date.lte.$to)",
             ),
         )
@@ -145,7 +179,9 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
         }
 
         val workoutIds = parsed.filter { it.type == "workout" }.map { it.id }
-        val documentIds = parsed.filter { it.type == "document" }.map { it.id }
+        // Documents and check-ins both complete the same way -- an
+        // assignment_responses row with submitted_at set.
+        val formIds = parsed.filter { it.type == "document" || it.type == "check_in" }.map { it.id }
 
         val completedWorkoutIds = if (workoutIds.isEmpty()) emptySet() else {
             val completedRows = supabase.select(
@@ -158,12 +194,12 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
             )
             (0 until completedRows.length()).map { completedRows.getJSONObject(it).getString("assigned_workout_id") }.toSet()
         }
-        val completedDocumentIds = if (documentIds.isEmpty()) emptySet() else {
+        val completedFormIds = if (formIds.isEmpty()) emptySet() else {
             val responseRows = supabase.select(
                 "assignment_responses",
                 mapOf(
                     "select" to "assignment_id",
-                    "assignment_id" to "in.(${documentIds.joinToString(",")})",
+                    "assignment_id" to "in.(${formIds.joinToString(",")})",
                     "submitted_at" to "not.is.null",
                 ),
             )
@@ -172,68 +208,17 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
 
         return parsed.map { row ->
             CalendarItem(
-                kind = if (row.type == "workout") CalendarItemKind.WORKOUT else CalendarItemKind.DOCUMENT,
+                kind = when (row.type) {
+                    "workout" -> CalendarItemKind.WORKOUT
+                    "document" -> CalendarItemKind.DOCUMENT
+                    else -> CalendarItemKind.CHECK_IN
+                },
                 id = row.id,
                 title = row.name,
                 date = row.date,
                 hasVideoCall = false,
-                completed = if (row.type == "workout") row.id in completedWorkoutIds else row.id in completedDocumentIds,
+                completed = if (row.type == "workout") row.id in completedWorkoutIds else row.id in completedFormIds,
                 assignmentId = row.id,
-            )
-        }
-    }
-
-    // Mirrors the web's listCheckInOccurrences -- never materialized as
-    // its own row until a client actually submits one; day_of_week is
-    // 0=Sunday..6=Saturday (check_in_templates' own convention), matching
-    // LocalDate.dayOfWeek.value % 7 (ISO's MONDAY=1..SUNDAY=7, so
-    // SUNDAY%7=0, MONDAY%7=1, ... SATURDAY%7=6).
-    private suspend fun listCheckInOccurrences(clientId: String, from: LocalDate, to: LocalDate): List<CalendarItem> {
-        val templateRows = supabase.select(
-            "check_in_templates",
-            mapOf(
-                "select" to "id,name,day_of_week",
-                "client_id" to "eq.$clientId",
-                "active" to "eq.true",
-                "limit" to "1",
-            ),
-        )
-        if (templateRows.length() == 0) return emptyList()
-        val template = templateRows.getJSONObject(0)
-        val templateId = template.getString("id")
-        val name = template.getString("name")
-        val dayOfWeek = template.getInt("day_of_week")
-
-        val occurrences = mutableListOf<LocalDate>()
-        var cursor = from
-        while (!cursor.isAfter(to)) {
-            if (cursor.dayOfWeek.isoDayOfWeekSundayZero() == dayOfWeek) occurrences.add(cursor)
-            cursor = cursor.plusDays(1)
-        }
-        if (occurrences.isEmpty()) return emptyList()
-
-        val responseRows = supabase.select(
-            "check_in_responses",
-            mapOf(
-                "select" to "week_start,submitted_at",
-                "template_id" to "eq.$templateId",
-                "week_start" to "in.(${occurrences.joinToString(",")})",
-            ),
-        )
-        val submittedWeeks = (0 until responseRows.length())
-            .map { responseRows.getJSONObject(it) }
-            .filter { !it.isNull("submitted_at") }
-            .map { it.getString("week_start") }
-            .toSet()
-
-        return occurrences.map { date ->
-            CalendarItem(
-                kind = CalendarItemKind.CHECK_IN,
-                id = "check_in:$templateId:$date",
-                title = name,
-                date = date,
-                hasVideoCall = false,
-                completed = date.toString() in submittedWeeks,
             )
         }
     }
@@ -256,5 +241,3 @@ class CalendarRepository(private val supabase: SupabaseRestClient) {
 }
 
 private fun LocalDate.atStartOfDayIso(): String = ISO_INSTANT.format(this.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant())
-
-private fun DayOfWeek.isoDayOfWeekSundayZero(): Int = this.value % 7
