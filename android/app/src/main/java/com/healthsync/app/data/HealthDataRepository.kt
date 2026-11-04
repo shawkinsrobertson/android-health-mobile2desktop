@@ -379,28 +379,35 @@ class HealthDataRepository(private val supabase: SupabaseRestClient) {
     }
 
     // Groups rows by local calendar night and merges each night's own
-    // intervals (mergeIntervals, defined above for steps dedup) into one
-    // total duration -- this was never actually "bucketing" before: every
-    // row became its own entry with no merge step at all, so a night with
-    // more than one real session row (Health Connect routinely splits one
-    // night's sleep into several session records, e.g. across a brief
-    // wake) showed up as multiple separate rows under the same date
-    // instead of one. resolveOverlappingSleepSources has already picked a
-    // single primary *source* per night by this point; mergeIntervals
-    // handles that source still having multiple (possibly overlapping)
-    // session rows for the same night, same as it already does for steps.
+    // intervals (mergeIntervals, defined above for steps dedup) -- this
+    // was never actually "bucketing" before: every row became its own
+    // entry with no merge step at all, so a night with more than one
+    // real session row showed up as multiple separate rows under the
+    // same date instead of one. resolveOverlappingSleepSources has
+    // already picked a single primary *source* per night by this point,
+    // but that source can still have more than one session row for the
+    // same calendar date that don't actually overlap or connect (a short
+    // nap plus the overnight sleep, a stray duplicate from a resync,
+    // etc.) -- summing those blindly double-counts rather than filling a
+    // gap, the exact failure resolveOverlappingSleepSources' own doc
+    // comment already calls out for the cross-source case ("two
+    // estimates of the same sleep, not complementary data"). Same fix
+    // here: mergeIntervals only coalesces ranges that truly overlap or
+    // touch (real fragments of one interrupted night), and if more than
+    // one disjoint cluster remains after that, keep only the longest --
+    // not sum them -- same heuristic as the cross-source primary pick.
     private fun bucketSleepByNight(rows: List<SleepRawRow>): List<SleepNight> {
         val byNight = rows.groupBy { localDateOf(it.startTime) }
         return byNight.entries.map { (date, nightRows) ->
             val merged = mergeIntervals(
                 nightRows.map { Instant.parse(it.startTime).toEpochMilli() to Instant.parse(it.endTime).toEpochMilli() },
             )
-            val totalMinutes = merged.sumOf { it.second - it.first } / 60000.0
+            val longestMs = merged.maxOfOrNull { it.second - it.first } ?: 0L
             // Rounded to the nearest minute (not the nearest tenth of an
             // hour) -- the coarser rounding was hiding real discrepancies
             // against a wearable's own minute-level reading once displayed
             // as "7.5h". See formatHoursMinutes() for the display side.
-            SleepNight(date = date, hours = Math.round(totalMinutes) / 60.0)
+            SleepNight(date = date, hours = Math.round(longestMs / 60000.0) / 60.0)
         }.sortedBy { it.date }
     }
 
