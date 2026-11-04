@@ -727,11 +727,14 @@ private fun ExerciseLogCard(
 // bundles its own WebM/VP8/VP9/Opus extraction and software decoding.
 //
 // A playback failure (bad/unsupported file, stale signed URL, whatever)
-// collapses this back to exactly the same "nothing shown" state as an
-// exercise with no video at all, logged for diagnosis rather than shown
-// to the client -- a raw PlaybackException error code mid-workout reads
-// as the app being broken, not as useful information to someone logging
-// a set, and a client can't do anything about it anyway.
+// shows a plain, same-size "Video unavailable" placeholder instead of the
+// real player -- never a raw PlaybackException error code (logged for
+// diagnosis instead, not shown to the client: it's not actionable mid-
+// workout and just reads as the app being broken). Keeping a same-sized
+// placeholder rather than rendering nothing at all matters here too: this
+// card reserves space for a video whenever the exercise has one assigned
+// at all, win or fail, so the card's footprint doesn't visibly change
+// depending on whether that particular file happens to load.
 @Composable
 private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: WorkoutRepository) {
     var videoUrl by remember(exercise.id) { mutableStateOf<String?>(null) }
@@ -745,34 +748,51 @@ private fun ExerciseVideoPlayer(exercise: AssignedWorkoutExercise, repository: W
 
     val url = videoUrl
     val context = LocalContext.current
-    if (resolved && url != null && !playbackFailed) {
-        val player = remember(exercise.id) {
-            ExoPlayer.Builder(context).build().apply {
-                addListener(
-                    object : Player.Listener {
-                        override fun onPlayerError(error: PlaybackException) {
-                            Log.w("ExerciseVideoPlayer", "Playback failed for ${exercise.id}: ${error.errorCodeName}")
-                            playbackFailed = true
-                        }
-                    },
+    if (resolved && url != null) {
+        if (playbackFailed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .padding(bottom = 8.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Video unavailable",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
                 )
-                setMediaItem(MediaItem.fromUri(url))
-                prepare()
             }
-        }
-        // ExoPlayer instances own real decoder/media resources -- must be
-        // released when this card's video leaves composition (collapsed,
-        // or the session screen navigated away from), not just garbage
-        // collected, or every exercise ever expanded this session leaks
-        // one.
-        DisposableEffect(player) {
-            onDispose { player.release() }
-        }
+        } else {
+            val player = remember(exercise.id) {
+                ExoPlayer.Builder(context).build().apply {
+                    addListener(
+                        object : Player.Listener {
+                            override fun onPlayerError(error: PlaybackException) {
+                                Log.w("ExerciseVideoPlayer", "Playback failed for ${exercise.id}: ${error.errorCodeName}")
+                                playbackFailed = true
+                            }
+                        },
+                    )
+                    setMediaItem(MediaItem.fromUri(url))
+                    prepare()
+                }
+            }
+            // ExoPlayer instances own real decoder/media resources --
+            // must be released when this card's video leaves composition
+            // (collapsed, or the session screen navigated away from),
+            // not just garbage collected, or every exercise ever
+            // expanded this session leaks one.
+            DisposableEffect(player) {
+                onDispose { player.release() }
+            }
 
-        AndroidView(
-            modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
-            factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
-        )
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 8.dp),
+                factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
+            )
+        }
     }
 }
 
